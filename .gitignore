@@ -1,0 +1,39 @@
+# Dependencies
+node_modules/
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Environment
+.env
+.env.local
+.env.production
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Build
+dist/
+build/
+*.egg-info/
+
+# Data files
+data/
+*.xlsx
+*.xls
+
+# Logs
+*.log
+
+# Docker
+postgres_data/
+
+# OS
+.DS_Store
+Thumbs.db
+
+server.txt
