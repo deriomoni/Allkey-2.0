@@ -357,7 +357,7 @@ export default function Case2Page() {
 
           <div className="info-box" style={{ marginBottom: 20, padding: '12px 16px', backgroundColor: '#f0f9ff', borderRadius: 8, borderLeft: '4px solid #3b82f6' }}>
             <p style={{ margin: 0, fontSize: 14, color: '#1e40af' }}>
-              <strong>Автоматический парсинг:</strong> система сопоставляет записи по дате, сумме и типу операции (товар/оплата). Номера документов могут отличаться.
+              <strong>Автоматическая сверка:</strong> структура акта (заголовок, колонки, период, сальдо) определяется автоматически. Просто загрузите оба акта — сверка идёт по номеру реализации, ЭСФ, дате и сумме. Ручная настройка колонок нужна только для нестандартных файлов.
             </p>
           </div>
 
@@ -394,11 +394,11 @@ export default function Case2Page() {
       {/* Step 2: Configure */}
       {step === 'configure' && (
         <div className="card">
-          <h3 style={{ marginBottom: 16 }}>Настройка колонок</h3>
+          <h3 style={{ marginBottom: 16 }}>Проверка файлов</h3>
 
-          <div className="info-box" style={{ marginBottom: 20, padding: '12px 16px', backgroundColor: '#fef3c7', borderRadius: 8, borderLeft: '4px solid #f59e0b' }}>
-            <p style={{ margin: 0, fontSize: 14, color: '#92400e' }}>
-              Выберите, какие колонки содержат нужные данные. Ниже показано превью первых строк файлов.
+          <div className="info-box" style={{ marginBottom: 20, padding: '12px 16px', backgroundColor: '#ecfdf5', borderRadius: 8, borderLeft: '4px solid #10b981' }}>
+            <p style={{ margin: 0, fontSize: 14, color: '#065f46' }}>
+              <strong>Структура определяется автоматически.</strong> Ниже — превью загруженных актов. Обычно ничего настраивать не нужно — сразу нажмите «Выполнить сверку». Ручная настройка колонок ниже — только для нестандартных файлов.
             </p>
           </div>
 
@@ -408,17 +408,24 @@ export default function Case2Page() {
               <h4 style={{ margin: '0 0 16px 0', color: '#374151' }}>Наш акт сверки</h4>
               {ourPreview && (
                 <>
-                  <ColumnMapper
-                    columns={ourPreview.columns}
-                    mappings={ourMappings}
-                    fields={ACT_FIELDS}
-                    headerRow={ourHeaderRow}
-                    onHeaderRowChange={handleOurHeaderRowChange}
-                    onMappingChange={(key, value) => setOurMappings({ ...ourMappings, [key]: value })}
-                    previewData={ourPreview.data}
-                    dateExtract={ourDateExtract}
-                    onDateExtractChange={setOurDateExtract}
-                  />
+                  <details style={{ marginBottom: 12 }}>
+                    <summary style={{ cursor: 'pointer', fontSize: 13, color: '#6b7280', userSelect: 'none' }}>
+                      Расширенные настройки (для нестандартных файлов)
+                    </summary>
+                    <div style={{ marginTop: 12 }}>
+                      <ColumnMapper
+                        columns={ourPreview.columns}
+                        mappings={ourMappings}
+                        fields={ACT_FIELDS}
+                        headerRow={ourHeaderRow}
+                        onHeaderRowChange={handleOurHeaderRowChange}
+                        onMappingChange={(key, value) => setOurMappings({ ...ourMappings, [key]: value })}
+                        previewData={ourPreview.data}
+                        dateExtract={ourDateExtract}
+                        onDateExtractChange={setOurDateExtract}
+                      />
+                    </div>
+                  </details>
                   <div style={{ marginTop: 16 }}>
                     <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>
                       Превью данных ({ourPreview.total_rows} строк всего):
@@ -434,17 +441,24 @@ export default function Case2Page() {
               <h4 style={{ margin: '0 0 16px 0', color: '#374151' }}>Акт контрагента</h4>
               {cpPreview && (
                 <>
-                  <ColumnMapper
-                    columns={cpPreview.columns}
-                    mappings={cpMappings}
-                    fields={ACT_FIELDS}
-                    headerRow={cpHeaderRow}
-                    onHeaderRowChange={handleCpHeaderRowChange}
-                    onMappingChange={(key, value) => setCpMappings({ ...cpMappings, [key]: value })}
-                    previewData={cpPreview.data}
-                    dateExtract={cpDateExtract}
-                    onDateExtractChange={setCpDateExtract}
-                  />
+                  <details style={{ marginBottom: 12 }}>
+                    <summary style={{ cursor: 'pointer', fontSize: 13, color: '#6b7280', userSelect: 'none' }}>
+                      Расширенные настройки (для нестандартных файлов)
+                    </summary>
+                    <div style={{ marginTop: 12 }}>
+                      <ColumnMapper
+                        columns={cpPreview.columns}
+                        mappings={cpMappings}
+                        fields={ACT_FIELDS}
+                        headerRow={cpHeaderRow}
+                        onHeaderRowChange={handleCpHeaderRowChange}
+                        onMappingChange={(key, value) => setCpMappings({ ...cpMappings, [key]: value })}
+                        previewData={cpPreview.data}
+                        dateExtract={cpDateExtract}
+                        onDateExtractChange={setCpDateExtract}
+                      />
+                    </div>
+                  </details>
                   <div style={{ marginTop: 16 }}>
                     <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>
                       Превью данных ({cpPreview.total_rows} строк всего):

@@ -159,6 +159,20 @@ export interface Case2DataRow {
   credit_diff: number
   match_phase: string | null
   status: string
+  // Act-reconciliation fields (upgraded case 2)
+  category?: string
+  num1?: string
+  num2?: string
+  amount1?: number | null
+  amount2?: number | null
+  esf1?: string
+  esf2?: string
+  note?: string
+  match_method?: string
+  status_code?: string
+  status_detail?: string
+  row1?: number | string
+  row2?: number | string
 }
 
 export interface Case2Summary {
@@ -167,6 +181,27 @@ export interface Case2Summary {
   matched_count: number
   match_rate: number
   has_discrepancies: boolean
+  auto_detected?: boolean
+}
+
+export interface Case2HeaderSummary {
+  owner_act1: string
+  owner_act2: string
+  period_act1: string
+  period_act2: string
+  period_mismatch: boolean
+  common_period: string
+  names_consistent?: boolean
+  opening_act1: number | null
+  opening_act2: number | null
+  opening_diff: number | null
+  closing_act1: number | null
+  closing_act2: number | null
+  closing_diff: number | null
+  turnover_debit_act1: number | null
+  turnover_credit_act1: number | null
+  turnover_debit_act2: number | null
+  turnover_credit_act2: number | null
 }
 
 export interface ReconciliationResult {
@@ -178,6 +213,11 @@ export interface ReconciliationResult {
   not_found_in_source2: number
   data: (Case1DataRow | Case2DataRow | Case3DataRow)[]
   summary?: ReconciliationSummary | Case2Summary | Case3Summary
+  // Act-reconciliation extras (upgraded case 2)
+  out_of_period?: Case2DataRow[]
+  header_summary?: Case2HeaderSummary
+  common_period?: string
+  period_mismatch?: boolean
 }
 
 // Auth API

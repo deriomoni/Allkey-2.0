@@ -1,52 +1,104 @@
 """
-Case 2: Reconciliation of mutual settlement acts between counterparties
-Matches by (date, amount, op_type) - NOT by document number!
+Case 2: Reconciliation of two «Акт сверки взаиморасчётов» (1C statement of
+mutual settlements) — the seller's copy and the buyer's copy of the same
+balance.
+
+Ported from the AI-BUH accountant logic (actReconcile reference), combined with
+allkey's own safety nets (flexible number/date parsing, soft name matching and a
+manual-mapping fallback).
+
+Each act is a two-block sheet: the LEFT block «По данным <owner>» holds that
+party's own books; the right block mirrors the other side. We compare each act's
+OWN (left) block against the other's.
+
+Matching (per the accountant):
+  * goods — cross-reference number (seller's «Реализация №N» == buyer's
+    «Накладная/Товарный чек № вх. N»); then by ЭСФ number (authoritative:
+    «Электронный счет-фактура N» == «Счет-фактура полученный № вх. N»); then by
+    date + amount for the rest (counter-supplies use each side's own numbering).
+  * payments and returns — by date + amount.
+Two acts often cover different periods, so items outside the common period are
+reported separately («вне периода»), not as errors.
+
+The public surface is unchanged: ``Case2Service(our_act_content,
+counterparty_act_content, our_act_settings, counterparty_act_settings)`` and
+``reconcile()`` (called by the /case2/process endpoint). The top-level response
+keys are preserved; ``data`` rows and a few optional top-level keys are extended.
 """
 
-import pandas as pd
+import io
 import re
-from collections import defaultdict
+import zipfile
 from dataclasses import dataclass, field
-from datetime import datetime
-from typing import Dict, List, Any, Optional
-from io import BytesIO
+from datetime import datetime, date as _date
+from typing import Any, Dict, List, Optional
 
-from .parse_document import parse_document_field
+import pandas as pd
+
+
+# ------------------------------------------------------------------ operations
+@dataclass
+class ActOp:
+    date: str            # DD.MM.YYYY
+    date_key: int
+    kind: str            # 'goods' | 'payment' | 'return' | 'other'
+    num: str             # cross-reference document number
+    doc_date: str        # accompanying document date (from «… от DD.MM.YYYY»)
+    amount: Optional[float]
+    debit: Optional[float]
+    credit: Optional[float]
+    esf_num: str
+    has_ref: bool
+    doc: str
+    row: int             # 1-based source row
 
 
 @dataclass
-class ActEntry:
-    """Entry from settlement act"""
-    date: str  # Normalized to DD.MM.YY format
-    document: str
-    debit: float
-    credit: float
-    amount: float  # abs value for matching
-    op_type: str   # 'товар', 'оплата', 'прочее'
-    row_index: int
-    doc_number: Optional[str] = None  # Parsed document number
-    extra_number: Optional[str] = None  # Extra number (e.g. "вх. 476")
+class ParsedAct:
+    owner: str = ""
+    owner_counterparty: str = ""
+    start: int = 0
+    end: int = 0
+    period_text: str = ""
+    opening: Optional[float] = None
+    closing: Optional[float] = None
+    turnover_d: Optional[float] = None
+    turnover_k: Optional[float] = None
+    ops: List[ActOp] = field(default_factory=list)
+    auto: bool = True
+    header_row: int = -1
+
+
+# --------------------------------------------------------------- status labels
+_STATUS_LABEL = {
+    "ok": "Совпадает",
+    "amount_mismatch": "Расхождение",
+    "num_mismatch": "Расхождение",
+    "date_mismatch": "Расхождение",
+    "only_1": "Нет у контрагента",
+    "only_2": "Нет у нас",
+    "out_1": "Вне периода",
+    "out_2": "Вне периода",
+}
+_STATUS_DETAIL = {
+    "ok": "Совпадает",
+    "amount_mismatch": "Расхождение суммы",
+    "num_mismatch": "Номер не совпадает",
+    "date_mismatch": "Разная дата",
+    "only_1": "Нет во 2-м акте",
+    "only_2": "Нет в 1-м акте",
+    "out_1": "Вне периода (акт 1)",
+    "out_2": "Вне периода (акт 2)",
+}
+_CAT_KIND = {"goods": "Реализация", "payment": "Оплата", "return": "Возврат", "other": "Прочее"}
+
+_LEGAL_RE = re.compile(
+    r'\b(тоо|ооо|ип|ао|зао|оао|товарищество с ограниченной ответственностью|филиал)\b', re.I
+)
 
 
 class Case2Service:
-    """
-    Case 2: Reconciliation of mutual settlement acts between counterparties
-
-    Key differences from document-based matching:
-    - Each side has different document numbers ("Поступление 00000003015" vs "Реализация 28")
-    - Match by: (date, amount, op_type) instead of document number
-    - Debit/Credit are mirrored between counterparties
-    - Skip счет-фактура rows (they duplicate info)
-
-    Configurable settings:
-    - start_row: Row to start reading data (0-indexed, default: 0 = auto-detect)
-    - date_col: Column index for date (default: 1)
-    - document_col: Column index for document (default: 2)
-    - debit_col: Column index for debit (default: 4)
-    - credit_col: Column index for credit (default: 5)
-    """
-
-    # Default column positions for standard 1C act format
+    # Legacy defaults, used only when auto-detection fails and settings omit mappings.
     DEFAULT_DATE_COL = 1
     DEFAULT_DOCUMENT_COL = 2
     DEFAULT_DEBIT_COL = 4
@@ -57,462 +109,540 @@ class Case2Service:
         our_act_content: bytes,
         counterparty_act_content: bytes,
         our_act_settings: Dict[str, Any],
-        counterparty_act_settings: Dict[str, Any]
+        counterparty_act_settings: Dict[str, Any],
     ):
         self.our_act_content = our_act_content
         self.counterparty_act_content = counterparty_act_content
-        self.our_act_settings = our_act_settings
-        self.counterparty_act_settings = counterparty_act_settings
-        # Pattern for DD.MM.YY format
-        self.date_pattern_short = re.compile(r'^\d{2}\.\d{2}\.\d{2}$')
-        # Pattern for YYYY-MM-DD (datetime)
-        self.date_pattern_iso = re.compile(r'^\d{4}-\d{2}-\d{2}')
-        # Patterns for extracting dates from text
-        self.date_extract_patterns = {
-            'DD.MM.YYYY': re.compile(r'(\d{2}\.\d{2}\.\d{4})'),
-            'DD.MM.YY': re.compile(r'(\d{2}\.\d{2}\.\d{2})(?!\d)'),
+        self.our_act_settings = our_act_settings or {}
+        self.counterparty_act_settings = counterparty_act_settings or {}
+
+    # --------------------------------------------------------------- reading
+    @staticmethod
+    def _read_df(content: bytes) -> pd.DataFrame:
+        """Read the first sheet as a raw (header=None) DataFrame.
+
+        Handles .xls (xlrd) and .xlsx (openpyxl). Some 1C/counterparty exports
+        name the OOXML parts with the wrong case (``xl/SharedStrings.xml``),
+        which breaks openpyxl on case-sensitive filesystems (i.e. the Linux
+        server); rebuild the archive with canonical lowercase names and retry.
+        """
+        if len(content) < 4:
+            raise ValueError("Файл слишком маленький или пустой")
+        if content[:2] == b"PK":  # xlsx (zip)
+            try:
+                return pd.read_excel(io.BytesIO(content), header=None, engine="openpyxl")
+            except Exception:
+                fixed = Case2Service._canonicalize_xlsx(content)
+                return pd.read_excel(io.BytesIO(fixed), header=None, engine="openpyxl")
+        if content[:2] == b"\xd0\xcf":  # xls (OLE2)
+            return pd.read_excel(io.BytesIO(content), header=None, engine="xlrd")
+        # Last resort: let pandas guess.
+        return pd.read_excel(io.BytesIO(content), header=None)
+
+    @staticmethod
+    def _canonicalize_xlsx(content: bytes) -> bytes:
+        canon = {
+            "xl/sharedstrings.xml": "xl/sharedStrings.xml",
+            "xl/styles.xml": "xl/styles.xml",
+            "xl/workbook.xml": "xl/workbook.xml",
         }
+        src = io.BytesIO(content)
+        out = io.BytesIO()
+        with zipfile.ZipFile(src) as zin, zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as zout:
+            for name in zin.namelist():
+                zout.writestr(canon.get(name.lower(), name), zin.read(name))
+        return out.getvalue()
+
+    # --------------------------------------------------------------- parsers
+    def _parse_number(self, value: Any) -> Optional[float]:
+        """Flexible number parser: 8520, 8 520, 8 520,00, 8,520.00, NBSP-spaced."""
+        if value is None or (isinstance(value, float) and pd.isna(value)):
+            return None
+        if isinstance(value, (int, float)):
+            return float(value) if pd.notna(value) else None
+        s = str(value).strip()
+        if not s:
+            return None
+        s = s.replace(" ", "").replace(" ", "").replace(" ", "")
+        if "," in s and "." in s:
+            s = s.replace(",", "")
+        elif "," in s:
+            parts = s.split(",")
+            if len(parts) == 2 and len(parts[1]) <= 2:
+                s = s.replace(",", ".")
+            else:
+                s = s.replace(",", "")
+        try:
+            return float(s)
+        except (ValueError, TypeError):
+            return None
 
     def _parse_date(self, value: Any) -> Optional[str]:
-        """
-        Parse date from various formats and normalize to DD.MM.YY
-        Supports: DD.MM.YY, YYYY-MM-DD, datetime objects
-        """
-        if pd.isna(value):
+        """Flexible date parser → normalized DD.MM.YYYY."""
+        if value is None or (isinstance(value, float) and pd.isna(value)):
             return None
-
-        # Handle datetime objects (pandas Timestamp)
-        if isinstance(value, (datetime, pd.Timestamp)):
-            return value.strftime('%d.%m.%y')
-
-        str_value = str(value).strip()
-
-        # DD.MM.YY format
-        if self.date_pattern_short.match(str_value):
-            return str_value
-
-        # DD.MM.YYYY format (4-digit year)
-        if re.match(r'^\d{2}\.\d{2}\.\d{4}$', str_value):
-            try:
-                dt = datetime.strptime(str_value, '%d.%m.%Y')
-                return dt.strftime('%d.%m.%y')
-            except ValueError:
-                pass
-
-        # YYYY-MM-DD or YYYY-MM-DD HH:MM:SS format
-        if self.date_pattern_iso.match(str_value):
-            try:
-                # Parse ISO date
-                date_part = str_value.split()[0]  # Take only date part
-                dt = datetime.strptime(date_part, '%Y-%m-%d')
-                return dt.strftime('%d.%m.%y')
-            except ValueError:
-                pass
-
+        if isinstance(value, (pd.Timestamp, datetime, _date)):
+            return value.strftime("%d.%m.%Y")
+        s = str(value).strip()
+        m = re.match(r"^(\d{1,2})[.](\d{1,2})[.](\d{2,4})", s)
+        if m:
+            y = m.group(3)
+            if len(y) == 2:
+                y = "20" + y
+            return f"{int(m.group(1)):02d}.{int(m.group(2)):02d}.{y}"
+        m = re.match(r"^(\d{4})-(\d{2})-(\d{2})", s)
+        if m:
+            return f"{m.group(3)}.{m.group(2)}.{m.group(1)}"
         return None
 
-    def _extract_date_from_text(self, text: Any, date_format: str) -> Optional[str]:
-        """
-        Extract date from text using regex for the specified format.
-        Returns normalized date in DD.MM.YY format.
-        """
-        if pd.isna(text):
-            return None
+    @staticmethod
+    def _date_key(d: str) -> int:
+        dd, mm, yy = (int(x) for x in d.split("."))
+        return yy * 10000 + mm * 100 + dd
 
-        str_value = str(text).strip()
-        if not str_value:
-            return None
+    @staticmethod
+    def _key_to_str(k: int) -> str:
+        y, m, d = k // 10000, (k % 10000) // 100, k % 100
+        return f"{d:02d}.{m:02d}.{y}"
 
-        pattern = self.date_extract_patterns.get(date_format)
-        if not pattern:
-            return None
+    # --------------------------------------------------------- name matching
+    @staticmethod
+    def _normalize_name(name: str) -> str:
+        s = (name or "").lower()
+        s = _LEGAL_RE.sub(" ", s)
+        s = re.sub(r"[\"«»'`,\.]", " ", s)
+        return re.sub(r"\s+", " ", s).strip()
 
-        match = pattern.search(str_value)
-        if not match:
-            return None
+    def _similar_names(self, a: str, b: str) -> bool:
+        na, nb = self._normalize_name(a), self._normalize_name(b)
+        if not na or not nb:
+            return False
+        if na == nb or na in nb or nb in na:
+            return True
+        wa, wb = set(na.split()), set(nb.split())
+        if not wa or not wb:
+            return False
+        inter = wa & wb
+        return bool(inter) and len(inter) / min(len(wa), len(wb)) >= 0.5
 
-        date_str = match.group(1)
+    # -------------------------------------------------------------- classify
+    @staticmethod
+    def _classify(doc: str) -> Dict[str, Any]:
+        d = doc
+        m = re.search(r"Реализац\w* ТМЗ и услуг\s+(\w+)(?:\s+от\s+(\d{2}\.\d{2}\.\d{4}))?", d, re.I)
+        if m:
+            return dict(kind="goods", num=m.group(1), doc_date=m.group(2) or "", has_ref=True)
+        m = re.search(r"Поступлени\w* ТМЗ и услуг.*?№\s*вх\.\s*0*(\w+)(?:\s+от\s+(\d{2}\.\d{2}\.\d{4}))?", d, re.I)
+        if m:
+            return dict(kind="goods", num=m.group(1), doc_date=m.group(2) or "", has_ref=True)
+        m = re.search(r"Накладная/Товарный чек\s*№\s*вх\.\s*0*(\w+)(?:\s+от\s+(\d{2}\.\d{2}\.\d{4}))?", d, re.I)
+        if m:
+            return dict(kind="goods", num=m.group(1), doc_date=m.group(2) or "", has_ref=True)
+        # Counter-supply / plain receipt without «№ вх.» — own numbering; match by date+amount.
+        m = re.search(r"Поступлени\w* ТМЗ и услуг\s+(\w+)\s+от\s+(\d{2}\.\d{2}\.\d{4})?", d, re.I)
+        if m:
+            return dict(kind="goods", num=m.group(1), doc_date=m.group(2) or "", has_ref=False)
+        m = re.search(r"Возврат\D*?(\w*\d\w*)", d, re.I)
+        if m:
+            return dict(kind="return", num=m.group(1), doc_date="", has_ref=False)
+        if re.search(r"Платежное поручение|Оплата|Списание с расчетного счета|Поступление на расчетный счет", d, re.I):
+            p = (re.search(r"№\s*вх\.\s*0*(\d+)", d, re.I)
+                 or re.search(r"\((?:входящее|исходящее)\)\s*(\w+)", d, re.I)
+                 or re.search(r"(\d{3,})", d))
+            return dict(kind="payment", num=(p.group(1) if p else ""), doc_date="", has_ref=False)
+        return dict(kind="other", num="", doc_date="", has_ref=False)
 
-        if date_format == 'DD.MM.YYYY':
-            try:
-                dt = datetime.strptime(date_str, '%d.%m.%Y')
-                return dt.strftime('%d.%m.%y')
-            except ValueError:
-                return None
-        elif date_format == 'DD.MM.YY':
-            try:
-                dt = datetime.strptime(date_str, '%d.%m.%y')
-                return dt.strftime('%d.%m.%y')
-            except ValueError:
-                return None
+    @staticmethod
+    def _esf_number(doc: str) -> str:
+        m = (re.search(r"Электронн\w* счет-фактура\s+№?\s*(?:вх\.?\s*)?0*(\w+)", doc, re.I)
+             or re.search(r"Счет-фактура\s+(?:полученный|выданный)?\s*№?\s*(?:вх\.?\s*)?0*(\w+)", doc, re.I))
+        if m:
+            num = m.group(1)
+            return "" if set(num) <= set("_") else num
+        return ""
 
+    # ------------------------------------------------------------ header find
+    @staticmethod
+    def _cell(df: pd.DataFrame, i: int, j: int) -> Any:
+        if 0 <= i < df.shape[0] and 0 <= j < df.shape[1]:
+            return df.iat[i, j]
         return None
 
-    def _parse_number(self, value: Any) -> float:
+    def _find_header(self, df: pd.DataFrame):
+        """First row carrying «Дата» + «Документ» + «Дебет» + «Кредит».
+
+        Returns (header_row, date_col, doc_col, debit_col, credit_col) using the
+        LEFT-most occurrence of each label, or (-1, ...) if not found.
         """
-        Parse number from various formats
-        Supports: 8520, 8 520, 8 520,00, 8,520.00
-        """
-        if pd.isna(value):
-            return 0.0
+        for i in range(min(len(df), 60)):
+            idx = {"date": -1, "doc": -1, "deb": -1, "kre": -1}
+            for j in range(df.shape[1]):
+                v = self._cell(df, i, j)
+                if not isinstance(v, str):
+                    continue
+                s = v.strip().lower()
+                if idx["date"] < 0 and s == "дата":
+                    idx["date"] = j
+                elif idx["doc"] < 0 and s == "документ":
+                    idx["doc"] = j
+                elif idx["deb"] < 0 and s == "дебет":
+                    idx["deb"] = j
+                elif idx["kre"] < 0 and s == "кредит":
+                    idx["kre"] = j
+            if all(v >= 0 for v in idx.values()):
+                return i, idx["date"], idx["doc"], idx["deb"], idx["kre"]
+        return -1, self.DEFAULT_DATE_COL, self.DEFAULT_DOCUMENT_COL, self.DEFAULT_DEBIT_COL, self.DEFAULT_CREDIT_COL
 
-        # Already a number
-        if isinstance(value, (int, float)):
-            return float(value)
+    def _parse_act(self, content: bytes, settings: Dict[str, Any]) -> ParsedAct:
+        df = self._read_df(content)
+        hrow, date_col, doc_col, deb_col, kre_col = self._find_header(df)
+        auto = hrow >= 0
+        if not auto:
+            # Manual fallback (allkey legacy): use settings header_row/column_mappings.
+            cm = settings.get("column_mappings", {}) or {}
+            date_col = cm.get("date", self.DEFAULT_DATE_COL)
+            doc_col = cm.get("document", self.DEFAULT_DOCUMENT_COL)
+            deb_col = cm.get("debit", self.DEFAULT_DEBIT_COL)
+            kre_col = cm.get("credit", self.DEFAULT_CREDIT_COL)
+            hrow = int(settings.get("header_row", 0)) - 1
 
-        str_value = str(value).strip()
-        if not str_value:
-            return 0.0
+        pa = ParsedAct(auto=auto, header_row=hrow)
 
-        try:
-            # Remove spaces (thousand separators)
-            str_value = str_value.replace(' ', '').replace('\u00a0', '')
+        # owners: first «По данным … , KZT» (leftmost = own), second = counterparty
+        owners = []
+        for i in range(min(len(df), 40)):
+            for j in range(df.shape[1]):
+                v = self._cell(df, i, j)
+                if isinstance(v, str) and re.search(r"По данным.*?KZT", v, re.I | re.S):
+                    m = re.search(r"По данным\s+(.+?),\s*KZT", v, re.I | re.S)
+                    owners.append((j, re.sub(r"\s+", " ", (m.group(1) if m else v)).strip()))
+            if len(owners) >= 2:
+                break
+        owners.sort(key=lambda x: x[0])
+        if owners:
+            pa.owner = owners[0][1]
+        if len(owners) > 1:
+            pa.owner_counterparty = owners[1][1]
 
-            # Handle comma as decimal separator (European format: 8520,00)
-            # vs comma as thousand separator (US format: 8,520.00)
-            if ',' in str_value and '.' in str_value:
-                # Both present: assume US format (1,234.56)
-                str_value = str_value.replace(',', '')
-            elif ',' in str_value:
-                # Only comma: check if it's decimal separator
-                # If exactly 2 digits after comma, it's decimal
-                parts = str_value.split(',')
-                if len(parts) == 2 and len(parts[1]) <= 2:
-                    str_value = str_value.replace(',', '.')
-                else:
-                    # It's a thousand separator
-                    str_value = str_value.replace(',', '')
+        # period «за период с DD.MM.YYYY по DD.MM.YYYY»
+        for i in range(min(len(df), 40)):
+            done = False
+            for j in range(df.shape[1]):
+                v = self._cell(df, i, j)
+                if isinstance(v, str):
+                    m = re.search(r"за период с\s*(\d{2}\.\d{2}\.\d{4})\s*по\s*(\d{2}\.\d{2}\.\d{4})", v, re.I)
+                    if m:
+                        pa.start = self._date_key(m.group(1))
+                        pa.end = self._date_key(m.group(2))
+                        pa.period_text = f"{m.group(1)}–{m.group(2)}"
+                        done = True
+                        break
+            if done:
+                break
 
-            return float(str_value)
-        except (ValueError, TypeError):
-            return 0.0
-
-    def _get_column_settings(self, settings: Dict[str, Any]) -> Dict[str, Any]:
-        """Extract column settings from config, using defaults if not specified"""
-        mappings = settings.get('column_mappings', {})
-        result = {
-            'date_col': mappings.get('date', self.DEFAULT_DATE_COL),
-            'document_col': mappings.get('document', self.DEFAULT_DOCUMENT_COL),
-            'debit_col': mappings.get('debit', self.DEFAULT_DEBIT_COL),
-            'credit_col': mappings.get('credit', self.DEFAULT_CREDIT_COL),
-            'date_extract_from_text': settings.get('date_extract_from_text', False),
-            'date_format': settings.get('date_format'),
-            'date_source_column': settings.get('date_source_column'),
-        }
-        return result
-
-    def parse_act(self, content: bytes, settings: Dict[str, Any]) -> List[ActEntry]:
-        """
-        Parse settlement act with configurable column positions
-
-        Supports multiple date formats (DD.MM.YY, YYYY-MM-DD, datetime)
-        and number formats (8520, 8 520, 8 520,00)
-        """
-        # Get start row (header_row from frontend settings)
-        start_row = settings.get('header_row', 0)
-        col_settings = self._get_column_settings(settings)
-
-        date_col = col_settings['date_col']
-        document_col = col_settings['document_col']
-        debit_col = col_settings['debit_col']
-        credit_col = col_settings['credit_col']
-        date_extract_from_text = col_settings.get('date_extract_from_text', False)
-        date_format = col_settings.get('date_format')
-        date_source_column = col_settings.get('date_source_column')
-
-        df = pd.read_excel(BytesIO(content), header=None)
-        entries = []
-
-        for idx, row in df.iterrows():
-            # Skip rows before start_row if specified
-            if start_row > 0 and idx < start_row:
+        # header figures + operations
+        for i in range(hrow + 1, len(df)):
+            label = self._cell(df, i, date_col)
+            label = label if isinstance(label, str) else ""
+            if re.search(r"Сальдо на начало", label, re.I):
+                pa.opening = self._parse_number(self._cell(df, i, deb_col))
+                if pa.opening is None:
+                    pa.opening = self._parse_number(self._cell(df, i, kre_col))
+                continue
+            if re.search(r"Обороты за период", label, re.I):
+                pa.turnover_d = self._parse_number(self._cell(df, i, deb_col))
+                pa.turnover_k = self._parse_number(self._cell(df, i, kre_col))
+                continue
+            if re.search(r"Сальдо на конец", label, re.I):
+                pa.closing = self._parse_number(self._cell(df, i, deb_col))
+                if pa.closing is None:
+                    pa.closing = self._parse_number(self._cell(df, i, kre_col))
                 continue
 
-            # Parse date: either from dedicated column or extract from text
-            if date_extract_from_text and date_format is not None and date_source_column is not None:
-                # Extract date from text in the specified source column
-                if date_source_column >= len(row):
-                    continue
-                parsed_date = self._extract_date_from_text(row.iloc[date_source_column], date_format)
-            else:
-                # Standard: read from dedicated date column
-                if date_col >= len(row):
-                    continue
-                parsed_date = self._parse_date(row.iloc[date_col])
-
+            doc = self._cell(df, i, doc_col)
+            doc = doc if isinstance(doc, str) else ""
+            parsed_date = self._parse_date(self._cell(df, i, date_col))
             if not parsed_date:
+                # Continuation line (invoice number) — attach ЭСФ to previous op.
+                if doc and pa.ops:
+                    esf = self._esf_number(doc)
+                    if esf and not pa.ops[-1].esf_num:
+                        pa.ops[-1].esf_num = esf
                 continue
-
-            # Safely get document and parse its components
-            doc = ''
-            doc_number = None
-            extra_number = None
-            if document_col < len(row) and pd.notna(row.iloc[document_col]):
-                doc = str(row.iloc[document_col])
-                parsed_doc = parse_document_field(doc)
-                doc_number = parsed_doc.doc_number
-                extra_number = parsed_doc.extra_number
-
-            # SKIP rows that START with счет-фактура (they duplicate info in file 1)
-            # But keep rows where счет-фактура is mentioned later in the text (file 2 format)
-            doc_first_line = doc.split('\n')[0].lower().strip()
-            if doc_first_line.startswith('счет-фактура') or doc_first_line.startswith('электронный счет-фактура'):
-                continue
-
-            # Parse debit and credit using flexible number parser
-            debit = 0.0
-            credit = 0.0
-            if debit_col < len(row):
-                debit = self._parse_number(row.iloc[debit_col])
-            if credit_col < len(row):
-                credit = self._parse_number(row.iloc[credit_col])
-
-            # Skip rows with no amounts (like "Сальдо на начало")
-            if debit == 0.0 and credit == 0.0:
-                continue
-
-            amount = debit if debit > 0 else credit
-            op_type = self._determine_op_type(doc)
-
-            entries.append(ActEntry(
-                date=parsed_date,
-                document=doc,
-                debit=debit,
-                credit=credit,
-                amount=amount,
-                op_type=op_type,
-                row_index=idx,
-                doc_number=doc_number,
-                extra_number=extra_number,
+            debit = self._parse_number(self._cell(df, i, deb_col))
+            credit = self._parse_number(self._cell(df, i, kre_col))
+            amount = debit if (debit is not None and debit != 0) else credit
+            c = self._classify(doc)
+            pa.ops.append(ActOp(
+                date=parsed_date, date_key=self._date_key(parsed_date),
+                kind=c["kind"], num=c["num"], doc_date=c["doc_date"],
+                amount=amount, debit=debit, credit=credit,
+                esf_num=self._esf_number(doc), has_ref=c["has_ref"], doc=doc, row=i + 1,
             ))
+        return pa
 
-        return entries
-
-    def _determine_op_type(self, doc: str) -> str:
-        """Determine operation type from document text"""
-        doc_lower = doc.lower()
-
-        if 'поступление' in doc_lower or 'реализация' in doc_lower:
-            return 'товар'
-        elif 'платежное' in doc_lower or 'оплата' in doc_lower:
-            return 'оплата'
-        elif 'корректировка' in doc_lower:
-            return 'корректировка'
-        elif 'возврат' in doc_lower:
-            return 'возврат'
-        return 'прочее'
+    # ------------------------------------------------------------- reconcile
+    @staticmethod
+    def _eq(a: Optional[float], b: Optional[float]) -> bool:
+        return a is not None and b is not None and abs(a - b) < 0.005
 
     def reconcile(self) -> Dict[str, Any]:
-        """
-        Reconcile by grouping entries by date and matching by amount.
+        A = self._parse_act(self.our_act_content, self.our_act_settings)
+        B = self._parse_act(self.counterparty_act_content, self.counterparty_act_settings)
 
-        New Logic:
-        1. Group entries by date
-        2. For each date:
-           a) Calculate totals for info
-           b) ALWAYS find pairs by transaction amounts
-           c) If amount appears 3+ times → mark as "suspicious"
-           d) Unpaired entries = discrepancies (even if day totals match!)
-        """
-        entries1 = self.parse_act(self.our_act_content, self.our_act_settings)
-        entries2 = self.parse_act(self.counterparty_act_content, self.counterparty_act_settings)
+        if not A.ops and not B.ops:
+            return self._empty_result(A, B)
 
-        # Handle empty cases
-        if not entries1 and not entries2:
-            return {
-                'status': 'completed',
-                'total_records': 0,
-                'matched': 0,
-                'mismatched': 0,
-                'not_found_in_source1': 0,
-                'not_found_in_source2': 0,
-                'data': [],
-                'day_summaries': [],
-                'summary': {
-                    'total_entries_act1': 0,
-                    'total_entries_act2': 0,
-                    'matched_count': 0,
-                    'match_rate': 0,
-                    'has_discrepancies': False
-                }
-            }
+        common_start = max(A.start or 0, B.start or 0)
+        if A.end and B.end:
+            common_end = min(A.end, B.end)
+        else:
+            common_end = A.end or B.end or 10 ** 9
 
-        # 1. Group by date
-        by_date1: Dict[str, List[ActEntry]] = defaultdict(list)
-        by_date2: Dict[str, List[ActEntry]] = defaultdict(list)
+        def in_common(op: ActOp) -> bool:
+            return common_start <= op.date_key <= common_end
 
-        for e in entries1:
-            by_date1[e.date].append(e)
-        for e in entries2:
-            by_date2[e.date].append(e)
+        rows: List[Dict[str, Any]] = []
+        out_rows: List[Dict[str, Any]] = []
 
-        all_dates = set(by_date1.keys()) | set(by_date2.keys())
-        results = []
-        day_summaries = []
+        def push(row: Dict[str, Any], common: bool):
+            (rows if common else out_rows).append(row)
 
-        for date in sorted(all_dates):
-            our_entries = by_date1.get(date, [])
-            cp_entries = by_date2.get(date, [])
+        # ------------------------------------------------------ goods
+        goods_a = [o for o in A.ops if o.kind == "goods"]
+        goods_b = [o for o in B.ops if o.kind == "goods"]
+        used_b: set = set()
+        match_of: Dict[int, ActOp] = {}
+        method_of: Dict[int, str] = {}
 
-            # 2. Calculate day totals (for information)
-            our_debit_total = sum(e.debit for e in our_entries)
-            our_credit_total = sum(e.credit for e in our_entries)
-            cp_debit_total = sum(e.debit for e in cp_entries)
-            cp_credit_total = sum(e.credit for e in cp_entries)
+        # Pass 1 — cross-reference number.
+        b_by_ref: Dict[str, List[ActOp]] = {}
+        for o in goods_b:
+            if o.has_ref and o.num:
+                b_by_ref.setdefault(o.num, []).append(o)
+        for s in goods_a:
+            if not (s.has_ref and s.num):
+                continue
+            cands = [o for o in b_by_ref.get(s.num, []) if o.row not in used_b]
+            if not cands:
+                continue
+            m = (next((o for o in cands if o.date == s.date and self._eq(o.amount, s.amount)), None)
+                 or next((o for o in cands if self._eq(o.amount, s.amount)), None)
+                 or cands[0])
+            used_b.add(m.row); match_of[s.row] = m; method_of[s.row] = "Номер"
 
-            # Check if day totals match (mirror: our debit = cp credit, our credit = cp debit)
-            day_totals_match = (
-                abs(our_debit_total - cp_credit_total) < 0.01 and
-                abs(our_credit_total - cp_debit_total) < 0.01
-            )
+        # Pass 1b — by ЭСФ number (authoritative invoice identity).
+        b_by_esf: Dict[str, List[ActOp]] = {}
+        for o in goods_b:
+            if o.esf_num and o.row not in used_b:
+                b_by_esf.setdefault(o.esf_num, []).append(o)
+        for s in goods_a:
+            if s.row in match_of or not s.esf_num:
+                continue
+            cands = [o for o in b_by_esf.get(s.esf_num, []) if o.row not in used_b]
+            if not cands:
+                continue
+            m = (next((o for o in cands if o.date == s.date and self._eq(o.amount, s.amount)), None)
+                 or next((o for o in cands if self._eq(o.amount, s.amount)), None)
+                 or cands[0])
+            used_b.add(m.row); match_of[s.row] = m; method_of[s.row] = "ЭСФ"
 
-            # Save day summary
-            day_summaries.append({
-                'date': date,
-                'our_debit': our_debit_total,
-                'our_credit': our_credit_total,
-                'cp_debit': cp_debit_total,
-                'cp_credit': cp_credit_total,
-                'debit_diff': round(our_debit_total - cp_credit_total, 2),
-                'credit_diff': round(our_credit_total - cp_debit_total, 2),
-                'matches': day_totals_match
-            })
+        # Pass 2 — by date + amount for the rest.
+        for s in goods_a:
+            if s.row in match_of:
+                continue
+            alt = next((x for x in goods_b if x.row not in used_b and x.date == s.date and self._eq(x.amount, s.amount)), None)
+            if alt:
+                used_b.add(alt.row); match_of[s.row] = alt; method_of[s.row] = "Дата+сумма"
 
-            # 3. Three-phase matching (even if totals match)
-            our_amounts = [(e.amount, e) for e in our_entries]
-            cp_amounts = [(e.amount, e) for e in cp_entries]
+        for s in goods_a:
+            m = match_of.get(s.row)
+            method = method_of.get(s.row, "")
+            status_code, note = "ok", ""
+            counter = bool(m) and (not s.has_ref or not m.has_ref)
+            if m:
+                same_esf = bool(s.esf_num and m.esf_num and s.esf_num == m.esf_num)
+                if not self._eq(s.amount, m.amount):
+                    status_code = "amount_mismatch"
+                    note = f"{self._fmt(s.amount)} / {self._fmt(m.amount)}"
+                elif same_esf:
+                    if s.has_ref and m.has_ref and s.num and m.num and s.num != m.num:
+                        note = f"ЭСФ {s.esf_num} — сверено (реализ. №{s.num} / вх. №{m.num})"
+                    elif counter:
+                        note = "встречная поставка"
+                elif s.esf_num and m.esf_num and s.esf_num != m.esf_num:
+                    status_code = "num_mismatch"; note = f"разные ЭСФ: {s.esf_num} / {m.esf_num}"
+                elif s.has_ref and m.has_ref and s.num and m.num and s.num != m.num:
+                    status_code = "num_mismatch"; note = f"реализ. №{s.num} ↔ вх. №{m.num}"
+                elif s.doc_date and m.doc_date and s.doc_date != m.doc_date:
+                    status_code = "date_mismatch"; note = f"накладная {s.doc_date} / {m.doc_date}"
+                elif counter:
+                    note = "встречная поставка (сверено по дате+сумме)"
+            else:
+                status_code = "only_1" if in_common(s) else "out_1"
+            category = "Встречная" if counter else "Реализация"
+            push(self._row(category, s, m, status_code, note, method), status_code != "out_1" and in_common(s))
 
-            matched_our: set = set()
-            matched_cp: set = set()
+        for m in goods_b:
+            if m.row in used_b:
+                continue
+            status_code = "only_2" if in_common(m) else "out_2"
+            push(self._row("Реализация", None, m, status_code, "", ""), in_common(m))
 
-            def _make_matched_row(e1: ActEntry, e2: ActEntry, phase: str) -> dict:
-                return {
-                    'date': e1.date,
-                    'document': e1.document,
-                    'our_doc_number': e1.doc_number,
-                    'our_debit': e1.debit,
-                    'our_credit': e1.credit,
-                    'cp_debit': e2.debit,
-                    'cp_credit': e2.credit,
-                    'cp_document': e2.document,
-                    'cp_doc_number': e2.doc_number,
-                    'debit_diff': 0,
-                    'credit_diff': 0,
-                    'match_phase': phase,
-                    'status': 'Совпадает'
-                }
-
-            def _numbers_match(e1: ActEntry, e2: ActEntry) -> bool:
-                """Check if doc numbers match: direct or via extra_number"""
-                if not e1.doc_number or not e2.doc_number:
-                    return False
-                # Direct match
-                if e1.doc_number == e2.doc_number:
-                    return True
-                # Cross-match: our extra_number == cp doc_number
-                if e1.extra_number and e1.extra_number == e2.doc_number:
-                    return True
-                # Cross-match: cp extra_number == our doc_number
-                if e2.extra_number and e2.extra_number == e1.doc_number:
-                    return True
-                return False
-
-            # Phase 1: strict match by (amount + doc_number)
-            for i, (amt1, e1) in enumerate(our_amounts):
-                if i in matched_our:
+        # -------------------------------------------- payments & returns
+        def match_da(cat_kind: str):
+            list_b = [o for o in B.ops if o.kind == cat_kind]
+            used: set = set()
+            for s in [o for o in A.ops if o.kind == cat_kind]:
+                m = next((x for x in list_b if x.row not in used and x.date == s.date and self._eq(x.amount, s.amount)), None)
+                status_code, note = "ok", ""
+                if not m:
+                    alt = next((x for x in list_b if x.row not in used and self._eq(x.amount, s.amount)), None)
+                    if alt:
+                        m = alt; status_code = "date_mismatch"; note = f"{s.date} / {alt.date}"
+                    else:
+                        status_code = "only_1" if in_common(s) else "out_1"
+                if m:
+                    used.add(m.row)
+                push(self._row(_CAT_KIND[cat_kind], s, m, status_code, note, "Дата+сумма" if m else ""),
+                     status_code != "out_1" and in_common(s))
+            for m in list_b:
+                if m.row in used:
                     continue
-                for j, (amt2, e2) in enumerate(cp_amounts):
-                    if j in matched_cp:
-                        continue
-                    if abs(amt1 - amt2) < 0.01 and _numbers_match(e1, e2):
-                        matched_our.add(i)
-                        matched_cp.add(j)
-                        results.append(_make_matched_row(e1, e2, 'Фаза 1: номер + сумма'))
-                        break
+                status_code = "only_2" if in_common(m) else "out_2"
+                push(self._row(_CAT_KIND[cat_kind], None, m, status_code, "", ""), in_common(m))
 
-            # Phase 2: match by (amount + op_type)
-            for i, (amt1, e1) in enumerate(our_amounts):
-                if i in matched_our:
-                    continue
-                for j, (amt2, e2) in enumerate(cp_amounts):
-                    if j in matched_cp:
-                        continue
-                    if abs(amt1 - amt2) < 0.01 and e1.op_type == e2.op_type:
-                        matched_our.add(i)
-                        matched_cp.add(j)
-                        results.append(_make_matched_row(e1, e2, 'Фаза 2: тип + сумма'))
-                        break
+        match_da("payment")
+        match_da("return")
 
-            # Phase 3: match by amount only
-            for i, (amt1, e1) in enumerate(our_amounts):
-                if i in matched_our:
-                    continue
-                for j, (amt2, e2) in enumerate(cp_amounts):
-                    if j in matched_cp:
-                        continue
-                    if abs(amt1 - amt2) < 0.01:
-                        matched_our.add(i)
-                        matched_cp.add(j)
-                        results.append(_make_matched_row(e1, e2, 'Фаза 3: только сумма'))
-                        break
+        rows.sort(key=lambda r: self._date_key(r["date"]))
+        out_rows.sort(key=lambda r: self._date_key(r["date"]))
 
-            # Unpaired from our side = discrepancy
-            for i, (amt, e) in enumerate(our_amounts):
-                if i not in matched_our:
-                    results.append({
-                        'date': e.date,
-                        'document': e.document,
-                        'our_doc_number': e.doc_number,
-                        'our_debit': e.debit,
-                        'our_credit': e.credit,
-                        'cp_debit': None,
-                        'cp_credit': None,
-                        'cp_document': None,
-                        'cp_doc_number': None,
-                        'debit_diff': e.debit,
-                        'credit_diff': e.credit,
-                        'match_phase': None,
-                        'status': 'Не найдено у контрагента'
-                    })
+        matched = sum(1 for r in rows if r["status_code"] == "ok")
+        mismatched = sum(1 for r in rows if r["status_code"] in ("amount_mismatch", "num_mismatch", "date_mismatch"))
+        only1 = sum(1 for r in rows if r["status_code"] == "only_1")
+        only2 = sum(1 for r in rows if r["status_code"] == "only_2")
 
-            # Unpaired from counterparty side = discrepancy
-            for j, (amt, e) in enumerate(cp_amounts):
-                if j not in matched_cp:
-                    results.append({
-                        'date': e.date,
-                        'document': e.document,
-                        'our_doc_number': None,
-                        'our_debit': None,
-                        'our_credit': None,
-                        'cp_debit': e.debit,
-                        'cp_credit': e.credit,
-                        'cp_document': e.document,
-                        'cp_doc_number': e.doc_number,
-                        'debit_diff': -e.credit,
-                        'credit_diff': -e.debit,
-                        'match_phase': None,
-                        'status': 'Не найдено у нас'
-                    })
+        open_diff = None
+        if A.opening is not None and B.opening is not None:
+            open_diff = round(abs(A.opening) - abs(B.opening), 2)
+        close_diff = None
+        if A.closing is not None and B.closing is not None:
+            close_diff = round(abs(A.closing) - abs(B.closing), 2)
 
-        # Statistics
-        matched = sum(1 for r in results if r['status'] == 'Совпадает')
-        not_found_cp = sum(1 for r in results if r['status'] == 'Не найдено у контрагента')
-        not_found_our = sum(1 for r in results if r['status'] == 'Не найдено у нас')
+        common_period = ""
+        if common_start and common_end < 10 ** 9 and common_start <= common_end:
+            common_period = f"{self._key_to_str(common_start)}–{self._key_to_str(common_end)}"
+        period_mismatch = bool(A.period_text and B.period_text and A.period_text != B.period_text)
+
+        names_similar = self._similar_names(A.owner, B.owner_counterparty) or \
+            self._similar_names(B.owner, A.owner_counterparty)
+
+        header_summary = {
+            "owner_act1": A.owner,
+            "owner_act2": B.owner,
+            "period_act1": A.period_text,
+            "period_act2": B.period_text,
+            "period_mismatch": period_mismatch,
+            "common_period": common_period,
+            "names_consistent": names_similar,
+            "opening_act1": A.opening, "opening_act2": B.opening, "opening_diff": open_diff,
+            "closing_act1": A.closing, "closing_act2": B.closing, "closing_diff": close_diff,
+            "turnover_debit_act1": A.turnover_d, "turnover_credit_act1": A.turnover_k,
+            "turnover_debit_act2": B.turnover_d, "turnover_credit_act2": B.turnover_k,
+        }
+
+        total_records = len(rows)
+        denom = matched + mismatched + only1 + only2
+        match_rate = round(matched / denom * 100, 1) if denom else 100.0
 
         return {
-            'status': 'completed',
-            'total_records': len(results),
-            'matched': matched,
-            'mismatched': 0,
-            'not_found_in_source1': not_found_cp,
-            'not_found_in_source2': not_found_our,
-            'data': results,
-            'day_summaries': day_summaries,
-            'summary': {
-                'total_entries_act1': len(entries1),
-                'total_entries_act2': len(entries2),
-                'matched_count': matched,
-                'match_rate': round(matched / max(len(entries1), len(entries2)) * 100, 1) if entries1 or entries2 else 0,
-                'has_discrepancies': not_found_cp > 0 or not_found_our > 0
-            }
+            "status": "completed",
+            "total_records": total_records,
+            "matched": matched,
+            "mismatched": mismatched,
+            "not_found_in_source1": only1,
+            "not_found_in_source2": only2,
+            "data": rows,
+            "out_of_period": out_rows,
+            "header_summary": header_summary,
+            "common_period": common_period,
+            "period_mismatch": period_mismatch,
+            "summary": {
+                "total_entries_act1": len(A.ops),
+                "total_entries_act2": len(B.ops),
+                "matched_count": matched,
+                "match_rate": match_rate,
+                "has_discrepancies": mismatched > 0 or only1 > 0 or only2 > 0,
+                "auto_detected": A.auto and B.auto,
+            },
+        }
+
+    # --------------------------------------------------------------- helpers
+    @staticmethod
+    def _fmt(n: Optional[float]) -> str:
+        return "—" if n is None else f"{n}"
+
+    def _row(self, category: str, a: Optional[ActOp], b: Optional[ActOp],
+             status_code: str, note: str, method: str) -> Dict[str, Any]:
+        """Build a result row: act-reconcile fields + allkey back-compat keys."""
+        a_amt = a.amount if a else None
+        b_amt = b.amount if b else None
+        return {
+            # act-reconcile domain
+            "category": category,
+            "date": (a.date if a else (b.date if b else "")),
+            "num1": (a.num if a else ""),
+            "num2": (b.num if b else ""),
+            "amount1": a_amt,
+            "amount2": b_amt,
+            "esf1": (a.esf_num if a else ""),
+            "esf2": (b.esf_num if b else ""),
+            "note": note,
+            "match_method": method,
+            "status_code": status_code,
+            "status_detail": _STATUS_DETAIL[status_code],
+            "row1": (a.row if a else ""),
+            "row2": (b.row if b else ""),
+            # allkey back-compat keys (frontend/excel already read these)
+            "document": (a.doc if a else (b.doc if b else "")),
+            "cp_document": (b.doc if b else ""),
+            "our_doc_number": (a.num if a else None),
+            "cp_doc_number": (b.num if b else None),
+            "our_debit": (a.debit if a else None),
+            "our_credit": (a.credit if a else None),
+            "cp_debit": (b.debit if b else None),
+            "cp_credit": (b.credit if b else None),
+            "debit_diff": round((a_amt or 0) - (b_amt or 0), 2),
+            "credit_diff": round((a_amt or 0) - (b_amt or 0), 2),
+            "match_phase": method,
+            "status": _STATUS_LABEL[status_code],
+        }
+
+    def _empty_result(self, A: ParsedAct, B: ParsedAct) -> Dict[str, Any]:
+        return {
+            "status": "completed",
+            "total_records": 0,
+            "matched": 0,
+            "mismatched": 0,
+            "not_found_in_source1": 0,
+            "not_found_in_source2": 0,
+            "data": [],
+            "out_of_period": [],
+            "header_summary": {
+                "owner_act1": A.owner, "owner_act2": B.owner,
+                "period_act1": A.period_text, "period_act2": B.period_text,
+                "period_mismatch": False, "common_period": "",
+                "opening_act1": A.opening, "opening_act2": B.opening, "opening_diff": None,
+                "closing_act1": A.closing, "closing_act2": B.closing, "closing_diff": None,
+                "turnover_debit_act1": A.turnover_d, "turnover_credit_act1": A.turnover_k,
+                "turnover_debit_act2": B.turnover_d, "turnover_credit_act2": B.turnover_k,
+            },
+            "common_period": "",
+            "period_mismatch": False,
+            "summary": {
+                "total_entries_act1": 0, "total_entries_act2": 0,
+                "matched_count": 0, "match_rate": 0, "has_discrepancies": False,
+                "auto_detected": A.auto and B.auto,
+            },
         }

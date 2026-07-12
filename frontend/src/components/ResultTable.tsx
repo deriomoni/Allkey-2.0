@@ -1,4 +1,5 @@
-import { ReconciliationResult, Case1DataRow, ReconciliationSummary, Case2Summary, Case3Summary } from '../api/client'
+import { ReconciliationResult, Case1DataRow, ReconciliationSummary, Case3Summary } from '../api/client'
+import Case2ResultView from './Case2ResultView'
 
 interface ResultTableProps {
   result: ReconciliationResult
@@ -6,6 +7,11 @@ interface ResultTableProps {
 }
 
 export default function ResultTable({ result, caseType }: ResultTableProps) {
+  // Case 2 (act reconciliation) has its own rich view.
+  if (caseType === 'case2') {
+    return <Case2ResultView result={result} />
+  }
+
   const getStatusClass = (status: string) => {
     if (status === 'Совпадает') return 'status-matched'
     if (status === 'Расхождение') return 'status-mismatched'
@@ -34,21 +40,7 @@ export default function ResultTable({ result, caseType }: ResultTableProps) {
     { key: 'status', label: 'Статус' },
   ]
 
-  const case2Columns = [
-    { key: 'date', label: 'Дата' },
-    { key: 'document', label: 'Наш документ' },
-    { key: 'our_doc_number', label: '№ нашего' },
-    { key: 'cp_document', label: 'Документ контрагента' },
-    { key: 'cp_doc_number', label: '№ контраг.' },
-    { key: 'our_debit', label: 'Наш дебет' },
-    { key: 'our_credit', label: 'Наш кредит' },
-    { key: 'cp_debit', label: 'Дебет контрагента' },
-    { key: 'cp_credit', label: 'Кредит контрагента' },
-    { key: 'match_phase', label: 'Метод' },
-    { key: 'status', label: 'Статус' },
-  ]
-
-  const columns = caseType === 'case1' ? case1Columns : caseType === 'case3' ? case3Columns : case2Columns
+  const columns = caseType === 'case1' ? case1Columns : case3Columns
 
   const formatNumber = (value: unknown): string => {
     if (value === null || value === undefined) return '-'
@@ -67,79 +59,10 @@ export default function ResultTable({ result, caseType }: ResultTableProps) {
   }
 
   const summary = result.summary as ReconciliationSummary | undefined
-  const case2Summary = result.summary as Case2Summary | undefined
   const case3Summary = result.summary as Case3Summary | undefined
 
   return (
     <div>
-      {/* Summary section for Case 2 */}
-      {caseType === 'case2' && case2Summary && (
-        <div style={{
-          background: case2Summary.has_discrepancies ? '#fef2f2' : '#f0fdf4',
-          border: `1px solid ${case2Summary.has_discrepancies ? '#fecaca' : '#bbf7d0'}`,
-          borderRadius: 8,
-          padding: 16,
-          marginBottom: 24
-        }}>
-          <div className="case-summary-header">
-            <h4 style={{ margin: 0, color: case2Summary.has_discrepancies ? '#dc2626' : '#16a34a' }}>
-              {case2Summary.has_discrepancies ? 'Обнаружены расхождения' : 'Все записи совпадают'}
-            </h4>
-            <span style={{
-              fontSize: 14,
-              padding: '4px 12px',
-              borderRadius: 4,
-              background: case2Summary.has_discrepancies ? '#fee2e2' : '#dcfce7',
-              color: case2Summary.has_discrepancies ? '#b91c1c' : '#15803d',
-              fontWeight: 600
-            }}>
-              {case2Summary.match_rate}% совпадение
-            </span>
-          </div>
-
-          <div className="case-summary-grid">
-            <div>
-              <div style={{ fontSize: 12, color: '#6b7280' }}>Записей в нашем акте</div>
-              <div style={{ fontSize: 18, fontWeight: 600 }}>{case2Summary.total_entries_act1}</div>
-            </div>
-            <div>
-              <div style={{ fontSize: 12, color: '#6b7280' }}>Записей у контрагента</div>
-              <div style={{ fontSize: 18, fontWeight: 600 }}>{case2Summary.total_entries_act2}</div>
-            </div>
-            <div>
-              <div style={{ fontSize: 12, color: '#6b7280' }}>Совпало</div>
-              <div style={{ fontSize: 18, fontWeight: 600, color: '#16a34a' }}>{case2Summary.matched_count}</div>
-            </div>
-            <div>
-              <div style={{ fontSize: 12, color: '#6b7280' }}>Расхождений</div>
-              <div style={{ fontSize: 18, fontWeight: 600, color: case2Summary.has_discrepancies ? '#dc2626' : '#16a34a' }}>
-                {(result.not_found_in_source1 || 0) + (result.not_found_in_source2 || 0)}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Match phases legend for Case 2 */}
-      {caseType === 'case2' && (
-        <div style={{
-          background: '#f8fafc',
-          border: '1px solid #e2e8f0',
-          borderRadius: 8,
-          padding: '12px 16px',
-          marginBottom: 16,
-          fontSize: 13,
-          color: '#475569'
-        }}>
-          <div style={{ fontWeight: 600, marginBottom: 6, color: '#334155' }}>Фазы сопоставления:</div>
-          <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap' }}>
-            <span><strong style={{ color: '#16a34a' }}>Фаза 1</strong> — номер документа + сумма (самое точное)</span>
-            <span><strong style={{ color: '#2563eb' }}>Фаза 2</strong> — тип операции + сумма</span>
-            <span><strong style={{ color: '#d97706' }}>Фаза 3</strong> — только сумма (наименее точное)</span>
-          </div>
-        </div>
-      )}
-
       {/* Summary section for Case 3 */}
       {caseType === 'case3' && case3Summary && (
         <div style={{

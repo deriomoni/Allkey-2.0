@@ -55,6 +55,14 @@ class ReconciliationResult(BaseModel):
     not_found_in_source1: int
     not_found_in_source2: int
     data: List[Dict[str, Any]]
+    # Optional, additive fields. Case 2 (act reconciliation) populates these;
+    # case 1/3 leave them unset. Declared so they survive response_model
+    # filtering and reach the frontend without breaking the other cases.
+    summary: Optional[Dict[str, Any]] = None
+    out_of_period: Optional[List[Dict[str, Any]]] = None
+    header_summary: Optional[Dict[str, Any]] = None
+    common_period: Optional[str] = None
+    period_mismatch: Optional[bool] = None
 
 
 class UploadResponse(BaseModel):
