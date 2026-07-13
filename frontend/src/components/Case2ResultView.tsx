@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { ReconciliationResult, Case2DataRow, Case2Summary, Case2HeaderSummary } from '../api/client'
 
 // Rich result view for the upgraded Case 2 (act-of-mutual-settlements
@@ -101,6 +102,13 @@ export default function Case2ResultView({ result }: { result: ReconciliationResu
   const outRows = (result.out_of_period as Case2DataRow[]) || []
   const hasDiscrepancies = summary?.has_discrepancies ?? (result.mismatched > 0)
 
+  // «Only discrepancies» filter — среди сотен совпавших строк показать только
+  // то, что требует внимания (статус ≠ «Совпадает»). По умолчанию включён,
+  // если расхождения есть.
+  const discrepancyRows = rows.filter(r => r.status !== 'Совпадает')
+  const [onlyDiscrepancies, setOnlyDiscrepancies] = useState(discrepancyRows.length > 0)
+  const shownRows = onlyDiscrepancies ? discrepancyRows : rows
+
   const diffComment = (diff: number | null | undefined, note: string): string => {
     if (diff === null || diff === undefined || Math.abs(diff) < 0.005) return 'совпадает'
     return `разница ${fmtAmount(diff)} ₸${note ? ` — ${note}` : ''}`
@@ -199,8 +207,28 @@ export default function Case2ResultView({ result }: { result: ReconciliationResu
       </div>
 
       {/* Reconciled rows */}
-      <h4 style={{ margin: '8px 0' }}>Сверка{hs?.common_period ? ` (общий период ${hs.common_period})` : ''}</h4>
-      <ActTable rows={rows} />
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, margin: '8px 0' }}>
+        <h4 style={{ margin: 0 }}>Сверка{hs?.common_period ? ` (общий период ${hs.common_period})` : ''}</h4>
+        {discrepancyRows.length > 0 && (
+          <label style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', color: '#334155' }}>
+            <input
+              type="checkbox"
+              checked={onlyDiscrepancies}
+              onChange={(e) => setOnlyDiscrepancies(e.target.checked)}
+              style={{ width: 16, height: 16 }}
+            />
+            Только расхождения ({discrepancyRows.length})
+          </label>
+        )}
+      </div>
+      <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 6 }}>
+        {onlyDiscrepancies
+          ? `Показаны только расхождения: ${shownRows.length} из ${rows.length} операций`
+          : `Показаны все операции: ${rows.length}`}
+      </div>
+      {shownRows.length > 0
+        ? <ActTable rows={shownRows} />
+        : <div style={{ padding: '16px', color: '#16a34a', fontSize: 14 }}>Расхождений нет — все операции сходятся.</div>}
 
       {/* Out of period */}
       {outRows.length > 0 && (
