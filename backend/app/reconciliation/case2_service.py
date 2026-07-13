@@ -399,11 +399,15 @@ class Case2Service:
                     if prev_doc and not prev_date and _OP_TYPE_RE.match(prev_doc):
                         parts.append(prev_doc)
                 parts.append(doc_i)
-                # Append following sub-rows (no own date) until the next operation.
+                # Append following sub-rows (no own date) until the next operation
+                # or a summary row (Обороты / Сальдо на конец).
                 j = i + 1
                 while j < n:
                     if self._parse_date(self._cell(df, j, date_col)):
                         break
+                    j_label = s(self._cell(df, j, date_col))
+                    if re.search(r"Сальдо|Обороты за период", j_label, re.I):
+                        break  # summary rows must be parsed, not swallowed
                     sub = s(self._cell(df, j, doc_col))
                     if _OP_TYPE_RE.match(sub):
                         break  # start of the next operation
