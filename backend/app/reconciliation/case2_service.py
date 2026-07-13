@@ -96,6 +96,15 @@ _LEGAL_RE = re.compile(
     r'\b(тоо|ооо|ип|ао|зао|оао|товарищество с ограниченной ответственностью|филиал)\b', re.I
 )
 
+# Document types that START a new operation (used to reconstruct operations whose
+# document text 1C split across several rows). Sub-lines like «Накладная/Товарный
+# чек …» and «Счет-фактура …» are deliberately NOT here — they belong to the
+# operation above them.
+_OP_TYPE_RE = re.compile(
+    r'^\s*(?:Поступлени|Реализац|Возврат|Платежное|Оплата|Списани|Корректировк|Авансов|Приходн|Расходн)',
+    re.I,
+)
+
 
 class Case2Service:
     # Legacy defaults, used only when auto-detection fails and settings omit mappings.
@@ -341,44 +350,89 @@ class Case2Service:
                 break
 
         # header figures + operations
-        for i in range(hrow + 1, len(df)):
-            label = self._cell(df, i, date_col)
-            label = label if isinstance(label, str) else ""
+        #
+        # 1C exports vary: some put a whole operation's document in one cell,
+        # others split ONE operation across several rows — the type line
+        # («Поступление ТМЗ и услуг») on one row, «NUMBER от DATE, Накладная …»
+        # on the dated row that also carries the amount, then «вх. N»,
+        # «Счет-фактура полученный», «№ вх. ЭСФ» and a separate ЭСФ-date row
+        # below. We treat a dated row that carries an amount as the operation
+        # "anchor" and reconstruct its full document from the surrounding block.
+        def s(v):
+            return v if isinstance(v, str) else ""
+
+        i = hrow + 1
+        n = len(df)
+        while i < n:
+            label = s(self._cell(df, i, date_col))
             if re.search(r"Сальдо на начало", label, re.I):
                 pa.opening = self._parse_number(self._cell(df, i, deb_col))
                 if pa.opening is None:
                     pa.opening = self._parse_number(self._cell(df, i, kre_col))
+                i += 1
                 continue
             if re.search(r"Обороты за период", label, re.I):
                 pa.turnover_d = self._parse_number(self._cell(df, i, deb_col))
                 pa.turnover_k = self._parse_number(self._cell(df, i, kre_col))
+                i += 1
                 continue
             if re.search(r"Сальдо на конец", label, re.I):
                 pa.closing = self._parse_number(self._cell(df, i, deb_col))
                 if pa.closing is None:
                     pa.closing = self._parse_number(self._cell(df, i, kre_col))
+                i += 1
                 continue
 
-            doc = self._cell(df, i, doc_col)
-            doc = doc if isinstance(doc, str) else ""
             parsed_date = self._parse_date(self._cell(df, i, date_col))
-            if not parsed_date:
-                # Continuation line (invoice number) — attach ЭСФ to previous op.
-                if doc and pa.ops:
-                    esf = self._esf_number(doc)
-                    if esf and not pa.ops[-1].esf_num:
-                        pa.ops[-1].esf_num = esf
-                continue
+            doc_i = s(self._cell(df, i, doc_col))
             debit = self._parse_number(self._cell(df, i, deb_col))
             credit = self._parse_number(self._cell(df, i, kre_col))
             amount = debit if (debit is not None and debit != 0) else credit
-            c = self._classify(doc)
-            pa.ops.append(ActOp(
-                date=parsed_date, date_key=self._date_key(parsed_date),
-                kind=c["kind"], num=c["num"], doc_date=c["doc_date"],
-                amount=amount, debit=debit, credit=credit,
-                esf_num=self._esf_number(doc), has_ref=c["has_ref"], doc=doc, row=i + 1,
-            ))
+
+            if parsed_date and amount is not None and amount != 0:
+                # Anchor row → one real operation.
+                parts = []
+                # Prepend a type-only line sitting directly above (split layout).
+                if not _OP_TYPE_RE.match(doc_i):
+                    prev_doc = s(self._cell(df, i - 1, doc_col))
+                    prev_date = self._parse_date(self._cell(df, i - 1, date_col))
+                    if prev_doc and not prev_date and _OP_TYPE_RE.match(prev_doc):
+                        parts.append(prev_doc)
+                parts.append(doc_i)
+                # Append following sub-rows (no own date) until the next operation.
+                j = i + 1
+                while j < n:
+                    if self._parse_date(self._cell(df, j, date_col)):
+                        break
+                    sub = s(self._cell(df, j, doc_col))
+                    if _OP_TYPE_RE.match(sub):
+                        break  # start of the next operation
+                    parts.append(sub)
+                    j += 1
+                full_doc = re.sub(r"\s+", " ", " ".join(p for p in parts if p)).strip()
+                c = self._classify(full_doc)
+                pa.ops.append(ActOp(
+                    date=parsed_date, date_key=self._date_key(parsed_date),
+                    kind=c["kind"], num=c["num"], doc_date=c["doc_date"],
+                    amount=amount, debit=debit, credit=credit,
+                    esf_num=self._esf_number(full_doc), has_ref=c["has_ref"],
+                    doc=full_doc, row=i + 1,
+                ))
+                i = j
+                continue
+
+            if parsed_date:
+                # Dated row without an amount (ЭСФ date / spacer) — not an operation.
+                i += 1
+                continue
+
+            # Undated continuation (single-cell layout) — attach ЭСФ to last op.
+            if doc_i and pa.ops and not pa.ops[-1].esf_num:
+                esf = self._esf_number(doc_i)
+                if esf:
+                    pa.ops[-1].esf_num = esf
+            i += 1
+
         return pa
 
     # ------------------------------------------------------------- reconcile
@@ -461,23 +515,28 @@ class Case2Service:
             status_code, note = "ok", ""
             counter = bool(m) and (not s.has_ref or not m.has_ref)
             if m:
-                same_esf = bool(s.esf_num and m.esf_num and s.esf_num == m.esf_num)
                 if not self._eq(s.amount, m.amount):
+                    # The only real goods discrepancy: amounts disagree.
                     status_code = "amount_mismatch"
                     note = f"{self._fmt(s.amount)} / {self._fmt(m.amount)}"
-                elif same_esf:
-                    if s.has_ref and m.has_ref and s.num and m.num and s.num != m.num:
-                        note = f"ЭСФ {s.esf_num} — сверено (реализ. №{s.num} / вх. №{m.num})"
+                else:
+                    # Amounts agree → operation reconciled. Document- and ЭСФ-number
+                    # differences are informational: each side registers invoices in
+                    # its own numbering (seller's realization № / ЭСФ № vs buyer's
+                    # incoming «№ вх.»), so they legitimately differ. Not a расхождение.
+                    same_num = bool(s.num and m.num and s.num == m.num)
+                    same_esf = bool(s.esf_num and m.esf_num and s.esf_num == m.esf_num)
+                    if same_num or same_esf:
+                        bits = []
+                        if s.num and m.num and s.num != m.num:
+                            bits.append(f"номера: {s.num} / {m.num}")
+                        if s.esf_num and m.esf_num and s.esf_num != m.esf_num:
+                            bits.append(f"ЭСФ: {s.esf_num} / {m.esf_num}")
+                        note = "; ".join(bits)
                     elif counter:
-                        note = "встречная поставка"
-                elif s.esf_num and m.esf_num and s.esf_num != m.esf_num:
-                    status_code = "num_mismatch"; note = f"разные ЭСФ: {s.esf_num} / {m.esf_num}"
-                elif s.has_ref and m.has_ref and s.num and m.num and s.num != m.num:
-                    status_code = "num_mismatch"; note = f"реализ. №{s.num} ↔ вх. №{m.num}"
-                elif s.doc_date and m.doc_date and s.doc_date != m.doc_date:
-                    status_code = "date_mismatch"; note = f"накладная {s.doc_date} / {m.doc_date}"
-                elif counter:
-                    note = "встречная поставка (сверено по дате+сумме)"
+                        note = "встречная поставка (сверено по дате+сумме)"
+                    else:
+                        note = "сверено по дате+сумме"
             else:
                 status_code = "only_1" if in_common(s) else "out_1"
             category = "Встречная" if counter else "Реализация"
