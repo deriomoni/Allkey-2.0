@@ -473,23 +473,26 @@ class Case2Service:
         match_of: Dict[int, ActOp] = {}
         method_of: Dict[int, str] = {}
 
-        # Pass 1 — cross-reference number.
         b_by_ref: Dict[str, List[ActOp]] = {}
         for o in goods_b:
             if o.has_ref and o.num:
                 b_by_ref.setdefault(o.num, []).append(o)
+
+        # Pass 1 — cross-reference number AND amount agree. The amount must match:
+        # a shared number with a different sum is often a data-entry coincidence
+        # (buyer cites the wrong «№ вх.»), and consuming it here would block the
+        # correct date+amount match. Such cases are deferred to Pass 3.
         for s in goods_a:
             if not (s.has_ref and s.num):
                 continue
             cands = [o for o in b_by_ref.get(s.num, []) if o.row not in used_b]
-            if not cands:
-                continue
             m = (next((o for o in cands if o.date == s.date and self._eq(o.amount, s.amount)), None)
-                 or next((o for o in cands if self._eq(o.amount, s.amount)), None)
-                 or cands[0])
+                 or next((o for o in cands if self._eq(o.amount, s.amount)), None))
+            if m is None:
+                continue
             used_b.add(m.row); match_of[s.row] = m; method_of[s.row] = "Номер"
 
-        # Pass 1b — by ЭСФ number (authoritative invoice identity).
+        # Pass 1b — by ЭСФ number AND amount agree.
         b_by_esf: Dict[str, List[ActOp]] = {}
         for o in goods_b:
             if o.esf_num and o.row not in used_b:
@@ -498,20 +501,29 @@ class Case2Service:
             if s.row in match_of or not s.esf_num:
                 continue
             cands = [o for o in b_by_esf.get(s.esf_num, []) if o.row not in used_b]
-            if not cands:
-                continue
             m = (next((o for o in cands if o.date == s.date and self._eq(o.amount, s.amount)), None)
-                 or next((o for o in cands if self._eq(o.amount, s.amount)), None)
-                 or cands[0])
+                 or next((o for o in cands if self._eq(o.amount, s.amount)), None))
+            if m is None:
+                continue
             used_b.add(m.row); match_of[s.row] = m; method_of[s.row] = "ЭСФ"
 
-        # Pass 2 — by date + amount for the rest.
+        # Pass 2 — by date + amount for the rest (takes priority over number-only).
         for s in goods_a:
             if s.row in match_of:
                 continue
             alt = next((x for x in goods_b if x.row not in used_b and x.date == s.date and self._eq(x.amount, s.amount)), None)
             if alt:
                 used_b.add(alt.row); match_of[s.row] = alt; method_of[s.row] = "Дата+сумма"
+
+        # Pass 3 — same cross-reference number but a different amount (last resort).
+        # Surfaces a genuine "same document №, different sum" once date+amount had
+        # its chance to claim the right counterparts.
+        for s in goods_a:
+            if s.row in match_of or not (s.has_ref and s.num):
+                continue
+            m = next((o for o in b_by_ref.get(s.num, []) if o.row not in used_b), None)
+            if m is not None:
+                used_b.add(m.row); match_of[s.row] = m; method_of[s.row] = "Номер"
 
         for s in goods_a:
             m = match_of.get(s.row)
