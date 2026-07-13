@@ -116,8 +116,32 @@ export default function Case2Page() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Step 1 -> Step 2: Upload files and load previews
-  const handleUploadAndConfigure = async () => {
+  // Build parser settings for one act. With auto-detection these are only used
+  // as a fallback for non-standard files; the backend detects structure first.
+  const buildSettings = (headerRow: number, mappings: Record<string, number>, dateExtract: DateExtractConfig) => ({
+    header_row: headerRow,
+    column_mappings: mappings,
+    ...(!dateExtract.hasDateColumn ? {
+      date_extract_from_text: true,
+      date_format: dateExtract.dateFormat,
+      date_source_column: dateExtract.dateSourceColumn,
+    } : {}),
+  })
+
+  // Load previews for the manual (fallback) configuration step.
+  const loadPreviews = async (sid: string) => {
+    const [ourPreviewData, cpPreviewData] = await Promise.all([
+      reconciliationApi.previewCase2(sid, 'our_act', ourHeaderRow),
+      reconciliationApi.previewCase2(sid, 'counterparty_act', cpHeaderRow),
+    ])
+    setOurPreview(ourPreviewData)
+    setCpPreview(cpPreviewData)
+  }
+
+  // Step 1: Upload both files and reconcile immediately (auto-detected structure).
+  // «Загрузил 2 файла — получил результат». If auto-detection fails, fall back to
+  // the manual column-mapping step.
+  const handleReconcile = async () => {
     if (!ourActFile || !counterpartyActFile) {
       setError('Пожалуйста, загрузите оба файла')
       return
@@ -125,24 +149,39 @@ export default function Case2Page() {
 
     setLoading(true)
     setError('')
+    setStep('processing')
 
+    let sid: string | null = null
     try {
-      // Upload files
       const uploadResponse = await reconciliationApi.uploadCase2(ourActFile, counterpartyActFile)
-      setSessionId(uploadResponse.session_id)
+      sid = uploadResponse.session_id
+      setSessionId(sid)
 
-      // Load previews for both files
-      const [ourPreviewData, cpPreviewData] = await Promise.all([
-        reconciliationApi.previewCase2(uploadResponse.session_id, 'our_act', ourHeaderRow),
-        reconciliationApi.previewCase2(uploadResponse.session_id, 'counterparty_act', cpHeaderRow),
-      ])
-
-      setOurPreview(ourPreviewData)
-      setCpPreview(cpPreviewData)
-      setStep('configure')
+      const processResponse = await reconciliationApi.processCase2(
+        sid,
+        buildSettings(ourHeaderRow, ourMappings, ourDateExtract),
+        buildSettings(cpHeaderRow, cpMappings, cpDateExtract),
+      )
+      setResult(processResponse)
+      setStep('result')
     } catch (err: unknown) {
       const error = err as { response?: { data?: { detail?: string } } }
-      setError(error.response?.data?.detail || 'Ошибка загрузки файлов')
+      const detail = error.response?.data?.detail
+      // Fall back to manual configuration for non-standard files.
+      if (sid) {
+        setError(detail
+          ? `Не удалось определить структуру автоматически: ${detail}. Укажите колонки вручную ниже.`
+          : 'Не удалось выполнить сверку автоматически. Укажите колонки вручную ниже.')
+        try {
+          await loadPreviews(sid)
+          setStep('configure')
+        } catch {
+          setStep('upload')
+        }
+      } else {
+        setError(detail || 'Ошибка загрузки файлов')
+        setStep('upload')
+      }
     } finally {
       setLoading(false)
     }
@@ -173,7 +212,7 @@ export default function Case2Page() {
     }
   }
 
-  // Step 2 -> Step 3: Process with selected mappings
+  // Manual (fallback) processing from the configure step with chosen mappings.
   const handleProcess = async () => {
     if (!sessionId) return
 
@@ -184,24 +223,8 @@ export default function Case2Page() {
     try {
       const processResponse = await reconciliationApi.processCase2(
         sessionId,
-        {
-          header_row: ourHeaderRow,
-          column_mappings: ourMappings,
-          ...(!ourDateExtract.hasDateColumn ? {
-            date_extract_from_text: true,
-            date_format: ourDateExtract.dateFormat,
-            date_source_column: ourDateExtract.dateSourceColumn,
-          } : {}),
-        },
-        {
-          header_row: cpHeaderRow,
-          column_mappings: cpMappings,
-          ...(!cpDateExtract.hasDateColumn ? {
-            date_extract_from_text: true,
-            date_format: cpDateExtract.dateFormat,
-            date_source_column: cpDateExtract.dateSourceColumn,
-          } : {}),
-        }
+        buildSettings(ourHeaderRow, ourMappings, ourDateExtract),
+        buildSettings(cpHeaderRow, cpMappings, cpDateExtract),
       )
 
       setResult(processResponse)
@@ -382,23 +405,23 @@ export default function Case2Page() {
           <div className="actions">
             <button
               className="btn btn-primary"
-              onClick={handleUploadAndConfigure}
+              onClick={handleReconcile}
               disabled={!ourActFile || !counterpartyActFile || loading}
             >
-              {loading ? 'Загрузка...' : 'Далее'}
+              {loading ? 'Сверяем...' : 'Сверить'}
             </button>
           </div>
         </div>
       )}
 
-      {/* Step 2: Configure */}
+      {/* Step 2: Configure — fallback only, shown when auto-detection fails */}
       {step === 'configure' && (
         <div className="card">
-          <h3 style={{ marginBottom: 16 }}>Проверка файлов</h3>
+          <h3 style={{ marginBottom: 16 }}>Ручная настройка колонок</h3>
 
-          <div className="info-box" style={{ marginBottom: 20, padding: '12px 16px', backgroundColor: '#ecfdf5', borderRadius: 8, borderLeft: '4px solid #10b981' }}>
-            <p style={{ margin: 0, fontSize: 14, color: '#065f46' }}>
-              <strong>Структура определяется автоматически.</strong> Ниже — превью загруженных актов. Обычно ничего настраивать не нужно — сразу нажмите «Выполнить сверку». Ручная настройка колонок ниже — только для нестандартных файлов.
+          <div className="info-box" style={{ marginBottom: 20, padding: '12px 16px', backgroundColor: '#fef3c7', borderRadius: 8, borderLeft: '4px solid #f59e0b' }}>
+            <p style={{ margin: 0, fontSize: 14, color: '#92400e' }}>
+              Не удалось определить структуру этого файла автоматически. Укажите, в каких колонках дата, документ, дебет и кредит (раскройте «Расширенные настройки» под каждым актом), затем нажмите «Выполнить сверку».
             </p>
           </div>
 
@@ -408,9 +431,9 @@ export default function Case2Page() {
               <h4 style={{ margin: '0 0 16px 0', color: '#374151' }}>Наш акт сверки</h4>
               {ourPreview && (
                 <>
-                  <details style={{ marginBottom: 12 }}>
+                  <details open style={{ marginBottom: 12 }}>
                     <summary style={{ cursor: 'pointer', fontSize: 13, color: '#6b7280', userSelect: 'none' }}>
-                      Расширенные настройки (для нестандартных файлов)
+                      Колонки: дата / документ / дебет / кредит
                     </summary>
                     <div style={{ marginTop: 12 }}>
                       <ColumnMapper
@@ -441,9 +464,9 @@ export default function Case2Page() {
               <h4 style={{ margin: '0 0 16px 0', color: '#374151' }}>Акт контрагента</h4>
               {cpPreview && (
                 <>
-                  <details style={{ marginBottom: 12 }}>
+                  <details open style={{ marginBottom: 12 }}>
                     <summary style={{ cursor: 'pointer', fontSize: 13, color: '#6b7280', userSelect: 'none' }}>
-                      Расширенные настройки (для нестандартных файлов)
+                      Колонки: дата / документ / дебет / кредит
                     </summary>
                     <div style={{ marginTop: 12 }}>
                       <ColumnMapper
