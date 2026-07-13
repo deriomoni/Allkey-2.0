@@ -1,5 +1,6 @@
 import pandas as pd
 import re
+import zipfile
 from typing import List, Dict, Any, Tuple, Optional
 from io import BytesIO
 
@@ -7,6 +8,30 @@ from io import BytesIO
 class ExcelParseError(Exception):
     """Custom exception for Excel parsing errors"""
     pass
+
+
+def _canonicalize_xlsx(content: bytes) -> Optional[bytes]:
+    """Rebuild an .xlsx archive with canonical (lowercase) OOXML part names.
+
+    Some 1C/counterparty exports name parts with the wrong case
+    (``xl/SharedStrings.xml``), which openpyxl cannot find on a case-sensitive
+    filesystem (the Linux server) — it fails with "There is no item named
+    'xl/sharedStrings.xml'". Returns rebuilt bytes, or None if it isn't a zip.
+    """
+    canon = {
+        "xl/sharedstrings.xml": "xl/sharedStrings.xml",
+        "xl/styles.xml": "xl/styles.xml",
+        "xl/workbook.xml": "xl/workbook.xml",
+    }
+    try:
+        src = BytesIO(content)
+        out = BytesIO()
+        with zipfile.ZipFile(src) as zin, zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as zout:
+            for name in zin.namelist():
+                zout.writestr(canon.get(name.lower(), name), zin.read(name))
+        return out.getvalue()
+    except Exception:
+        return None
 
 
 class ExcelParser:
@@ -37,51 +62,40 @@ class ExcelParser:
             "Неподдерживаемый формат файла. Поддерживаются только файлы Excel (.xlsx, .xls)"
         )
 
+    def _read_excel_raw(self, header) -> pd.DataFrame:
+        """Read the workbook with the detected engine.
+
+        For .xlsx, retry once with canonicalized part names if openpyxl fails
+        (handles archives that use ``xl/SharedStrings.xml`` with wrong case).
+        """
+        engine = self._detect_engine()
+        try:
+            return pd.read_excel(BytesIO(self.file_content), header=header, engine=engine)
+        except Exception as e:
+            if engine == 'openpyxl':
+                fixed = _canonicalize_xlsx(self.file_content)
+                if fixed is not None:
+                    try:
+                        return pd.read_excel(BytesIO(fixed), header=header, engine='openpyxl')
+                    except Exception:
+                        pass
+            raise ExcelParseError(f"Ошибка чтения Excel файла: {str(e)}")
+
     def read(self) -> pd.DataFrame:
         if self._df is None:
-            try:
-                engine = self._detect_engine()
-                self._df = pd.read_excel(
-                    BytesIO(self.file_content),
-                    header=self.header_row,
-                    engine=engine
-                )
-            except ExcelParseError:
-                raise
-            except Exception as e:
-                raise ExcelParseError(f"Ошибка чтения Excel файла: {str(e)}")
+            self._df = self._read_excel_raw(header=self.header_row)
         return self._df
 
     def read_raw(self, num_rows: Optional[int] = None) -> pd.DataFrame:
         """Read Excel without header, for preview purposes"""
-        try:
-            engine = self._detect_engine()
-            df = pd.read_excel(
-                BytesIO(self.file_content),
-                header=None,
-                engine=engine
-            )
-            if num_rows:
-                return df.head(num_rows)
-            return df
-        except ExcelParseError:
-            raise
-        except Exception as e:
-            raise ExcelParseError(f"Ошибка чтения Excel файла: {str(e)}")
+        df = self._read_excel_raw(header=None)
+        if num_rows:
+            return df.head(num_rows)
+        return df
 
     def get_preview(self, header_row: int = 0, num_rows: int = 10) -> Dict[str, Any]:
         """Get preview of data with specified header row"""
-        try:
-            engine = self._detect_engine()
-            df_raw = pd.read_excel(
-                BytesIO(self.file_content),
-                header=None,
-                engine=engine
-            )
-        except ExcelParseError:
-            raise
-        except Exception as e:
-            raise ExcelParseError(f"Ошибка чтения Excel файла: {str(e)}")
+        df_raw = self._read_excel_raw(header=None)
 
         total_rows = len(df_raw)
 
