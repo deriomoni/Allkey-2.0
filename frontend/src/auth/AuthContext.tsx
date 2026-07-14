@@ -1,8 +1,9 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react'
-import { authApi, usersApi, User } from '../api/client'
+import { authApi, usersApi, servicesApi, User, Service } from '../api/client'
 
 interface AuthContextType {
   user: User | null
+  services: Service[]
   isAuthenticated: boolean
   loading: boolean
   login: (email: string, password: string) => Promise<void>
@@ -15,13 +16,22 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
+  const [services, setServices] = useState<Service[]>([])
   const [loading, setLoading] = useState(true)
+
+  const loadSession = async () => {
+    const [userData, serviceList] = await Promise.all([
+      usersApi.getMe(),
+      servicesApi.getMe().catch(() => [] as Service[]),
+    ])
+    setUser(userData)
+    setServices(serviceList)
+  }
 
   useEffect(() => {
     const token = localStorage.getItem('token')
     if (token) {
-      usersApi.getMe()
-        .then(setUser)
+      loadSession()
         .catch(() => {
           localStorage.removeItem('token')
         })
@@ -34,8 +44,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = async (email: string, password: string) => {
     const response = await authApi.login({ username: email, password })
     localStorage.setItem('token', response.access_token)
-    const userData = await usersApi.getMe()
-    setUser(userData)
+    await loadSession()
   }
 
   const register = async (email: string, password: string, fullName: string) => {
@@ -46,17 +55,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logout = () => {
     localStorage.removeItem('token')
     setUser(null)
+    setServices([])
   }
 
   const refreshUser = async () => {
-    const userData = await usersApi.getMe()
-    setUser(userData)
+    await loadSession()
   }
 
   return (
     <AuthContext.Provider
       value={{
         user,
+        services,
         isAuthenticated: !!user,
         loading,
         login,

@@ -5,8 +5,16 @@ import { usersApi } from '../api/client'
 import AuthModal from './AuthModal'
 import PurchaseModal from './PurchaseModal'
 
+// Fallback menu for unauthenticated guests — same three cases as before,
+// clicking any of them opens the login modal.
+const GUEST_SERVICES = [
+  { code: 'case1', title: 'Кейс 1', status: 'production' as const },
+  { code: 'case2', title: 'Кейс 2', status: 'production' as const },
+  { code: 'case3', title: 'Кейс 3', status: 'production' as const },
+]
+
 export default function Layout() {
-  const { user, isAuthenticated, logout, refreshUser } = useAuth()
+  const { user, services, isAuthenticated, logout, refreshUser } = useAuth()
   const [showAuth, setShowAuth] = useState(false)
   const [showPurchase, setShowPurchase] = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
@@ -85,19 +93,24 @@ export default function Layout() {
             <NavLink to="/" end className={({ isActive }) => isActive ? 'active' : ''} onClick={() => setMobileMenuOpen(false)}>
               Главная
             </NavLink>
-            <NavLink to="/case1" className={({ isActive }) => isActive ? 'active' : ''} onClick={handleProtectedNavClick}>
-              Кейс 1
-            </NavLink>
-            <NavLink to="/case2" className={({ isActive }) => isActive ? 'active' : ''} onClick={handleProtectedNavClick}>
-              Кейс 2
-            </NavLink>
-            <NavLink to="/case3" className={({ isActive }) => isActive ? 'active' : ''} onClick={handleProtectedNavClick}>
-              Кейс 3
-            </NavLink>
+            {(isAuthenticated ? services : GUEST_SERVICES).map((s) => (
+              <NavLink
+                key={s.code}
+                to={`/${s.code}`}
+                className={({ isActive }) => isActive ? 'active' : ''}
+                onClick={isAuthenticated ? () => setMobileMenuOpen(false) : handleProtectedNavClick}
+              >
+                {s.title}
+                {s.status === 'beta' && <span className="nav-beta-badge">beta</span>}
+              </NavLink>
+            ))}
             {isAuthenticated && user?.role === 'admin' && (
               <>
                 <NavLink to="/users" className={({ isActive }) => isActive ? 'active' : ''} onClick={() => setMobileMenuOpen(false)}>
                   Пользователи
+                </NavLink>
+                <NavLink to="/access" className={({ isActive }) => isActive ? 'active' : ''} onClick={() => setMobileMenuOpen(false)}>
+                  Доступы
                 </NavLink>
                 <NavLink to="/settings" className={({ isActive }) => isActive ? 'active' : ''} onClick={() => setMobileMenuOpen(false)}>
                   Настройки
@@ -134,7 +147,7 @@ export default function Layout() {
                         {user.license_plan_name}
                       </span>
                     ) : (
-                      user?.role === 'admin' ? 'Администратор' : 'Пользователь'
+                      user?.role === 'admin' ? 'Администратор' : user?.role === 'client' ? 'Клиент' : 'Сотрудник'
                     )}
                   </div>
                 </div>

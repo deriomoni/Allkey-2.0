@@ -84,6 +84,31 @@ export interface PublicSettings {
   kaspi_payment_url: string
 }
 
+// Service registry
+export interface Service {
+  code: string
+  title: string
+  description: string
+  status: 'beta' | 'production'
+}
+
+export interface ServiceOverride {
+  user_id: number
+  allow: boolean
+}
+
+export interface ServiceAdmin {
+  code: string
+  title: string
+  description: string
+  status: 'beta' | 'production'
+  is_enabled: boolean
+  sort_order: number
+  created_at: string | null
+  roles: string[]
+  overrides: ServiceOverride[]
+}
+
 export interface UploadResponse {
   session_id: string
   files: Record<string, string>
@@ -421,6 +446,42 @@ export const licensesApi = {
 
   assign: async (userId: number, planId: number): Promise<UserLicense> => {
     const response = await api.post('/licenses/assign', { user_id: userId, plan_id: planId })
+    return response.data
+  },
+}
+
+// Services (access registry) API
+export const servicesApi = {
+  getMe: async (): Promise<Service[]> => {
+    const response = await api.get('/services/me')
+    return response.data
+  },
+
+  getAll: async (): Promise<ServiceAdmin[]> => {
+    const response = await api.get('/services')
+    return response.data
+  },
+
+  update: async (
+    code: string,
+    data: Partial<Pick<ServiceAdmin, 'title' | 'description' | 'status' | 'is_enabled' | 'sort_order'>>
+  ): Promise<ServiceAdmin> => {
+    const response = await api.put(`/services/${code}`, data)
+    return response.data
+  },
+
+  setAccess: async (code: string, roles: string[]): Promise<ServiceAdmin> => {
+    const response = await api.put(`/services/${code}/access`, { roles })
+    return response.data
+  },
+
+  setOverride: async (code: string, userId: number, allow: boolean): Promise<ServiceAdmin> => {
+    const response = await api.post(`/services/${code}/override`, { user_id: userId, allow })
+    return response.data
+  },
+
+  deleteOverride: async (code: string, userId: number) => {
+    const response = await api.delete(`/services/${code}/override/${userId}`)
     return response.data
   },
 }
