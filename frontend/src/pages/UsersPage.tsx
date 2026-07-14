@@ -3,6 +3,13 @@ import { useAuth } from '../auth/AuthContext'
 import { usersApi, licensesApi, User, LicensePlan } from '../api/client'
 import { Navigate } from 'react-router-dom'
 
+const ROLE_LABELS: Record<string, string> = {
+  admin: 'Администратор',
+  employee: 'Сотрудник',
+  client: 'Клиент',
+  user: 'Сотрудник', // legacy fallback
+}
+
 export default function UsersPage() {
   const { user: currentUser } = useAuth()
   const [users, setUsers] = useState<User[]>([])
@@ -14,7 +21,7 @@ export default function UsersPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [fullName, setFullName] = useState('')
-  const [role, setRole] = useState('user')
+  const [role, setRole] = useState('employee')
   const [formLoading, setFormLoading] = useState(false)
 
   // Edit form state
@@ -69,7 +76,7 @@ export default function UsersPage() {
       setEmail('')
       setPassword('')
       setFullName('')
-      setRole('user')
+      setRole('employee')
       await loadUsers()
     } catch (err: unknown) {
       const error = err as { response?: { data?: { detail?: string } } }
@@ -224,7 +231,8 @@ export default function UsersPage() {
               <div className="form-group">
                 <label>Роль</label>
                 <select value={role} onChange={(e) => setRole(e.target.value)}>
-                  <option value="user">Пользователь</option>
+                  <option value="employee">Сотрудник</option>
+                  <option value="client">Клиент</option>
                   <option value="admin">Администратор</option>
                 </select>
               </div>
@@ -333,7 +341,7 @@ export default function UsersPage() {
                 <td>{user.id}</td>
                 <td>{user.full_name}</td>
                 <td>{user.email}</td>
-                <td>{user.role === 'admin' ? 'Администратор' : 'Пользователь'}</td>
+                <td>{ROLE_LABELS[user.role] || user.role}</td>
                 <td>
                   {getLicenseBadge(user)}
                 </td>

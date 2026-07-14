@@ -1346,3 +1346,31 @@ tr:hover {
     padding: 12px;
   }
 }
+
+/* Beta badge next to service nav links */
+.nav-beta-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1.4;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #fff;
+  background: #f59e0b;
+  border-radius: 6px;
+  vertical-align: middle;
+}
+
+/* Access matrix page */
+.access-checkbox {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+}
+.access-note {
+  margin-top: 16px;
+  font-size: 13px;
+  color: #64748b;
+}

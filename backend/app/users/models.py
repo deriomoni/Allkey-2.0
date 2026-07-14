@@ -5,8 +5,9 @@ import enum
 
 
 class UserRole(str, enum.Enum):
-    admin = "admin"
-    user = "user"
+    admin = "admin"        # владелец — видит всё, всегда
+    employee = "employee"  # сотрудник бухгалтерской фирмы
+    client = "client"      # клиент фирмы
 
 
 class User(Base):

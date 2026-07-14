@@ -5,15 +5,14 @@ import logging
 import json
 import os
 import shutil
-import pickle
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, status
 from fastapi.responses import StreamingResponse
 from typing import Dict, Optional
 from io import BytesIO
 from pathlib import Path
 
-from app.auth.dependencies import get_current_user
 from app.users.models import User
+from app.services.dependencies import require_service
 from app.reconciliation.schemas import (
     UploadResponse, PreviewRequest, PreviewResponse,
     Case1Settings, Case2Settings, Case3Settings, ReconciliationResult
@@ -33,20 +32,59 @@ STORAGE_DIR = Path(os.getenv("SESSION_STORAGE_DIR", "/tmp/reconciliation_session
 FILES_DIR = STORAGE_DIR / "files"
 RESULTS_DIR = STORAGE_DIR / "results"
 
-FILE_TTL_SECONDS = 30 * 60      # 30 min
-RESULT_TTL_SECONDS = 60 * 60    # 1 hour
+FILE_TTL_SECONDS = 10 * 60      # 10 min
+RESULT_TTL_SECONDS = 30 * 60    # 30 min
 CLEANUP_INTERVAL_SECONDS = 300  # run cleanup every 5 min
+
+# Upload validation
+MAX_UPLOAD_BYTES = 20 * 1024 * 1024      # 20 MB
+ALLOWED_UPLOAD_EXTENSIONS = {".xls", ".xlsx"}
 
 # Ensure storage dirs exist
 FILES_DIR.mkdir(parents=True, exist_ok=True)
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
 
-def _save_files(session_id: str, files: Dict[str, bytes]):
+def _validate_upload(file: UploadFile, content: bytes):
+    """Reject non-Excel files and files exceeding the size limit."""
+    ext = Path(file.filename or "").suffix.lower()
+    if ext not in ALLOWED_UPLOAD_EXTENSIONS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Поддерживаются только файлы Excel"
+        )
+    if len(content) > MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail="Файл слишком большой (максимум 20 МБ)"
+        )
+
+
+def _check_owner(session_id: str, user: User, kind: str):
+    """Ensure the session belongs to `user` (admin bypasses).
+
+    kind: 'files' or 'results'. If the session has no meta yet, this is a no-op —
+    the caller's own existence checks return the appropriate 404.
+    """
+    base = FILES_DIR if kind == "files" else RESULTS_DIR
+    meta_path = base / session_id / "meta.json"
+    if not meta_path.exists():
+        return
+    if user.role == "admin":
+        return
+    meta = json.loads(meta_path.read_text())
+    if meta.get("user_id") != user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Доступ к чужой сессии запрещён"
+        )
+
+
+def _save_files(session_id: str, files: Dict[str, bytes], user_id: int):
     """Save uploaded files to disk"""
     session_dir = FILES_DIR / session_id
     session_dir.mkdir(parents=True, exist_ok=True)
-    meta = {"created_at": time.time(), "file_keys": list(files.keys())}
+    meta = {"created_at": time.time(), "file_keys": list(files.keys()), "user_id": user_id}
     (session_dir / "meta.json").write_text(json.dumps(meta))
     for key, content in files.items():
         (session_dir / key).write_bytes(content)
@@ -87,26 +125,28 @@ def _delete_file_session(session_id: str):
         shutil.rmtree(session_dir, ignore_errors=True)
 
 
-def _save_result(session_id: str, case_type: str, result: dict):
+def _save_result(session_id: str, case_type: str, result: dict, user_id: int):
     """Save reconciliation result to disk"""
     session_dir = RESULTS_DIR / session_id
     session_dir.mkdir(parents=True, exist_ok=True)
-    meta = {"created_at": time.time(), "case_type": case_type}
+    meta = {"created_at": time.time(), "case_type": case_type, "user_id": user_id}
     (session_dir / "meta.json").write_text(json.dumps(meta))
-    with open(session_dir / "result.pkl", "wb") as f:
-        pickle.dump(result, f)
+    with open(session_dir / "result.json", "w", encoding="utf-8") as f:
+        # default=str safely serializes any stray Decimal/date; amounts are
+        # already plain floats and dates are strings, so numbers stay numeric.
+        json.dump(result, f, ensure_ascii=False, default=str)
 
 
 def _get_result(session_id: str) -> Optional[Dict]:
     """Read result from disk"""
     session_dir = RESULTS_DIR / session_id
     meta_path = session_dir / "meta.json"
-    result_path = session_dir / "result.pkl"
+    result_path = session_dir / "result.json"
     if not meta_path.exists() or not result_path.exists():
         return None
     meta = json.loads(meta_path.read_text())
-    with open(result_path, "rb") as f:
-        result = pickle.load(f)
+    with open(result_path, "r", encoding="utf-8") as f:
+        result = json.load(f)
     return {"case_type": meta["case_type"], "result": result, "created_at": meta["created_at"]}
 
 
@@ -161,18 +201,20 @@ async def cleanup_task():
 async def upload_case1_files(
     account_6010: UploadFile = File(...),
     esf_report: UploadFile = File(...),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_service("case1"))
 ):
     """Upload files for Case 1 reconciliation"""
     session_id = str(uuid.uuid4())
 
     account_6010_content = await account_6010.read()
     esf_content = await esf_report.read()
+    _validate_upload(account_6010, account_6010_content)
+    _validate_upload(esf_report, esf_content)
 
     _save_files(session_id, {
         'account_6010': account_6010_content,
         'esf_report': esf_content
-    })
+    }, current_user.id)
 
     return UploadResponse(
         session_id=session_id,
@@ -187,7 +229,7 @@ async def upload_case1_files(
 @router.post("/case1/preview", response_model=PreviewResponse)
 async def preview_case1_file(
     request: PreviewRequest,
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_service("case1"))
 ):
     """Preview a file from Case 1 upload"""
     if not _session_exists(request.session_id):
@@ -195,6 +237,8 @@ async def preview_case1_file(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Сессия не найдена или истекла. Загрузите файлы заново."
         )
+
+    _check_owner(request.session_id, current_user, "files")
 
     content = _get_file(request.session_id, request.file_key)
     if content is None:
@@ -223,7 +267,7 @@ async def preview_case1_file(
 @router.post("/case1/process", response_model=ReconciliationResult)
 async def process_case1(
     settings: Case1Settings,
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_service("case1"))
 ):
     """Process Case 1 reconciliation"""
     if not _session_exists(settings.session_id):
@@ -231,6 +275,8 @@ async def process_case1(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Сессия не найдена или истекла. Загрузите файлы заново."
         )
+
+    _check_owner(settings.session_id, current_user, "files")
 
     session_files = _get_all_files(settings.session_id)
 
@@ -250,7 +296,7 @@ async def process_case1(
         )
 
     # Store result on disk, then free file session
-    _save_result(settings.session_id, 'case1', result)
+    _save_result(settings.session_id, 'case1', result, current_user.id)
     _delete_file_session(settings.session_id)
 
     return ReconciliationResult(**result)
@@ -259,9 +305,11 @@ async def process_case1(
 @router.get("/case1/download/{session_id}")
 async def download_case1_result(
     session_id: str,
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_service("case1"))
 ):
     """Download Case 1 reconciliation result as Excel"""
+    _check_owner(session_id, current_user, "results")
+
     stored = _get_result(session_id)
     if stored is None:
         raise HTTPException(
@@ -288,18 +336,20 @@ async def download_case1_result(
 async def upload_case2_files(
     our_act: UploadFile = File(...),
     counterparty_act: UploadFile = File(...),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_service("case2"))
 ):
     """Upload files for Case 2 reconciliation"""
     session_id = str(uuid.uuid4())
 
     our_act_content = await our_act.read()
     counterparty_act_content = await counterparty_act.read()
+    _validate_upload(our_act, our_act_content)
+    _validate_upload(counterparty_act, counterparty_act_content)
 
     _save_files(session_id, {
         'our_act': our_act_content,
         'counterparty_act': counterparty_act_content
-    })
+    }, current_user.id)
 
     return UploadResponse(
         session_id=session_id,
@@ -314,7 +364,7 @@ async def upload_case2_files(
 @router.post("/case2/preview", response_model=PreviewResponse)
 async def preview_case2_file(
     request: PreviewRequest,
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_service("case2"))
 ):
     """Preview a file from Case 2 upload"""
     if not _session_exists(request.session_id):
@@ -322,6 +372,8 @@ async def preview_case2_file(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Сессия не найдена или истекла. Загрузите файлы заново."
         )
+
+    _check_owner(request.session_id, current_user, "files")
 
     content = _get_file(request.session_id, request.file_key)
     if content is None:
@@ -350,7 +402,7 @@ async def preview_case2_file(
 @router.post("/case2/process", response_model=ReconciliationResult)
 async def process_case2(
     settings: Case2Settings,
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_service("case2"))
 ):
     """Process Case 2 reconciliation"""
     if not _session_exists(settings.session_id):
@@ -358,6 +410,8 @@ async def process_case2(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Сессия не найдена или истекла. Загрузите файлы заново."
         )
+
+    _check_owner(settings.session_id, current_user, "files")
 
     session_files = _get_all_files(settings.session_id)
 
@@ -376,7 +430,7 @@ async def process_case2(
             detail=str(e)
         )
 
-    _save_result(settings.session_id, 'case2', result)
+    _save_result(settings.session_id, 'case2', result, current_user.id)
     _delete_file_session(settings.session_id)
 
     return ReconciliationResult(**result)
@@ -385,9 +439,11 @@ async def process_case2(
 @router.get("/case2/download/{session_id}")
 async def download_case2_result(
     session_id: str,
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_service("case2"))
 ):
     """Download Case 2 reconciliation result as Excel"""
+    _check_owner(session_id, current_user, "results")
+
     stored = _get_result(session_id)
     if stored is None:
         raise HTTPException(
@@ -415,18 +471,20 @@ async def download_case2_result(
 async def upload_case3_files(
     account_3310: UploadFile = File(...),
     esf_report: UploadFile = File(...),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_service("case3"))
 ):
     """Upload files for Case 3 reconciliation"""
     session_id = str(uuid.uuid4())
 
     account_3310_content = await account_3310.read()
     esf_content = await esf_report.read()
+    _validate_upload(account_3310, account_3310_content)
+    _validate_upload(esf_report, esf_content)
 
     _save_files(session_id, {
         'account_3310': account_3310_content,
         'esf_report': esf_content
-    })
+    }, current_user.id)
 
     return UploadResponse(
         session_id=session_id,
@@ -441,7 +499,7 @@ async def upload_case3_files(
 @router.post("/case3/preview", response_model=PreviewResponse)
 async def preview_case3_file(
     request: PreviewRequest,
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_service("case3"))
 ):
     """Preview a file from Case 3 upload"""
     if not _session_exists(request.session_id):
@@ -449,6 +507,8 @@ async def preview_case3_file(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Сессия не найдена или истекла. Загрузите файлы заново."
         )
+
+    _check_owner(request.session_id, current_user, "files")
 
     content = _get_file(request.session_id, request.file_key)
     if content is None:
@@ -477,7 +537,7 @@ async def preview_case3_file(
 @router.post("/case3/process", response_model=ReconciliationResult)
 async def process_case3(
     settings: Case3Settings,
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_service("case3"))
 ):
     """Process Case 3 reconciliation"""
     if not _session_exists(settings.session_id):
@@ -485,6 +545,8 @@ async def process_case3(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Сессия не найдена или истекла. Загрузите файлы заново."
         )
+
+    _check_owner(settings.session_id, current_user, "files")
 
     session_files = _get_all_files(settings.session_id)
 
@@ -503,7 +565,7 @@ async def process_case3(
             detail=str(e)
         )
 
-    _save_result(settings.session_id, 'case3', result)
+    _save_result(settings.session_id, 'case3', result, current_user.id)
     _delete_file_session(settings.session_id)
 
     return ReconciliationResult(**result)
@@ -512,9 +574,11 @@ async def process_case3(
 @router.get("/case3/download/{session_id}")
 async def download_case3_result(
     session_id: str,
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_service("case3"))
 ):
     """Download Case 3 reconciliation result as Excel"""
+    _check_owner(session_id, current_user, "results")
+
     stored = _get_result(session_id)
     if stored is None:
         raise HTTPException(

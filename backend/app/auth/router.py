@@ -73,8 +73,9 @@ async def register(
             detail="Этот email уже зарегистрирован"
         )
 
-    # First user becomes admin
-    role = "admin" if user_count == 0 else "user"
+    # First user becomes admin (the owner); everyone who self-registers is a client.
+    # The role is never taken from the request body — UserCreate has no role field.
+    role = "admin" if user_count == 0 else "client"
 
     user = User(
         email=user_data.email,
