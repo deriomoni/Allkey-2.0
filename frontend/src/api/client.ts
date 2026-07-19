@@ -245,6 +245,69 @@ export interface ReconciliationResult {
   period_mismatch?: boolean
 }
 
+// ---- Currency reconciliation (USD 1С ↔ Нацбанк) ----
+export interface CurrencyRow {
+  date: string
+  description: string
+  usd: number
+  kzt: number
+  rate1c: number
+  rate_nb: number | null
+  diff: number | null
+  status: 'ok' | 'off' | 'no_nb'
+}
+
+export interface CurrencyResult {
+  rows: CurrencyRow[]
+  matched: number
+  off_rate: number
+  no_nb: number
+  total_usd: number
+  total_kzt: number
+  threshold: number
+}
+
+// ---- Bank statement reconciliation (1С ↔ банк) ----
+export interface BalanceGap {
+  from_date: string
+  to_date: string
+  amount: number
+}
+
+export interface BankRow {
+  date: string
+  date_c1?: string
+  dir: 'in' | 'out'
+  amount: number
+  bank_no: string
+  bank_party: string
+  bank_purpose: string
+  c1_no: string
+  c1_party: string
+  c1_purpose: string
+  parts: number[]
+  status: 'ok' | 'date_diff' | 'only_bank' | 'only_1c'
+}
+
+export interface BankResult {
+  rows: BankRow[]
+  matched: number
+  only_bank: number
+  only_1c: number
+  bank_in: number
+  bank_out: number
+  c1_in: number
+  c1_out: number
+  open_bank: number | null
+  open_c1: number | null
+  close_bank: number | null
+  close_c1: number | null
+  balance_diff: number | null
+  gaps: BalanceGap[]
+  split_docs: string[]
+  currency: boolean
+}
+
 // Auth API
 export const authApi = {
   login: async (data: LoginData) => {
@@ -414,6 +477,46 @@ export const reconciliationApi = {
 
   downloadCase3: (sessionId: string) => {
     return `${API_URL}/reconciliation/case3/download/${sessionId}`
+  },
+
+  // Currency: USD 1С vs Нацбанк
+  uploadCurrency: async (card1c: File, nbRates: File): Promise<UploadResponse> => {
+    const formData = new FormData()
+    formData.append('card_1c', card1c)
+    formData.append('nb_rates', nbRates)
+    const response = await api.post('/reconciliation/currency/upload', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+    return response.data
+  },
+
+  processCurrency: async (sessionId: string): Promise<CurrencyResult> => {
+    const response = await api.post('/reconciliation/currency/process', { session_id: sessionId })
+    return response.data
+  },
+
+  downloadCurrency: (sessionId: string) => {
+    return `${API_URL}/reconciliation/currency/download/${sessionId}`
+  },
+
+  // Bank: карточка 1С vs выписка
+  uploadBank: async (card1c: File, bankStatement: File): Promise<UploadResponse> => {
+    const formData = new FormData()
+    formData.append('card_1c', card1c)
+    formData.append('bank_statement', bankStatement)
+    const response = await api.post('/reconciliation/bank/upload', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+    return response.data
+  },
+
+  processBank: async (sessionId: string): Promise<BankResult> => {
+    const response = await api.post('/reconciliation/bank/process', { session_id: sessionId })
+    return response.data
+  },
+
+  downloadBank: (sessionId: string) => {
+    return `${API_URL}/reconciliation/bank/download/${sessionId}`
   },
 }
 
