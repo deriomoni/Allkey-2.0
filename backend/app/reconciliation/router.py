@@ -15,12 +15,15 @@ from app.users.models import User
 from app.services.dependencies import require_service
 from app.reconciliation.schemas import (
     UploadResponse, PreviewRequest, PreviewResponse,
-    Case1Settings, Case2Settings, Case3Settings, ReconciliationResult
+    Case1Settings, Case2Settings, Case3Settings, ReconciliationResult,
+    CurrencySettings, CurrencyResult, BankSettings, BankResult,
 )
 from app.reconciliation.excel_parser import ExcelParser, ExcelParseError
 from app.reconciliation.case1_service import Case1Service
 from app.reconciliation.case2_service import Case2Service
 from app.reconciliation.case3_service import Case3Service
+from app.reconciliation.case_currency_service import CaseCurrencyService, export_currency
+from app.reconciliation.case_bank_service import CaseBankService, export_bank
 from app.utils.excel_export import ExcelExporter
 
 logger = logging.getLogger(__name__)
@@ -597,4 +600,124 @@ async def download_case3_result(
         headers={
             "Content-Disposition": f"attachment; filename=reconciliation_case3_{session_id[:8]}.xlsx"
         }
+    )
+
+
+# ==================== Currency: курс USD 1С vs Нацбанк ====================
+
+@router.post("/currency/upload", response_model=UploadResponse)
+async def upload_currency_files(
+    card_1c: UploadFile = File(...),
+    nb_rates: UploadFile = File(...),
+    current_user: User = Depends(require_service("case_currency")),
+):
+    session_id = str(uuid.uuid4())
+    card_content = await card_1c.read()
+    nb_content = await nb_rates.read()
+    _validate_upload(card_1c, card_content)
+    _validate_upload(nb_rates, nb_content)
+    _save_files(session_id, {"card_1c": card_content, "nb_rates": nb_content}, current_user.id)
+    return UploadResponse(
+        session_id=session_id,
+        files={"card_1c": card_1c.filename, "nb_rates": nb_rates.filename},
+        message="Files uploaded successfully",
+    )
+
+
+@router.post("/currency/process", response_model=CurrencyResult)
+async def process_currency(
+    settings: CurrencySettings,
+    current_user: User = Depends(require_service("case_currency")),
+):
+    if not _session_exists(settings.session_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
+                            detail="Сессия не найдена или истекла. Загрузите файлы заново.")
+    _check_owner(settings.session_id, current_user, "files")
+    files = _get_all_files(settings.session_id)
+    service = CaseCurrencyService(card_content=files["card_1c"], nb_content=files["nb_rates"])
+    try:
+        result = service.reconcile()
+    except (ExcelParseError, ValueError) as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    _save_result(settings.session_id, "currency", result, current_user.id)
+    _delete_file_session(settings.session_id)
+    return CurrencyResult(**result)
+
+
+@router.get("/currency/download/{session_id}")
+async def download_currency_result(
+    session_id: str,
+    current_user: User = Depends(require_service("case_currency")),
+):
+    _check_owner(session_id, current_user, "results")
+    stored = _get_result(session_id)
+    if stored is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
+                            detail="Результат не найден или истёк. Выполните сверку заново.")
+    excel_content = export_currency(stored["result"])
+    _delete_result_session(session_id)
+    return StreamingResponse(
+        BytesIO(excel_content),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename=currency_{session_id[:8]}.xlsx"},
+    )
+
+
+# ==================== Bank: карточка 1С vs банковская выписка ====================
+
+@router.post("/bank/upload", response_model=UploadResponse)
+async def upload_bank_files(
+    card_1c: UploadFile = File(...),
+    bank_statement: UploadFile = File(...),
+    current_user: User = Depends(require_service("case_bank")),
+):
+    session_id = str(uuid.uuid4())
+    card_content = await card_1c.read()
+    bank_content = await bank_statement.read()
+    _validate_upload(card_1c, card_content)
+    _validate_upload(bank_statement, bank_content)
+    _save_files(session_id, {"card_1c": card_content, "bank_statement": bank_content}, current_user.id)
+    return UploadResponse(
+        session_id=session_id,
+        files={"card_1c": card_1c.filename, "bank_statement": bank_statement.filename},
+        message="Files uploaded successfully",
+    )
+
+
+@router.post("/bank/process", response_model=BankResult)
+async def process_bank(
+    settings: BankSettings,
+    current_user: User = Depends(require_service("case_bank")),
+):
+    if not _session_exists(settings.session_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
+                            detail="Сессия не найдена или истекла. Загрузите файлы заново.")
+    _check_owner(settings.session_id, current_user, "files")
+    files = _get_all_files(settings.session_id)
+    service = CaseBankService(card_content=files["card_1c"], bank_content=files["bank_statement"])
+    try:
+        result = service.reconcile()
+    except (ExcelParseError, ValueError) as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    _save_result(settings.session_id, "bank", result, current_user.id)
+    _delete_file_session(settings.session_id)
+    return BankResult(**result)
+
+
+@router.get("/bank/download/{session_id}")
+async def download_bank_result(
+    session_id: str,
+    current_user: User = Depends(require_service("case_bank")),
+):
+    _check_owner(session_id, current_user, "results")
+    stored = _get_result(session_id)
+    if stored is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
+                            detail="Результат не найден или истёк. Выполните сверку заново.")
+    excel_content = export_bank(stored["result"])
+    _delete_result_session(session_id)
+    return StreamingResponse(
+        BytesIO(excel_content),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename=bank_{session_id[:8]}.xlsx"},
     )

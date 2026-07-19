@@ -28,6 +28,12 @@ SEED_SERVICES = [
     {"code": "case3", "title": "Сверка счёта 3310 с реестром ЭСФ",
      "description": "Карточка счёта 3310 ↔ реестр ЭСФ",
      "status": "production", "sort_order": 3, "roles": ["employee", "client"]},
+    {"code": "case_currency", "title": "Сверка курсов валют (USD 1С ↔ Нацбанк)",
+     "description": "Карточка счёта в валюте ↔ курсы Нацбанка. Отклонение курса 1С от НБ.",
+     "status": "beta", "sort_order": 4, "roles": ["employee"]},
+    {"code": "case_bank", "title": "Сверка выписок (1С ↔ банк)",
+     "description": "Карточка счёта 1С ↔ банковская выписка. Обороты, остатки, неучтённые поступления.",
+     "status": "beta", "sort_order": 5, "roles": ["employee"]},
 ]
 
 
