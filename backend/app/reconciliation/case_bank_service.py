@@ -99,6 +99,58 @@ def _find_header_row(aoa: List[List[Cell]], needles: List[str]):
     return None
 
 
+def _norm(c) -> str:
+    return re.sub(r"\s+", " ", str(c)).strip().lower() if isinstance(c, str) else ""
+
+
+def _amount_col(sub, start, end):
+    """Колонка суммы внутри блока «Дебет»/«Кредит».
+
+    В карточке 1С под «Дебет»/«Кредит» идут подстолбцы: «Счёт» (номер счёта),
+    иногда «Вал.» (валюта) и собственно сумма. Берём первый столбец блока,
+    который НЕ «Счёт» и НЕ валюта. Так корректно работает и тенговая карточка
+    (сумма сразу за «Счёт», +1), и валютная (+2, если есть столбец валюты).
+    """
+    acct = cur = None
+    for c in range(start, min(end, len(sub))):
+        t = _norm(sub[c])
+        if t in ("счет", "счёт"):
+            acct = c
+        elif t.startswith("вал"):
+            cur = c
+    for c in range(start, end):
+        if c in (acct, cur):
+            continue
+        return c
+    return start + 1
+
+
+_BANK_ALIASES = {
+    "date": ["дата", "күні"],
+    "debit": ["дебет"],
+    "credit": ["кредит"],
+    "cp": ["контрагент", "корреспондент"],
+    "pur": ["назначение платежа", "назначение", "мақсаты"],
+}
+
+
+def _find_bank_cols(aoa):
+    """Найти строку заголовков выписки и индексы колонок по синонимам (двуязычные шапки)."""
+    for i, row in enumerate(aoa):
+        if not row:
+            continue
+        found = {}
+        for key, aliases in _BANK_ALIASES.items():
+            for j, c in enumerate(row):
+                n = _norm(c)
+                if n and any(a in n for a in aliases):
+                    found[key] = j
+                    break
+        if "debit" in found and "credit" in found and "date" in found:
+            return i, found
+    return None, {}
+
+
 def _signed_balance(row: List[Cell], amount: float) -> float:
     idx = -1
     for j, c in enumerate(row):
@@ -116,8 +168,15 @@ def _signed_balance(row: List[Cell], amount: float) -> float:
 
 def _parse_1c(aoa: List[List[Cell]]) -> Dict[str, Any]:
     hdr = _find_header_row(aoa, ["Дебет", "Кредит", "Общий оборот", "Текущее сальдо"])
-    deb_col = hdr["cols"]["Дебет"] + 2 if hdr else 7
-    kre_col = hdr["cols"]["Кредит"] + 2 if hdr else 10
+    if hdr:
+        sub = aoa[hdr["row"] + 1] if hdr["row"] + 1 < len(aoa) else []
+        deb_h = hdr["cols"]["Дебет"]
+        kre_h = hdr["cols"]["Кредит"]
+        oborot = hdr["cols"].get("Общий оборот", hdr["cols"].get("Текущее сальдо", kre_h + 3))
+        deb_col = _amount_col(sub, deb_h, kre_h)
+        kre_col = _amount_col(sub, kre_h, oborot)
+    else:
+        deb_col, kre_col = 7, 10
 
     show_col = -1
     if hdr:
@@ -191,19 +250,12 @@ def _group_1c(lst: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 
 
 def _parse_bank(aoa: List[List[Cell]]) -> Dict[str, Any]:
-    hdr = _find_header_row(aoa, ["Дебет", "Кредит", "Назначение платежа", "Контрагент"])
-    deb_col = hdr["cols"]["Дебет"] if hdr else 7       # списание (out)
-    kre_col = hdr["cols"]["Кредит"] if hdr else 8      # приход (in)
-    cp_col = hdr["cols"].get("Контрагент", 4) if hdr else 4
-    pur_col = hdr["cols"].get("Назначение платежа", 9) if hdr else 9
-
-    date_col = 1
-    if hdr:
-        hrow = aoa[hdr["row"]] or []
-        di = next((j for j, c in enumerate(hrow)
-                   if isinstance(c, str) and re.match(r"^Дата", c.strip(), re.I)), -1)
-        if di >= 0:
-            date_col = di
+    hdr_row, cols = _find_bank_cols(aoa)
+    date_col = cols.get("date", 1)
+    deb_col = cols.get("debit", 7)   # списание (out)
+    kre_col = cols.get("credit", 8)  # приход (in)
+    cp_col = cols.get("cp", 4)
+    pur_col = cols.get("pur", 9)
 
     tx: List[Dict[str, Any]] = []
     open_bal = close_bal = None
@@ -216,26 +268,30 @@ def _parse_bank(aoa: List[List[Cell]]) -> Dict[str, Any]:
         label = next((c for c in row if isinstance(c, str) and c.strip()), None)
 
         if label:
-            m_in = re.search(r"Входящий остаток на (\d{2}\.\d{2}\.\d{4})", label)
-            if m_in:
+            ln = _norm(label)
+            # Входящий остаток на ДАТА  /  Входящее сальдо  /  Кіріс сальдо
+            m_in = re.search(r"входящий остаток на (\d{2}\.\d{2}\.\d{4})", ln)
+            if m_in or "входящее сальдо" in ln or "кіріс сальдо" in ln:
                 nums = [x for x in (_parse_num(c) for c in row) if x is not None]
                 bal = nums[-1] if nums else None
                 if open_bal is None:
                     open_bal = bal
-                if bal is not None and prev_close is not None and _r2(bal) != _r2(prev_close):
+                if m_in and bal is not None and prev_close is not None and _r2(bal) != _r2(prev_close):
                     gaps.append({"from_date": prev_date, "to_date": m_in.group(1),
                                  "amount": _r2(bal - prev_close)})
                 continue
-            m_out = re.search(r"Исходящий остаток на (\d{2}\.\d{2}\.\d{4})", label)
-            if m_out:
+            # Исходящий остаток на ДАТА  /  Исходящее сальдо  /  Шығыс сальдо
+            m_out = re.search(r"исходящий остаток на (\d{2}\.\d{2}\.\d{4})", ln)
+            if m_out or "исходящее сальдо" in ln or "шығыс сальдо" in ln:
                 nums = [x for x in (_parse_num(c) for c in row) if x is not None]
                 bal = nums[-1] if nums else None
                 if bal is not None:
                     close_bal = bal
                     prev_close = bal
-                    prev_date = m_out.group(1)
+                    prev_date = m_out.group(1) if m_out else prev_date
                 continue
-            if (re.search(r"Итого|оборот|ведомость|№ док|Входящий|Исходящий", label, re.I)
+            # прочие служебные строки (итоги/шапки) без даты — пропускаем
+            if (re.search(r"итого|жиынтығы|оборот|айналым|ведомость|№ док|№ п/п|реттік|входящ|исходящ|сальдо", ln)
                     and not _parse_date(row[date_col] if date_col < len(row) else None)):
                 continue
 
