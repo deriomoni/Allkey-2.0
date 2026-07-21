@@ -108,3 +108,4 @@ class BankResult(BaseModel):
     gaps: List[Dict[str, Any]] = []
     split_docs: List[str] = []
     currency: bool = False
+    cp_mismatch: int = 0

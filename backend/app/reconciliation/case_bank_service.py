@@ -103,6 +103,49 @@ def _norm(c) -> str:
     return re.sub(r"\s+", " ", str(c)).strip().lower() if isinstance(c, str) else ""
 
 
+_BOILERPLATE_1C = ("головное подразделение", "без договора", "основной договор",
+                   "договор", "прочие расчеты", "прочие расчёты", "расчеты с",
+                   "расчёты с", "аванс")
+
+
+def _party_1c(cell) -> str:
+    """Имя контрагента из аналитики 1С: первая строка, не являющаяся служебной."""
+    if not isinstance(cell, str):
+        return ""
+    lines = [x.strip() for x in cell.split("\n") if x.strip()]
+    for ln in lines:
+        low = ln.lower()
+        if any(b in low for b in _BOILERPLATE_1C):
+            continue
+        return ln
+    return lines[0] if lines else ""
+
+
+def _norm_name(s) -> str:
+    if not isinstance(s, str):
+        return ""
+    s = s.lower()
+    s = re.sub(r"иин\s*/?\s*бин.*", " ", s)   # обрезаем хвост «ИИН/БИН 12345…»
+    s = re.sub(r"\bинн?\b.*", " ", s)
+    s = re.sub(r"[«»\"\'.,]", " ", s)
+    s = re.sub(r"\b(тоо|ип|ао|оао|зао|чп|кх|тд|пк|ксхп|фл|ул)\b", " ", s)
+    s = re.sub(r"[^\wа-яё ]", " ", s)
+    s = re.sub(r"\s+", " ", s).strip()
+    return s
+
+
+def _cp_match(a, b):
+    """None — не с чем сравнивать; True/False — совпал ли контрагент по токенам."""
+    na, nb = _norm_name(a), _norm_name(b)
+    if not na or not nb:
+        return None
+    ta, tb = set(na.split()), set(nb.split())
+    if not ta or not tb:
+        return None
+    inter = ta & tb
+    return len(inter) >= 1 and len(inter) >= min(len(ta), len(tb)) * 0.5
+
+
 def _amount_col(sub, start, end):
     """Колонка суммы внутри блока «Дебет»/«Кредит».
 
@@ -129,7 +172,7 @@ _BANK_ALIASES = {
     "date": ["дата", "күні"],
     "debit": ["дебет"],
     "credit": ["кредит"],
-    "cp": ["контрагент", "корреспондент"],
+    "cp": ["контрагент", "корреспондент", "бенефициар", "наименование"],
     "pur": ["назначение платежа", "назначение", "мақсаты"],
 }
 
@@ -222,11 +265,11 @@ def _parse_1c(aoa: List[List[Cell]]) -> Dict[str, Any]:
         no = _doc_no_1c(doc)
         if deb is not None and deb > 0:
             tx.append({"date": date, "dir": "in", "amount": _r2(deb), "no": no,
-                       "party": _nth_line(row[4] if len(row) > 4 else None, 1),
+                       "party": _party_1c(row[4] if len(row) > 4 else None),
                        "purpose": _nth_line(doc, 1), "parts": [_r2(deb)]})
         if kre is not None and kre > 0:
             tx.append({"date": date, "dir": "out", "amount": _r2(kre), "no": no,
-                       "party": _nth_line(row[3] if len(row) > 3 else None, 1),
+                       "party": _party_1c(row[3] if len(row) > 3 else None),
                        "purpose": _nth_line(doc, 1), "parts": [_r2(kre)]})
     return {"tx": tx, "open": open_bal, "close": close_bal, "currency": currency}
 
@@ -271,7 +314,7 @@ def _parse_bank(aoa: List[List[Cell]]) -> Dict[str, Any]:
             ln = _norm(label)
             # Входящий остаток на ДАТА  /  Входящее сальдо  /  Кіріс сальдо
             m_in = re.search(r"входящий остаток на (\d{2}\.\d{2}\.\d{4})", ln)
-            if m_in or "входящее сальдо" in ln or "кіріс сальдо" in ln:
+            if m_in or re.search(r"входящ\w*\s+(остаток|сальдо)", ln) or "кіріс сальдо" in ln:
                 nums = [x for x in (_parse_num(c) for c in row) if x is not None]
                 bal = nums[-1] if nums else None
                 if open_bal is None:
@@ -282,7 +325,7 @@ def _parse_bank(aoa: List[List[Cell]]) -> Dict[str, Any]:
                 continue
             # Исходящий остаток на ДАТА  /  Исходящее сальдо  /  Шығыс сальдо
             m_out = re.search(r"исходящий остаток на (\d{2}\.\d{2}\.\d{4})", ln)
-            if m_out or "исходящее сальдо" in ln or "шығыс сальдо" in ln:
+            if m_out or re.search(r"исходящ\w*\s+(остаток|сальдо)", ln) or "шығыс сальдо" in ln:
                 nums = [x for x in (_parse_num(c) for c in row) if x is not None]
                 bal = nums[-1] if nums else None
                 if bal is not None:
@@ -336,25 +379,26 @@ class CaseBankService:
             for a, b in enumerate(bank_tx):
                 if b_used[a]:
                     continue
-                for c, t in enumerate(c1g):
-                    if c_used[c]:
-                        continue
-                    if b["dir"] != t["dir"]:
-                        continue
-                    if abs(b["amount"] - t["amount"]) > 0.005:
-                        continue
-                    if same_date and b["date"] != t["date"]:
-                        continue
-                    b_used[a] = True
-                    c_used[c] = True
-                    rows.append({
-                        "date": b["date"], "date_c1": t["date"], "dir": b["dir"],
-                        "amount": b["amount"], "bank_no": b["no"], "bank_party": b["party"],
-                        "bank_purpose": b["purpose"], "c1_no": t["no"], "c1_party": t["party"],
-                        "c1_purpose": t["purpose"], "parts": t["parts"],
-                        "status": "ok" if same_date else "date_diff",
-                    })
-                    break
+                cands = [c for c, t in enumerate(c1g)
+                         if not c_used[c] and b["dir"] == t["dir"]
+                         and abs(b["amount"] - t["amount"]) <= 0.005
+                         and (not same_date or b["date"] == t["date"])]
+                if not cands:
+                    continue
+                # при равной сумме+дате приоритет — кандидат с совпавшим контрагентом
+                cands.sort(key=lambda c: 0 if _cp_match(b["party"], c1g[c]["party"]) else 1)
+                c = cands[0]
+                t = c1g[c]
+                b_used[a] = True
+                c_used[c] = True
+                rows.append({
+                    "date": b["date"], "date_c1": t["date"], "dir": b["dir"],
+                    "amount": b["amount"], "bank_no": b["no"], "bank_party": b["party"],
+                    "bank_purpose": b["purpose"], "c1_no": t["no"], "c1_party": t["party"],
+                    "c1_purpose": t["purpose"], "parts": t["parts"],
+                    "cp_match": _cp_match(b["party"], t["party"]),
+                    "status": "ok" if same_date else "date_diff",
+                })
 
         match(True)
         match(False)
@@ -365,14 +409,14 @@ class CaseBankService:
             rows.append({"date": b["date"], "dir": b["dir"], "amount": b["amount"],
                          "bank_no": b["no"], "bank_party": b["party"], "bank_purpose": b["purpose"],
                          "c1_no": "", "c1_party": "", "c1_purpose": "", "parts": [],
-                         "status": "only_bank"})
+                         "cp_match": None, "status": "only_bank"})
         for c, t in enumerate(c1g):
             if c_used[c]:
                 continue
             rows.append({"date": t["date"], "dir": t["dir"], "amount": t["amount"],
                          "bank_no": "", "bank_party": "", "bank_purpose": "",
                          "c1_no": t["no"], "c1_party": t["party"], "c1_purpose": t["purpose"],
-                         "parts": t["parts"], "status": "only_1c"})
+                         "parts": t["parts"], "cp_match": None, "status": "only_1c"})
 
         rows.sort(key=lambda r: (_date_key(r["date"]), 0 if r["dir"] == "in" else 1))
 
@@ -405,7 +449,13 @@ class CaseBankService:
             "close_bank": close_bank, "close_c1": close_c1,
             "balance_diff": balance_diff, "gaps": bank["gaps"],
             "split_docs": split_docs, "currency": c1["currency"],
+            "cp_mismatch": sum(1 for r in rows
+                               if r["status"] in ("ok", "date_diff") and r.get("cp_match") is False),
         }
+
+
+def _cp_label(v) -> str:
+    return "✓" if v is True else ("⚠ проверить" if v is False else "—")
 
 
 def _status_label(s: str) -> str:
@@ -440,6 +490,7 @@ def export_bank(res: Dict[str, Any]) -> bytes:
         ["Операций сопоставлено", res.get("matched"), "", ""],
         ["Нет в 1С (не проведено)", res.get("only_bank"), "", ""],
         ["Нет в банке", res.get("only_1c"), "", ""],
+        ["Контрагент разошёлся (в сопоставленных)", res.get("cp_mismatch", 0), "", ""],
         [],
     ]
     if diff is not None and abs(diff) > 0.005:
@@ -461,6 +512,12 @@ def export_bank(res: Dict[str, Any]) -> bytes:
         S.append(["Примечание",
                   "В 1С разбиты на 2 строки проводок (часть «Оплата», часть «Оплата (аванс)») платёжные поручения: №"
                   + ", №".join(res["split_docs"]) + ". Это не ошибка — сверка выполнена на уровне документа."])
+    if res.get("cp_mismatch", 0):
+        S.append([])
+        S.append(["Контрагент",
+                  f'В {res["cp_mismatch"]} сопоставленных операциях контрагент в банке и в 1С отличается '
+                  '(суммы и даты совпали). Это часто нормально (напр. банк указывает филиал/платёжную систему, '
+                  'а 1С — реального контрагента), но стоит просмотреть столбец «Контрагент» на листе «Детально».'])
     for r in S:
         ws1.append(r)
     ws1["A1"].font = Font(bold=True, size=13)
@@ -491,7 +548,7 @@ def export_bank(res: Dict[str, Any]) -> bytes:
     # ---- Детально ----
     ws3 = wb.create_sheet("Детально")
     ws3.append(["Дата", "Направление", "Сумма, ₸", "Банк: № док", "Банк: контрагент",
-                "Банк: назначение", "1С: № ПП", "1С: контрагент/статья", "1С: строк", "Статус"])
+                "Банк: назначение", "1С: № ПП", "1С: контрагент/статья", "Контрагент", "1С: строк", "Статус"])
     for c in ws3[1]:
         c.font = Font(bold=True)
     for r in res.get("rows", []):
@@ -500,10 +557,11 @@ def export_bank(res: Dict[str, Any]) -> bytes:
             r["date"], "приход" if r["dir"] == "in" else "списание", r["amount"],
             r.get("bank_no", ""), r.get("bank_party", ""), (r.get("bank_purpose") or "")[:80],
             r.get("c1_no", ""), r.get("c1_party") or r.get("c1_purpose", ""),
+            _cp_label(r.get("cp_match")),
             f'2 ({" + ".join(_fmt(x) for x in parts)})' if len(parts) > 1 else "1",
             _status_label(r["status"]),
         ])
-    for col, width in zip("ABCDEFGHIJ", [12, 11, 16, 11, 26, 44, 9, 24, 20, 16]):
+    for col, width in zip("ABCDEFGHIJK", [12, 11, 16, 11, 26, 40, 9, 24, 14, 9, 16]):
         ws3.column_dimensions[col].width = width
 
     buf = BytesIO()

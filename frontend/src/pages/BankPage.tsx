@@ -164,7 +164,7 @@ export default function BankPage() {
               </tbody>
             </table>
             <p style={{ marginTop: 12, color: '#6b7280', fontSize: 13 }}>
-              Сопоставлено: {result.matched} · Нет в 1С: {result.only_bank} · Нет в банке: {result.only_1c}
+              Сопоставлено: {result.matched} · Нет в 1С: {result.only_bank} · Нет в банке: {result.only_1c} · Контрагент разошёлся: {result.cp_mismatch ?? 0}
             </p>
           </div>
 

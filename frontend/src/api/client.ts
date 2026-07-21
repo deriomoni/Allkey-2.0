@@ -306,6 +306,7 @@ export interface BankResult {
   gaps: BalanceGap[]
   split_docs: string[]
   currency: boolean
+  cp_mismatch: number
 }
 
 // Auth API
