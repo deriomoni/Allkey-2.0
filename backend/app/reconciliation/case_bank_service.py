@@ -146,26 +146,40 @@ def _cp_match(a, b):
     return len(inter) >= 1 and len(inter) >= min(len(ta), len(tb)) * 0.5
 
 
-def _amount_col(sub, start, end):
+def _amount_col(aoa, sub, start, end, amt_rows):
     """Колонка суммы внутри блока «Дебет»/«Кредит».
 
-    В карточке 1С под «Дебет»/«Кредит» идут подстолбцы: «Счёт» (номер счёта),
-    иногда «Вал.» (валюта) и собственно сумма. Берём первый столбец блока,
-    который НЕ «Счёт» и НЕ валюта. Так корректно работает и тенговая карточка
-    (сумма сразу за «Счёт», +1), и валютная (+2, если есть столбец валюты).
+    В блоке до трёх подстолбцов: «Счёт» (номер счёта), БЕЗ ЗАГОЛОВКА столбец кода
+    валюты (напр. «EUR»), который вставляет валютная карточка, и собственно сумма.
+    «Счёт» находится по подзаголовку, но у столбца кода валюты заголовка нет вовсе
+    (код появляется только в строках данных) — поэтому по позиции сумму не найти:
+    в тенговой карточке она стоит «Счёт»+1, в валютной — «Счёт»+2. Поэтому среди
+    столбцов блока (кроме «Счёт») выбираем тот, который реально содержит числа в
+    строках, которые мы будем читать (amt_rows). Так пропускается текстовый столбец
+    «EUR» и в экспорте «только валюта», и в «валюта+тенге», и по-прежнему берётся
+    единственный суммовой столбец обычной тенговой карточки.
     """
-    acct = cur = None
+    acct = -1
     for c in range(start, min(end, len(sub))):
-        t = _norm(sub[c])
-        if t in ("счет", "счёт"):
+        if _norm(sub[c]) in ("счет", "счёт"):
             acct = c
-        elif t.startswith("вал"):
-            cur = c
+            break
+    best, best_count = -1, 0
     for c in range(start, end):
-        if c in (acct, cur):
+        if c == acct:
             continue
-        return c
-    return start + 1
+        count = 0
+        for i in amt_rows:
+            r = aoa[i] if i < len(aoa) else None
+            n = _parse_num(r[c]) if (r is not None and c < len(r)) else None
+            if n is not None and n > 0:
+                count += 1
+        if count > best_count:
+            best_count = count
+            best = c
+    if best >= 0:
+        return best
+    return acct + 1 if acct >= 0 else start + 1
 
 
 _BANK_ALIASES = {
@@ -211,15 +225,6 @@ def _signed_balance(row: List[Cell], amount: float) -> float:
 
 def _parse_1c(aoa: List[List[Cell]]) -> Dict[str, Any]:
     hdr = _find_header_row(aoa, ["Дебет", "Кредит", "Общий оборот", "Текущее сальдо"])
-    if hdr:
-        sub = aoa[hdr["row"] + 1] if hdr["row"] + 1 < len(aoa) else []
-        deb_h = hdr["cols"]["Дебет"]
-        kre_h = hdr["cols"]["Кредит"]
-        oborot = hdr["cols"].get("Общий оборот", hdr["cols"].get("Текущее сальдо", kre_h + 3))
-        deb_col = _amount_col(sub, deb_h, kre_h)
-        kre_col = _amount_col(sub, kre_h, oborot)
-    else:
-        deb_col, kre_col = 7, 10
 
     show_col = -1
     if hdr:
@@ -232,6 +237,26 @@ def _parse_1c(aoa: List[List[Cell]]) -> Dict[str, Any]:
                 and isinstance(row[show_col], str) and re.search(r"Вал\.", row[show_col]) is not None)
 
     currency = show_col >= 0 and any(is_val(r) for r in aoa)
+
+    # Суммовой столбец определяем по фактическим данным тех строк, которые реально
+    # читаем (строки «Вал.» валютной карточки, иначе — датированные строки), а не по
+    # заголовкам — так и тенговая, и «только валюта», и «валюта+тенге» дают верный
+    # столбец, минуя столбец кода валюты «EUR» без заголовка (см. _amount_col).
+    if hdr:
+        sub = aoa[hdr["row"] + 1] if hdr["row"] + 1 < len(aoa) else []
+        deb_h = hdr["cols"]["Дебет"]
+        kre_h = hdr["cols"]["Кредит"]
+        oborot = hdr["cols"].get("Общий оборот", hdr["cols"].get("Текущее сальдо", kre_h + 3))
+        amt_rows: List[int] = []
+        for i in range(hdr["row"] + 2, len(aoa)):
+            r = aoa[i] or []
+            ok = is_val(r) if currency else (bool(r) and _parse_date(r[0]) is not None)
+            if ok:
+                amt_rows.append(i)
+        deb_col = _amount_col(aoa, sub, deb_h, kre_h, amt_rows)
+        kre_col = _amount_col(aoa, sub, kre_h, oborot, amt_rows)
+    else:
+        deb_col, kre_col = 7, 10
 
     tx: List[Dict[str, Any]] = []
     open_bal = close_bal = None
