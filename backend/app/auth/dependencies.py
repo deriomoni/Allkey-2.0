@@ -48,3 +48,20 @@ async def get_current_admin(
             detail="Требуется доступ администратора"
         )
     return current_user
+
+
+async def require_staff(
+    current_user: User = Depends(get_current_user)
+) -> User:
+    """Доступ для сотрудников и владельца (роли 'employee' и 'admin').
+
+    Для роли 'client' (и любой другой не-штатной) отдаёт 403. Не заменяет
+    get_current_admin — это более мягкий уровень для внутренних разделов
+    (напр. журнал «Обновления»), которые видит вся команда, но не клиенты.
+    """
+    if current_user.role not in ("admin", "employee"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Требуется доступ сотрудника"
+        )
+    return current_user

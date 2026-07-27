@@ -309,6 +309,26 @@ export interface BankResult {
   cp_mismatch: number
 }
 
+// ---- Changelog (раздел «Обновления», только admin/employee) ----
+export interface ChangelogEntry {
+  id: number
+  date: string                 // ISO "2026-07-27"
+  category: 'fix' | 'feature' | 'improvement'
+  service_code: string | null
+  title: string
+  body: string
+  created_by: number | null
+  created_at: string | null
+}
+
+export interface ChangelogInput {
+  date: string
+  category: 'fix' | 'feature' | 'improvement'
+  service_code?: string | null
+  title: string
+  body?: string
+}
+
 // Auth API
 export const authApi = {
   login: async (data: LoginData) => {
@@ -586,6 +606,29 @@ export const servicesApi = {
 
   deleteOverride: async (code: string, userId: number) => {
     const response = await api.delete(`/services/${code}/override/${userId}`)
+    return response.data
+  },
+}
+
+// Changelog API
+export const changelogApi = {
+  getAll: async (): Promise<ChangelogEntry[]> => {
+    const response = await api.get('/changelog')
+    return response.data
+  },
+
+  create: async (data: ChangelogInput): Promise<ChangelogEntry> => {
+    const response = await api.post('/changelog', data)
+    return response.data
+  },
+
+  update: async (id: number, data: Partial<ChangelogInput>): Promise<ChangelogEntry> => {
+    const response = await api.patch(`/changelog/${id}`, data)
+    return response.data
+  },
+
+  delete: async (id: number) => {
+    const response = await api.delete(`/changelog/${id}`)
     return response.data
   },
 }
