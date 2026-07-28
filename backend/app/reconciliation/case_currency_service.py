@@ -10,6 +10,7 @@ from openpyxl.styles import Font, Alignment
 from app.reconciliation.aoa import read_aoa
 
 OFF_RATE_THRESHOLD = 0.5
+BALANCE_TOLERANCE = 0.01  # 1% — порог для контрольной проверки сальдо
 
 Cell = Any
 
@@ -43,6 +44,11 @@ def _parse_date(v: Cell) -> Optional[str]:
     return None
 
 
+def _date_key(d: str) -> int:
+    dd, mm, yy = (int(x) for x in d.split("."))
+    return yy * 10000 + mm * 100 + dd
+
+
 def _parse_num(v: Cell) -> Optional[float]:
     if isinstance(v, bool):
         return None
@@ -50,7 +56,7 @@ def _parse_num(v: Cell) -> Optional[float]:
         return float(v) if math.isfinite(float(v)) else None
     if not isinstance(v, str):
         return None
-    s = re.sub(r"[\s\u00a0\u202f]", "", v)
+    s = re.sub(r"[\s  ]", "", v)
     if not s:
         return None
     if "," in s and "." not in s:
@@ -65,6 +71,10 @@ def _parse_num(v: Cell) -> Optional[float]:
     except ValueError:
         return None
     return n if math.isfinite(n) else None
+
+
+def _norm(c) -> str:
+    return re.sub(r"\s+", " ", str(c)).strip().lower() if isinstance(c, str) else ""
 
 
 def _parse_nb_rates(aoa: List[List[Cell]]) -> Dict[str, float]:
@@ -106,12 +116,35 @@ def _balance_cutoff(aoa: List[List[Cell]]) -> float:
     return math.inf
 
 
-def _collect_nums(row: Optional[List[Cell]], cutoff: float) -> List[float]:
+def _account_cols(aoa: List[List[Cell]]) -> set:
+    """Индексы колонок «Счёт» (номера счетов 1030/1710/…) — по подзаголовку под
+    строкой с «Дебет»/«Кредит», как в case_bank_service. Их числа НЕ должны
+    попадать в кандидаты сумм: иначе счёт 1030 в паре с ~2 EUR даёт отношение
+    ~515 и проходит как правдоподобный курс. Пусто, если шапка не распознана —
+    тогда поведение как раньше.
+    """
+    for i, row in enumerate(aoa):
+        if not row:
+            continue
+        has_deb = any(isinstance(c, str) and c.strip().lower() == "дебет" for c in row)
+        has_kre = any(isinstance(c, str) and c.strip().lower() == "кредит" for c in row)
+        if not (has_deb and has_kre):
+            continue
+        sub = aoa[i + 1] if i + 1 < len(aoa) else []
+        cols = {j for j, c in enumerate(sub) if _norm(c) in ("счет", "счёт")}
+        if cols:
+            return cols
+    return set()
+
+
+def _collect_nums(row: Optional[List[Cell]], cutoff: float, skip: set = frozenset()) -> List[float]:
     out: List[float] = []
     if not row:
         return out
     up = len(row) if cutoff == math.inf else min(len(row), int(cutoff))
     for k in range(1, up):
+        if k in skip:
+            continue
         n = _parse_num(row[k])
         if n is not None and n > 0:
             out.append(n)
@@ -144,6 +177,7 @@ def _best_pair(main_nums: List[float], val_nums: List[float],
 def _parse_1c(aoa: List[List[Cell]], nb: Dict[str, float]) -> List[Dict[str, Any]]:
     rows: List[Dict[str, Any]] = []
     cutoff = _balance_cutoff(aoa)
+    acct = _account_cols(aoa)
     n = len(aoa)
     for i in range(n):
         row = aoa[i] or []
@@ -155,16 +189,46 @@ def _parse_1c(aoa: List[List[Cell]], nb: Dict[str, float]) -> List[Dict[str, Any
         if not date:
             continue
 
-        main_nums = _collect_nums(row, cutoff)
+        main_nums = _collect_nums(row, cutoff, acct)
         nxt = (aoa[i + 1] if i + 1 < n else []) or []
         next_has_date = any(_parse_date(c) for c in nxt)
-        val_nums = [] if next_has_date else _collect_nums(nxt, cutoff)
+        val_nums = [] if next_has_date else _collect_nums(nxt, cutoff, acct)
 
         nb_rate = nb.get(date)
-        pick = _best_pair(main_nums, val_nums, nb_rate)
-        if not pick:
+
+        desc = ""
+        for c in row:
+            if isinstance(c, str) and c.strip() and not _parse_date(c):
+                desc = c.strip()
+                break
+
+        base = {"date": date, "description": desc, "rate_nb": nb_rate,
+                "expected_kzt": None, "delta_kzt": None}
+
+        # Ни одна датированная строка не должна молча исчезать. Порядок статусов:
+        # 1) нет валютной суммы вовсе — переоценка валютных средств (информационно);
+        if not val_nums:
+            rows.append({**base, "usd": None, "kzt": None, "rate1c": None,
+                         "diff": None, "status": "no_val"})
             continue
 
+        pick = _best_pair(main_nums, val_nums, nb_rate)
+
+        # 2) есть тенге и валюта, но пара не прошла фильтр правдоподобия
+        #    (отношение вне 50–2000). Так выглядит документ, проведённый без курса
+        #    (тенге ≈ валюта, отношение ≈ 1). Это ошибка, а не инфо-строка.
+        if pick is None:
+            usd = max(val_nums)
+            kzt = max(main_nums) if main_nums else None
+            rate1c = _round4(kzt / usd) if (kzt is not None and usd) else None
+            expected = _round2(usd * nb_rate) if nb_rate is not None else None
+            delta = _round2(expected - kzt) if (expected is not None and kzt is not None) else None
+            rows.append({**base, "usd": usd, "kzt": kzt, "rate1c": rate1c,
+                         "diff": None, "expected_kzt": expected, "delta_kzt": delta,
+                         "status": "no_rate"})
+            continue
+
+        # 3) пара найдена — обычная сверка с курсом НБ.
         usd, kzt = pick["usd"], pick["kzt"]
         rate1c = _round4(kzt / usd)
         diff = _round4(rate1c - nb_rate) if nb_rate is not None else None
@@ -174,18 +238,80 @@ def _parse_1c(aoa: List[List[Cell]], nb: Dict[str, float]) -> List[Dict[str, Any
             status = "off"
         else:
             status = "ok"
-
-        desc = ""
-        for c in row:
-            if isinstance(c, str) and c.strip() and not _parse_date(c):
-                desc = c.strip()
-                break
-
-        rows.append({
-            "date": date, "description": desc, "usd": usd, "kzt": kzt,
-            "rate1c": rate1c, "rate_nb": nb_rate, "diff": diff, "status": status,
-        })
+        rows.append({**base, "usd": usd, "kzt": kzt, "rate1c": rate1c,
+                     "diff": diff, "status": status})
     return rows
+
+
+def _last_date(aoa: List[List[Cell]]) -> Optional[str]:
+    best_key = -1
+    best: Optional[str] = None
+    for row in aoa:
+        for c in row or []:
+            d = _parse_date(c)
+            if d:
+                k = _date_key(d)
+                if k > best_key:
+                    best_key, best = k, d
+                break
+    return best
+
+
+def _last_num(row: Optional[List[Cell]]) -> Optional[float]:
+    last: Optional[float] = None
+    for c in row or []:
+        n = _parse_num(c)
+        if n is not None:
+            last = n
+    return last
+
+
+def _balance_check(aoa: List[List[Cell]], nb: Dict[str, float]) -> Optional[Dict[str, Any]]:
+    """Контроль сальдо на конец: независимая проверка «в целом».
+
+    В карточке в конце есть блок «Обороты за период и сальдо на конец»: строка
+    «БУ» несёт сальдо в тенге (последнее число строки — «Текущее сальдо»), а
+    следующая строка «Вал.» — сальдо в валюте. Подразумеваемый курс
+    сальдо_KZT/сальдо_вал сверяется с курсом НБ на последнюю дату карточки.
+    Возвращает None, если блок не найден (не падаем).
+    """
+    last_date = _last_date(aoa)
+    for i, row in enumerate(aoa):
+        label = row[0] if (row and isinstance(row[0], str)) else ""
+        if not re.search(r"Сальдо на конец|Обороты за период", label, re.I):
+            continue
+        val_row = aoa[i + 1] if i + 1 < len(aoa) else []
+        saldo_kzt = _last_num(row)
+        saldo_val = _last_num(val_row)
+        if saldo_val is None:
+            return None
+
+        rate_nb = nb.get(last_date) if last_date else None
+        implied = (_round4(saldo_kzt / saldo_val)
+                   if (saldo_kzt is not None and abs(saldo_val) > 1e-9) else None)
+        expected = _round2(saldo_val * rate_nb) if rate_nb is not None else None
+        diff = (_round2(saldo_kzt - expected)
+                if (expected is not None and saldo_kzt is not None) else None)
+
+        if abs(saldo_val) < 1e-9:
+            # Валютное сальдо ноль, а тенговое нет — тоже расхождение.
+            mismatch = bool(saldo_kzt is not None and abs(saldo_kzt) > 0.005)
+        elif rate_nb is not None and implied is not None:
+            mismatch = abs(implied / rate_nb - 1) > BALANCE_TOLERANCE
+        else:
+            mismatch = False
+
+        return {
+            "date": last_date,
+            "saldo_val": saldo_val,
+            "saldo_kzt": saldo_kzt,
+            "rate_nb": rate_nb,
+            "implied_rate": implied,
+            "expected_kzt": expected,
+            "diff": diff,
+            "mismatch": mismatch,
+        }
+    return None
 
 
 class CaseCurrencyService:
@@ -201,19 +327,31 @@ class CaseCurrencyService:
         rows = _parse_1c(card, nb)
         off_rate = sum(1 for r in rows if r["status"] == "off")
         no_nb = sum(1 for r in rows if r["status"] == "no_nb")
+        no_rate = sum(1 for r in rows if r["status"] == "no_rate")
+        no_val = sum(1 for r in rows if r["status"] == "no_val")
+        matched = sum(1 for r in rows if r["status"] in ("ok", "off"))
         return {
             "rows": rows,
-            "matched": len(rows) - no_nb,
+            "matched": matched,
             "off_rate": off_rate,
             "no_nb": no_nb,
-            "total_usd": _round4(sum(r["usd"] for r in rows)),
-            "total_kzt": _round4(sum(r["kzt"] for r in rows)),
+            "no_rate": no_rate,
+            "no_val": no_val,
+            "total_rows": len(rows),
+            "total_usd": _round4(sum(r["usd"] for r in rows if r.get("usd") is not None)),
+            "total_kzt": _round4(sum(r["kzt"] for r in rows if r.get("kzt") is not None)),
             "threshold": OFF_RATE_THRESHOLD,
+            "balance_check": _balance_check(card, nb),
         }
 
 
 def _status_label(s: str) -> str:
-    return {"off": "Расхождение", "no_nb": "Нет курса НБ"}.get(s, "OK")
+    return {
+        "off": "Расхождение",
+        "no_nb": "Нет курса НБ",
+        "no_rate": "Курс не определён",
+        "no_val": "Нет валютной суммы",
+    }.get(s, "OK")
 
 
 def export_currency(result: Dict[str, Any]) -> bytes:
@@ -221,8 +359,8 @@ def export_currency(result: Dict[str, Any]) -> bytes:
     ws = wb.active
     ws.title = "Сверка курсов"
 
-    header = ["Дата", "Документ", "Сумма USD", "Сумма KZT",
-              "Курс 1С", "Курс НБ", "Отклонение", "Статус"]
+    header = ["Дата", "Документ", "Сумма USD", "Сумма KZT", "Курс 1С", "Курс НБ",
+              "Отклонение", "Должно быть KZT", "Разница KZT", "Статус"]
     ws.append(header)
     for c in ws[1]:
         c.font = Font(bold=True)
@@ -232,17 +370,38 @@ def export_currency(result: Dict[str, Any]) -> bytes:
         ws.append([
             r.get("date"), r.get("description"), r.get("usd"), r.get("kzt"),
             r.get("rate1c"), r.get("rate_nb"), r.get("diff"),
+            r.get("expected_kzt"), r.get("delta_kzt"),
             _status_label(r.get("status", "")),
         ])
 
+    rows = result.get("rows", [])
+    ok = sum(1 for r in rows if r.get("status") == "ok")
     ws.append([])
     ws.append([
         "ИТОГО", "", _round4(result.get("total_usd", 0)),
-        _round4(result.get("total_kzt", 0)), "", "", "",
-        f"Расхождений: {result.get('off_rate', 0)}",
+        _round4(result.get("total_kzt", 0)), "", "", "", "", "",
+        (f"Строк: {result.get('total_rows', len(rows))} · OK: {ok} · "
+         f"Расхождений: {result.get('off_rate', 0)} · Нет курса НБ: {result.get('no_nb', 0)} · "
+         f"Курс не определён: {result.get('no_rate', 0)} · Без валютной суммы: {result.get('no_val', 0)}"),
     ])
 
-    for col, width in zip("ABCDEFGH", [12, 34, 14, 16, 12, 12, 12, 16]):
+    # --- Контроль сальдо ---
+    bc = result.get("balance_check")
+    if bc:
+        ws.append([])
+        ws.append([])
+        title = ws.max_row + 1
+        ws.append(["Контроль сальдо на конец периода"])
+        ws.cell(row=title, column=1).font = Font(bold=True)
+        ws.append(["Сальдо в валюте", bc.get("saldo_val")])
+        ws.append(["Сальдо в тенге", bc.get("saldo_kzt")])
+        ws.append(["Курс НБ на последнюю дату", bc.get("rate_nb")])
+        ws.append(["Подразумеваемый курс (сальдо ₸ / сальдо вал.)", bc.get("implied_rate")])
+        ws.append(["Ожидаемое сальдо в тенге (по курсу НБ)", bc.get("expected_kzt")])
+        ws.append(["Разница", bc.get("diff")])
+        ws.append(["Итог", "РАСХОЖДЕНИЕ" if bc.get("mismatch") else "Сходится"])
+
+    for col, width in zip("ABCDEFGHIJ", [12, 34, 14, 16, 12, 12, 12, 18, 18, 20]):
         ws.column_dimensions[col].width = width
 
     buf = BytesIO()

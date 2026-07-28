@@ -249,12 +249,25 @@ export interface ReconciliationResult {
 export interface CurrencyRow {
   date: string
   description: string
-  usd: number
-  kzt: number
-  rate1c: number
+  usd: number | null
+  kzt: number | null
+  rate1c: number | null
   rate_nb: number | null
   diff: number | null
-  status: 'ok' | 'off' | 'no_nb'
+  expected_kzt: number | null   // для no_rate: сколько должно было быть по курсу НБ
+  delta_kzt: number | null      // для no_rate: expected_kzt − kzt
+  status: 'ok' | 'off' | 'no_nb' | 'no_rate' | 'no_val'
+}
+
+export interface BalanceCheck {
+  date: string | null
+  saldo_val: number | null
+  saldo_kzt: number | null
+  rate_nb: number | null
+  implied_rate: number | null
+  expected_kzt: number | null
+  diff: number | null
+  mismatch: boolean
 }
 
 export interface CurrencyResult {
@@ -262,9 +275,13 @@ export interface CurrencyResult {
   matched: number
   off_rate: number
   no_nb: number
+  no_rate: number
+  no_val: number
+  total_rows: number
   total_usd: number
   total_kzt: number
   threshold: number
+  balance_check: BalanceCheck | null
 }
 
 // ---- Bank statement reconciliation (1С ↔ банк) ----

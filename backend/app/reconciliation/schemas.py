@@ -86,9 +86,13 @@ class CurrencyResult(BaseModel):
     matched: int
     off_rate: int
     no_nb: int
+    no_rate: int = 0
+    no_val: int = 0
+    total_rows: int = 0
     total_usd: float
     total_kzt: float
     threshold: float
+    balance_check: Optional[Dict[str, Any]] = None
 
 
 class BankResult(BaseModel):
