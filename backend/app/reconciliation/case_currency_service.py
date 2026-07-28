@@ -354,15 +354,77 @@ def _status_label(s: str) -> str:
     }.get(s, "OK")
 
 
+def _plural(n: int, one: str, few: str, many: str) -> str:
+    n = abs(int(n))
+    if n % 10 == 1 and n % 100 != 11:
+        return one
+    if 2 <= n % 10 <= 4 and not (12 <= n % 100 <= 14):
+        return few
+    return many
+
+
+def _money(x: float) -> str:
+    return f"{x:,.2f}".replace(",", " ").replace(".", ",")
+
+
+def _verdict_reasons(result: Dict[str, Any]) -> List[str]:
+    """Список сработавших проверок обычным языком (пусто = всё чисто).
+
+    Учитывает все проверки, а не только построчные счётчики: расхождение курса,
+    неопределённый курс И контроль сальдо. Общий для страницы и Excel-отчёта.
+    """
+    reasons: List[str] = []
+    off = result.get("off_rate", 0) or 0
+    no_rate = result.get("no_rate", 0) or 0
+    bc = result.get("balance_check")
+    if off:
+        reasons.append(f"Расхождение курса с Нацбанком: {off} {_plural(off, 'документ', 'документа', 'документов')}")
+    if no_rate:
+        reasons.append(f"Курс не определён: {no_rate} {_plural(no_rate, 'документ', 'документа', 'документов')}")
+    if bc and bc.get("mismatch"):
+        reasons.append(f"Контроль сальдо: расхождение {_money(abs(bc.get('diff') or 0))} ₸")
+    return reasons
+
+
+def _caveat(result: Dict[str, Any]) -> Optional[str]:
+    """Жёлтая оговорка (не расхождение): строки, которые нельзя было проверить —
+    нет курса НБ на их даты. Не краснит вердикт, но и не пропадает молча."""
+    n = result.get("no_nb", 0) or 0
+    if not n:
+        return None
+    return (f"{n} {_plural(n, 'строка', 'строки', 'строк')} "
+            f"{_plural(n, 'не проверена', 'не проверены', 'не проверено')} — "
+            "нет курса НБ на эти даты")
+
+
 def export_currency(result: Dict[str, Any]) -> bytes:
     wb = Workbook()
     ws = wb.active
     ws.title = "Сверка курсов"
 
+    # --- Общий вердикт первой строкой листа (виден до любой прокрутки) ---
+    reasons = _verdict_reasons(result)
+    if reasons:
+        verdict = "НАЙДЕНЫ РАСХОЖДЕНИЯ: " + "; ".join(reasons)
+        verdict_color = "CC0000"
+    else:
+        verdict = "Расхождений не найдено"
+        verdict_color = "008000"
+    ws.append([verdict])
+    ws.cell(row=1, column=1).font = Font(bold=True, color=verdict_color)
+    caveat = _caveat(result)
+    if caveat:
+        ws.append([caveat])
+        ws.cell(row=ws.max_row, column=1).font = Font(bold=True, color="B45309")
+    ws.append([])
+
     header = ["Дата", "Документ", "Сумма USD", "Сумма KZT", "Курс 1С", "Курс НБ",
               "Отклонение", "Должно быть KZT", "Разница KZT", "Статус"]
     ws.append(header)
-    for c in ws[1]:
+    # max_row корректен только после добавления строки с ячейками (пустая строка-
+    # разделитель в max_row не учитывается), поэтому берём индекс шапки здесь.
+    header_row = ws.max_row
+    for c in ws[header_row]:
         c.font = Font(bold=True)
         c.alignment = Alignment(horizontal="center")
 
@@ -376,13 +438,19 @@ def export_currency(result: Dict[str, Any]) -> bytes:
 
     rows = result.get("rows", [])
     ok = sum(1 for r in rows if r.get("status") == "ok")
+    bc = result.get("balance_check")
+    if bc is None:
+        saldo_txt = ""
+    else:
+        saldo_txt = " · Контроль сальдо: " + ("РАСХОЖДЕНИЕ" if bc.get("mismatch") else "сходится")
     ws.append([])
     ws.append([
         "ИТОГО", "", _round4(result.get("total_usd", 0)),
         _round4(result.get("total_kzt", 0)), "", "", "", "", "",
         (f"Строк: {result.get('total_rows', len(rows))} · OK: {ok} · "
          f"Расхождений: {result.get('off_rate', 0)} · Нет курса НБ: {result.get('no_nb', 0)} · "
-         f"Курс не определён: {result.get('no_rate', 0)} · Без валютной суммы: {result.get('no_val', 0)}"),
+         f"Курс не определён: {result.get('no_rate', 0)} · Без валютной суммы: {result.get('no_val', 0)}"
+         f"{saldo_txt}"),
     ])
 
     # --- Контроль сальдо ---

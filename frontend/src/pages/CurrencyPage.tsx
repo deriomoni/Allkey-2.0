@@ -7,6 +7,13 @@ type Step = 'upload' | 'processing' | 'result'
 const fmt = (n: number | null | undefined, d = 2) =>
   n == null ? '—' : n.toLocaleString('ru-RU', { minimumFractionDigits: d, maximumFractionDigits: d })
 
+const plural = (n: number, one: string, few: string, many: string) => {
+  const a = Math.abs(n)
+  if (a % 10 === 1 && a % 100 !== 11) return one
+  if (a % 10 >= 2 && a % 10 <= 4 && !(a % 100 >= 12 && a % 100 <= 14)) return few
+  return many
+}
+
 const STATUS: Record<string, { label: string; color: string; bg: string }> = {
   ok: { label: 'OK', color: '#16a34a', bg: '#dcfce7' },
   off: { label: 'Расхождение', color: '#dc2626', bg: '#fee2e2' },
@@ -67,6 +74,19 @@ export default function CurrencyPage() {
 
   const bc = result?.balance_check
 
+  // Общий вердикт: учитывает ВСЕ проверки, а не только построчные счётчики.
+  const reasons: string[] = []
+  if (result) {
+    if (result.off_rate > 0) reasons.push(`Расхождение курса с Нацбанком: ${result.off_rate} ${plural(result.off_rate, 'документ', 'документа', 'документов')}`)
+    if (result.no_rate > 0) reasons.push(`Курс не определён: ${result.no_rate} ${plural(result.no_rate, 'документ', 'документа', 'документов')}`)
+    if (bc?.mismatch) reasons.push(`Контроль сальдо: расхождение ${fmt(Math.abs(bc.diff ?? 0))} ₸`)
+  }
+  const clean = reasons.length === 0
+  // Оговорка (жёлтая, не расхождение): строки без курса НБ — вердикт не краснеет.
+  const caveat = result && result.no_nb > 0
+    ? `${result.no_nb} ${plural(result.no_nb, 'строка', 'строки', 'строк')} ${plural(result.no_nb, 'не проверена', 'не проверены', 'не проверено')} — нет курса НБ на эти даты`
+    : null
+
   return (
     <div>
       <h1 style={{ marginBottom: 8 }}>Сверка курсов валют (USD 1С ↔ Нацбанк)</h1>
@@ -96,18 +116,56 @@ export default function CurrencyPage() {
 
       {step === 'result' && result && (
         <>
+          {/* Общий вердикт — до карточек и до прокрутки. Красный, если сработала
+              любая проверка (курс/неопределённый курс/контроль сальдо). */}
+          <div
+            style={{
+              borderRadius: 10,
+              padding: '16px 20px',
+              marginBottom: caveat ? 8 : 20,
+              background: clean ? '#dcfce7' : '#fee2e2',
+              border: `1px solid ${clean ? '#86efac' : '#fca5a5'}`,
+            }}
+          >
+            <div style={{ fontSize: 20, fontWeight: 700, color: clean ? '#15803d' : '#b91c1c' }}>
+              {clean ? '✓ Расхождений не найдено' : '⚠ Найдены расхождения'}
+            </div>
+            {!clean && (
+              <ul style={{ margin: '10px 0 0', paddingLeft: 22, color: '#7f1d1d', fontSize: 14 }}>
+                {reasons.map((r, i) => <li key={i} style={{ marginTop: 4 }}>{r}</li>)}
+              </ul>
+            )}
+          </div>
+          {caveat && (
+            <div
+              style={{
+                borderRadius: 8,
+                padding: '10px 16px',
+                marginBottom: 20,
+                background: '#fef3c7',
+                border: '1px solid #fde68a',
+                color: '#b45309',
+                fontSize: 14,
+                fontWeight: 600,
+              }}
+            >
+              {caveat}
+            </div>
+          )}
+
           <div className="dashboard-cards" style={{ marginBottom: 20 }}>
             <div className="card"><h3>Сопоставлено</h3><p style={{ fontSize: 28, fontWeight: 700 }}>{result.matched}</p></div>
             <div className="card"><h3>Расхождений</h3><p style={{ fontSize: 28, fontWeight: 700, color: result.off_rate ? '#dc2626' : '#16a34a' }}>{result.off_rate}</p></div>
             <div className="card"><h3>Курс не определён</h3><p style={{ fontSize: 28, fontWeight: 700, color: result.no_rate ? '#dc2626' : '#16a34a' }}>{result.no_rate}</p></div>
             <div className="card"><h3>Нет курса НБ</h3><p style={{ fontSize: 28, fontWeight: 700, color: result.no_nb ? '#b45309' : '#111827' }}>{result.no_nb}</p></div>
             <div className="card"><h3>Без валютной суммы</h3><p style={{ fontSize: 28, fontWeight: 700, color: '#6b7280' }}>{result.no_val}</p></div>
+            <div className="card">
+              <h3>Контроль сальдо</h3>
+              <p style={{ fontSize: 22, fontWeight: 700, color: bc ? (bc.mismatch ? '#dc2626' : '#16a34a') : '#6b7280' }}>
+                {bc ? (bc.mismatch ? 'Расхождение' : 'Сходится') : 'Нет данных'}
+              </p>
+            </div>
             <div className="card"><h3>Итого</h3><p style={{ fontSize: 15 }}>{fmt(result.total_usd)} USD<br />{fmt(result.total_kzt)} ₸</p></div>
-          </div>
-
-          <div style={{ display: 'flex', gap: 12, marginBottom: 20 }}>
-            <button className="btn btn-primary" onClick={handleDownload}>Скачать Excel</button>
-            <button className="btn btn-secondary" onClick={handleReset}>Новая сверка</button>
           </div>
 
           {bc && (
@@ -133,6 +191,11 @@ export default function CurrencyPage() {
               </div>
             </div>
           )}
+
+          <div style={{ display: 'flex', gap: 12, marginBottom: 20 }}>
+            <button className="btn btn-primary" onClick={handleDownload}>Скачать Excel</button>
+            <button className="btn btn-secondary" onClick={handleReset}>Новая сверка</button>
+          </div>
 
           <div className="card" style={{ overflowX: 'auto' }}>
             <table style={{ borderCollapse: 'collapse', width: '100%' }}>
