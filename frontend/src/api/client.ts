@@ -623,6 +623,28 @@ export interface CommissionMember {
   fio_short: string
 }
 
+export interface InventoryColumn {
+  index: number
+  title: string
+  samples: string[]
+}
+
+export interface InventoryParse {
+  status: 'parsed' | 'needs_mapping'
+  items: InventoryItem[]
+  columns: InventoryColumn[]
+  header_row: number | null
+}
+
+export interface InventoryMapping {
+  header_row: number
+  col_name: number
+  col_qty: number
+  col_price: number
+  col_code?: number
+  col_unit?: number
+}
+
 export interface LiabilityInput {
   number: string
   doc_date: string | null
@@ -695,12 +717,22 @@ export const personnelApi = {
     downloadBlob(response.data, response.headers['content-disposition'], 'ПриказПриём.docx')
   },
 
-  // Parse an .xlsx опись → inventory rows (shown for confirmation before adding).
-  parseInventory: async (file: File): Promise<InventoryItem[]> => {
+  // Parse an .xlsx опись. Without a mapping the server auto-detects columns (by
+  // synonyms) and the header row (below any 1С preamble); if it can't, it returns
+  // status 'needs_mapping' with the columns so the client shows a mapping screen.
+  parseInventory: async (file: File, mapping?: InventoryMapping): Promise<InventoryParse> => {
     const fd = new FormData()
     fd.append('file', file)
+    if (mapping) {
+      fd.append('header_row', String(mapping.header_row))
+      fd.append('col_name', String(mapping.col_name))
+      fd.append('col_qty', String(mapping.col_qty))
+      fd.append('col_price', String(mapping.col_price))
+      if (mapping.col_code != null) fd.append('col_code', String(mapping.col_code))
+      if (mapping.col_unit != null) fd.append('col_unit', String(mapping.col_unit))
+    }
     const r = await api.post('/personnel/parse-inventory', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
-    return r.data.items
+    return r.data
   },
 
   generatePackage: async (body: PackageBody): Promise<void> => {

@@ -11,11 +11,13 @@ in path/query params, and are not logged.
 from datetime import date
 from decimal import Decimal, InvalidOperation
 from io import BytesIO
-from typing import List
+from typing import List, Optional
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from fastapi.responses import StreamingResponse
+
+from app.personnel import inventory_columns as ic
 
 from app.personnel.context import (
     build_order_context, build_deduction_application_context, build_prikaz_preview,
@@ -32,7 +34,7 @@ from app.personnel.schemas import (
     IinCheckRequest, IinCheckResponse,
     BinCheckRequest, BinCheckResponse,
     RatesResponse, PrikazRequest, ZayavlenieVychetyRequest, PrikazPreviewResponse,
-    PackageRequest, InventoryParseResponse, InventoryItemIn,
+    PackageRequest, InventoryParseResponse, InventoryItemIn, InventoryColumn,
 )
 from app.services.dependencies import require_service
 from app.users.models import User
@@ -256,11 +258,22 @@ def _to_decimal(value) -> Decimal:
 @router.post("/parse-inventory", response_model=InventoryParseResponse)
 async def parse_inventory(
     file: UploadFile = File(...),
+    header_row: Optional[int] = Form(None),
+    col_name: Optional[int] = Form(None),
+    col_qty: Optional[int] = Form(None),
+    col_price: Optional[int] = Form(None),
+    col_code: Optional[int] = Form(None),
+    col_unit: Optional[int] = Form(None),
     _user: User = Depends(require_service(SERVICE_CODE)),
 ):
-    """Parse an .xlsx опись into inventory rows (name/code/unit/qty/price) so the
-    accountant uploads a file instead of typing every item. Stateless — the file
-    is parsed in memory and discarded."""
+    """Parse an .xlsx опись into inventory rows (name/code/unit/qty/price).
+
+    Column titles are matched against synonyms (inventory_columns.COLUMN_SYNONYMS)
+    after normalization, and the header row is searched below any 1С preamble
+    (org name / period / blank rows). If auto-detection fails, returns
+    status='needs_mapping' with the file's columns so the client shows a mapping
+    screen; a repeat call with col_name/col_qty/col_price (column indices) parses
+    explicitly. Stateless — the file is parsed in memory and discarded."""
     from openpyxl import load_workbook
 
     content = await file.read()
@@ -269,56 +282,50 @@ async def parse_inventory(
     except Exception:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
                             detail="Не удалось прочитать файл (нужен .xlsx)")
-    ws = wb.active
-    rows = [r for r in ws.iter_rows(values_only=True)]
+    rows = [r for r in wb.active.iter_rows(values_only=True)]
     if not rows:
-        return InventoryParseResponse(items=[])
-
-    header = [str(c).strip().lower() if c is not None else "" for c in rows[0]]
-
-    def col(*keys):
-        for i, h in enumerate(header):
-            if any(k in h for k in keys):
-                return i
-        return None
-
-    ci_name = col("наимен", "назв", "товар", "ценност")
-    ci_qty = col("кол")
-    ci_price = col("цена", "стоим")
-    ci_code = col("код", "номер", "инв", "артик")
-    ci_unit = col("ед", "изм")
-
-    missing = []
-    if ci_name is None:
-        missing.append("Наименование")
-    if ci_qty is None:
-        missing.append("Количество")
-    if ci_price is None:
-        missing.append("Цена")
-    if missing:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=(
-                "В файле не найдены колонки: " + ", ".join(missing) + ". "
-                "Первая строка должна быть заголовком со столбцами: Наименование, Количество, "
-                "Цена (по желанию — Код/инв. номер, Ед. изм.)."
-            ),
-        )
-    data_rows = rows[1:]
+        return InventoryParseResponse(status="parsed", items=[])
 
     def cell(row, i):
         return row[i] if (i is not None and i < len(row) and row[i] is not None) else ""
 
-    items: List[InventoryItemIn] = []
-    for row in data_rows:
-        name = str(cell(row, ci_name)).strip()
-        if not name:
-            continue
-        items.append(InventoryItemIn(
-            name=name,
-            code=str(cell(row, ci_code)).strip(),
-            unit=str(cell(row, ci_unit)).strip(),
-            qty=_to_decimal(cell(row, ci_qty)),
-            price=_to_decimal(cell(row, ci_price)),
-        ))
-    return InventoryParseResponse(items=items)
+    def parse(header_idx: int, mapping: dict) -> List[InventoryItemIn]:
+        out: List[InventoryItemIn] = []
+        for row in rows[header_idx + 1:]:
+            name = str(cell(row, mapping.get("name"))).strip()
+            if not name:
+                continue
+            out.append(InventoryItemIn(
+                name=name,
+                code=str(cell(row, mapping.get("code"))).strip(),
+                unit=str(cell(row, mapping.get("unit"))).strip(),
+                qty=_to_decimal(cell(row, mapping.get("qty"))),
+                price=_to_decimal(cell(row, mapping.get("price"))),
+            ))
+        return out
+
+    # 1) Explicit mapping supplied by the manual-mapping step.
+    if col_name is not None and col_qty is not None and col_price is not None:
+        mapping = {"name": col_name, "qty": col_qty, "price": col_price}
+        if col_code is not None:
+            mapping["code"] = col_code
+        if col_unit is not None:
+            mapping["unit"] = col_unit
+        idx = header_row if header_row is not None else 0
+        return InventoryParseResponse(status="parsed", header_row=idx, items=parse(idx, mapping))
+
+    # 2) Auto-detect header + columns via synonyms.
+    idx, mapping = ic.find_header(rows)
+    if mapping is not None:
+        return InventoryParseResponse(status="parsed", header_row=idx, items=parse(idx, mapping))
+
+    # 3) Could not recognize — offer manual mapping instead of rejecting.
+    hr = ic.guess_header_row(rows)
+    header = list(rows[hr]) if hr < len(rows) else []
+    data = [r for r in rows[hr + 1:] if any(str(c).strip() for c in r if c is not None)]
+    columns = []
+    for ci, title in enumerate(header):
+        samples = [s for r in data[:3] if (s := str(cell(r, ci)).strip())]
+        text = str(title).strip() if title is not None and str(title).strip() else f"Колонка {ci + 1}"
+        columns.append(InventoryColumn(index=ci, title=text, samples=samples))
+    return InventoryParseResponse(status="needs_mapping", header_row=hr, columns=columns)

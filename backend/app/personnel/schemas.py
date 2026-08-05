@@ -257,5 +257,14 @@ class PackageRequest(BaseModel):
     perechen: Optional[PerechenIn] = None       # for perechen
 
 
+class InventoryColumn(BaseModel):
+    index: int
+    title: str
+    samples: List[str] = []
+
+
 class InventoryParseResponse(BaseModel):
-    items: List[InventoryItemIn]
+    status: str = "parsed"                       # "parsed" | "needs_mapping"
+    items: List[InventoryItemIn] = []
+    columns: List[InventoryColumn] = []          # when needs_mapping: columns to map by hand
+    header_row: Optional[int] = None

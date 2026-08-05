@@ -163,25 +163,61 @@ def _xlsx(rows) -> bytes:
     return buf.getvalue()
 
 
-def test_parse_inventory_with_header():
-    data = _xlsx([
+def _parse(rows, **mapping):
+    # Direct call: Form params default to FieldInfo, so pass them explicitly.
+    upload = UploadFile(filename="opis.xlsx", file=BytesIO(_xlsx(rows)))
+    kw = dict(header_row=None, col_name=None, col_qty=None, col_price=None, col_code=None, col_unit=None)
+    kw.update(mapping)
+    return run(R.parse_inventory(file=upload, _user=FAKE_USER, **kw))
+
+
+def test_parse_inventory_standard_header():
+    resp = _parse([
         ["Наименование", "Код", "Ед.изм.", "Кол-во", "Цена"],
         ["Ноутбук", "НВ-1", "шт", 2, 350000],
         ["Принтер", "НВ-2", "шт", 1, 90000],
         ["", "", "", "", ""],  # blank row ignored
     ])
-    upload = UploadFile(filename="opis.xlsx", file=BytesIO(data))
-    resp = run(R.parse_inventory(file=upload, _user=FAKE_USER))
-    assert len(resp.items) == 2
-    assert resp.items[0].name == "Ноутбук"
-    assert resp.items[0].qty == Decimal("2")
+    assert resp.status == "parsed" and len(resp.items) == 2
+    assert resp.items[0].name == "Ноутбук" and resp.items[0].qty == Decimal("2")
     assert resp.items[1].price == Decimal("90000")
 
 
-def test_parse_inventory_missing_columns_message():
-    data = _xlsx([["Товар", "Штук"], ["Ноутбук", 2]])  # no Цена column
-    upload = UploadFile(filename="opis.xlsx", file=BytesIO(data))
-    with pytest.raises(HTTPException) as exc:
-        run(R.parse_inventory(file=upload, _user=FAKE_USER))
-    assert exc.value.status_code == 400
-    assert "Цена" in exc.value.detail and "Количество" in exc.value.detail
+def test_parse_inventory_synonyms():
+    # accountant-style column names
+    resp = _parse([
+        ["Номенклатура", "Инв. номер", "Ед.", "Кол-во", "Цена, тг"],
+        ["Стол", "ИН-5", "шт", "3", "45 000"],
+    ])
+    assert resp.status == "parsed" and len(resp.items) == 1
+    assert resp.items[0].name == "Стол" and resp.items[0].qty == Decimal("3")
+    assert resp.items[0].price == Decimal("45000")
+
+
+def test_parse_inventory_1c_preamble():
+    # header is not the first row (org name / period / blank above it)
+    resp = _parse([
+        ["ТОО «Ромашка»"],
+        ["Период: 01.08.2026 - 05.08.2026"],
+        [],
+        ["Наименование", "Кол-во", "Цена"],
+        ["Ноутбук", 2, 350000],
+        ["Принтер", 1, 90000],
+    ])
+    assert resp.status == "parsed" and resp.header_row == 3 and len(resp.items) == 2
+
+
+def test_parse_inventory_needs_mapping():
+    resp = _parse([["Штрих", "Единиц", "Деньги"], ["Ноутбук", 2, 350000]])
+    assert resp.status == "needs_mapping"
+    assert [c.title for c in resp.columns] == ["Штрих", "Единиц", "Деньги"]
+    assert resp.columns[0].samples == ["Ноутбук"]
+
+
+def test_parse_inventory_explicit_mapping():
+    resp = _parse(
+        [["Мои", "Данные", "Здесь"], ["Ноутбук", "2", "350000"]],
+        header_row=0, col_name=0, col_qty=1, col_price=2,
+    )
+    assert resp.status == "parsed" and len(resp.items) == 1
+    assert resp.items[0].name == "Ноутбук" and resp.items[0].price == Decimal("350000")

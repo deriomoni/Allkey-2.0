@@ -9,8 +9,18 @@ import {
   type PrikazBody,
   type PackageBody,
   type InventoryItem,
+  type InventoryColumn,
   type CommissionMember,
 } from '../api/client'
+
+const CATEGORY_OPTIONS: [string, string][] = [
+  ['ignore', '— игнорировать —'],
+  ['name', 'Наименование'],
+  ['qty', 'Количество'],
+  ['price', 'Цена'],
+  ['code', 'Код / инв. номер'],
+  ['unit', 'Ед. изм.'],
+]
 
 // The module is STATELESS: employees' personal data is never sent to storage.
 // The whole draft lives on the client (localStorage) and is POSTed only to render
@@ -187,6 +197,9 @@ export default function HrPage() {
 
   // --- document package (заход 1: matotvet + akt) ---
   const [importPreview, setImportPreview] = useState<InventoryItem[] | null>(null)
+  const [mapping, setMapping] = useState<
+    { columns: InventoryColumn[]; header_row: number; file: File; assign: Record<number, string> } | null
+  >(null)
   const invRef = useRef<HTMLInputElement>(null)
 
   const toggleDoc = (key: string) =>
@@ -213,15 +226,46 @@ export default function HrPage() {
   async function onInventoryFile(file: File) {
     setError('')
     try {
-      const items = await personnelApi.parseInventory(file)
-      if (!items.length) { setError('В файле не найдено ни одной позиции'); return }
-      setImportPreview(items)   // show what was recognized BEFORE adding — user confirms/cancels
+      const res = await personnelApi.parseInventory(file)
+      if (res.status === 'needs_mapping') {
+        setMapping({ columns: res.columns, header_row: res.header_row ?? 0, file, assign: {} })
+      } else if (!res.items.length) {
+        setError('В файле не найдено ни одной позиции')
+      } else {
+        setImportPreview(res.items)   // show recognized rows BEFORE adding — confirm/cancel
+      }
     } catch (e) { fail(e, 'Не удалось разобрать файл') }
     finally { if (invRef.current) invRef.current.value = '' }
   }
   function confirmImport() {
     if (importPreview) setDraft((d) => ({ ...d, inventory: [...d.inventory, ...importPreview] }))
     setImportPreview(null); flash('Опись добавлена')
+  }
+
+  const setAssign = (ci: number, cat: string) =>
+    setMapping((m) => (m ? { ...m, assign: { ...m.assign, [ci]: cat } } : m))
+
+  async function confirmMapping() {
+    if (!mapping) return
+    const picked: Record<string, number> = { name: -1, qty: -1, price: -1, code: -1, unit: -1 }
+    Object.entries(mapping.assign).forEach(([ci, cat]) => {
+      if (cat && cat !== 'ignore') picked[cat] = Number(ci)
+    })
+    if (picked.name < 0 || picked.qty < 0 || picked.price < 0) {
+      setError('Укажите колонки: наименование, количество и цена'); return
+    }
+    setBusy(true); setError('')
+    try {
+      const res = await personnelApi.parseInventory(mapping.file, {
+        header_row: mapping.header_row,
+        col_name: picked.name, col_qty: picked.qty, col_price: picked.price,
+        col_code: picked.code >= 0 ? picked.code : undefined,
+        col_unit: picked.unit >= 0 ? picked.unit : undefined,
+      })
+      setMapping(null)
+      if (res.items.length) setImportPreview(res.items)
+      else setError('С этим сопоставлением позиций не найдено')
+    } catch (e) { fail(e, 'Не удалось импортировать') } finally { setBusy(false) }
   }
 
   const invTotal = draft.inventory.reduce((sum, r) => sum + num(r.qty) * num(r.price), 0)
@@ -540,6 +584,40 @@ export default function HrPage() {
               <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end', marginTop: 16 }}>
                 <button className="btn btn-secondary" onClick={() => setImportPreview(null)}>Отмена</button>
                 <button className="btn btn-primary" onClick={confirmImport}>Добавить в опись</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {mapping && (
+        <div className="modal-overlay" onClick={() => setMapping(null)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 680 }}>
+            <div className="modal-body">
+              <h3 style={{ marginBottom: 6 }}>Сопоставьте колонки файла</h3>
+              <p style={{ fontSize: 13, color: '#6b7280', marginBottom: 12 }}>
+                Автоматически распознать колонки не удалось. Укажите, что есть что — это нужно сделать один раз.
+              </p>
+              <div style={{ maxHeight: 340, overflowY: 'auto' }}>
+                {mapping.columns.map((col) => (
+                  <div key={col.index} style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 8 }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontWeight: 600 }}>{col.title}</div>
+                      {col.samples.length > 0 && (
+                        <div style={{ fontSize: 12, color: '#6b7280', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          напр.: {col.samples.join(', ')}
+                        </div>
+                      )}
+                    </div>
+                    <select value={mapping.assign[col.index] ?? 'ignore'} onChange={(e) => setAssign(col.index, e.target.value)}>
+                      {CATEGORY_OPTIONS.map(([val, label]) => <option key={val} value={val}>{label}</option>)}
+                    </select>
+                  </div>
+                ))}
+              </div>
+              <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end', marginTop: 16 }}>
+                <button className="btn btn-secondary" onClick={() => setMapping(null)}>Отмена</button>
+                <button className="btn btn-primary" onClick={confirmMapping} disabled={busy}>Импортировать</button>
               </div>
             </div>
           </div>
