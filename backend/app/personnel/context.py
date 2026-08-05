@@ -154,6 +154,19 @@ def build_deductions_context(selection: List[str], apply_from: Optional[date]) -
 
 # --- assembled contexts -----------------------------------------------------
 
+def build_deduction_application_context(
+    company, employee, selection: List[str],
+    apply_from: Optional[date], application_date: Optional[date],
+) -> dict:
+    """Full context for zayavlenie_vychety_ipn.docx (ТЗ §4.5)."""
+    return {
+        "company": build_company_context(company),
+        "employee": build_employee_context(employee),
+        "deductions": build_deductions_context(selection, apply_from),
+        "application": {"date_words": _words(application_date)},
+    }
+
+
 def build_order_context(company, employee, employment, hr_responsible_fio: str = "") -> dict:
     """Full context for prikaz_o_prieme.docx (ТЗ §4.4)."""
     return {

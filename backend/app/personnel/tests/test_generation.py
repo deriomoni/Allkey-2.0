@@ -10,7 +10,11 @@ from datetime import date
 from decimal import Decimal
 from types import SimpleNamespace
 
-from app.personnel.context import build_order_context, build_deductions_context
+import pytest
+
+from app.personnel.context import (
+    build_order_context, build_deductions_context, build_deduction_application_context,
+)
 from app.personnel.generator import render_template, output_filename
 
 
@@ -102,6 +106,36 @@ def test_render_without_probation_uses_else_branch():
     text = _docx_text(render_template("prikaz_o_prieme.docx", ctx))
     assert "без испытательного срока" in text
     assert "испытательный срок продолжительностью" not in text
+
+
+@pytest.mark.xfail(
+    reason="Шаблон zayavlenie_vychety_ipn.docx: цикл вычетов свёрстан как один "
+           "параграф {%p for %}...{%p endfor %}; docxtpl не рендерит. Ждём "
+           "исправленный шаблон или согласие на правку тега (без правки текста).",
+    strict=False,
+)
+def test_render_zayavlenie_vychety_fills_and_loops():
+    company, employee, _ = sample_entities()
+    ctx = build_deduction_application_context(
+        company, employee,
+        selection=["base_30_mrp", "social_882"],
+        apply_from=date(2026, 8, 1),
+        application_date=date(2026, 8, 4),
+    )
+    text = _docx_text(render_template("zayavlenie_vychety_ipn.docx", ctx))
+
+    assert "{{" not in text and "{%" not in text
+    for needle in [
+        "ТОО «Ромашка»",
+        "БИН 150640001237",
+        "Климова Василия Александровича, ИИН 900715312346",   # from: fio_genitive
+        "1. Базовый налоговый вычет в размере 30-кратного",    # loop item 1, numbered
+        "2. Социальный налоговый вычет в размере 882-кратного",  # loop item 2
+        "начиная с 01 августа 2026 года",
+        "подтверждающих право на применение социального",       # has_social attachment clause
+        "Климов Василий Александрович",                          # signature: fio_full
+    ]:
+        assert needle in text, f"missing in rendered zayavlenie: {needle!r}"
 
 
 def test_output_filename():

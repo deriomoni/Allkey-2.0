@@ -30,6 +30,11 @@ class BinCheckResponse(BaseModel):
     valid: bool
 
 
+class ZayavlenieVychetyRequest(BaseModel):
+    deductions: List[str]               # keys: base_30_mrp | social_payments | social_882 | social_5000
+    apply_from: Optional[date] = None   # по умолчанию — дата начала работы
+
+
 class RatesResponse(BaseModel):
     effective_from: date
     effective_to: Optional[date] = None
