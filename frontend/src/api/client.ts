@@ -504,4 +504,158 @@ export const settingsApi = {
   },
 }
 
+// ============================ Personnel (HR) ============================
+
+export interface PersonnelCompany {
+  id: number
+  name_ru: string
+  name_kk: string
+  bin: string
+  city: string
+  legal_address: string
+  actual_address: string
+  director_fio_ru: string
+  director_fio_kk: string
+  director_gender: string
+  signatory_position: string
+  acts_on_basis: string
+  state_registration_date: string | null
+  bank: string
+  iik: string
+  bik: string
+  header_requisites: string
+  logo_path: string
+  created_at?: string
+}
+
+export interface PersonnelEmployee {
+  id: number
+  last_name: string
+  first_name: string
+  middle_name: string
+  iin: string
+  document_type: string
+  document_number: string
+  document_issued_by: string
+  document_issue_date: string | null
+  registration_address: string
+  actual_address: string
+  phone: string
+  email: string
+  birth_date: string | null
+  gender: string
+  iban: string
+  citizenship: string
+  fio_genitive_override: string | null
+  fio_dative_override: string | null
+  fio_accusative_override: string | null
+  warnings?: string[]
+}
+
+export interface PersonnelEmployment {
+  id: number
+  company_id: number
+  employee_id: number
+  position_ru: string
+  position_kk: string
+  department: string
+  contract_type: string
+  start_date: string | null
+  end_date: string | null
+  probation_months: number
+  salary: string | number
+  currency: string
+  allowances: string
+  rate: string | number
+  salary_words_override: string | null
+  hours_per_week: number | null
+  work_time_from: string
+  work_time_to: string
+  lunch_from: string
+  lunch_to: string
+  days_off: string
+  vacation_days: number
+  material_liability: boolean
+  confidentiality: boolean
+  ipn_deduction: string
+  contract_number: string
+  contract_date: string | null
+  order_number: string
+  order_date: string | null
+  application_date: string | null
+  warnings?: string[]
+}
+
+export interface IinCheck {
+  valid: boolean
+  birth_date: string | null
+  gender: string | null
+  warnings: string[]
+}
+
+export interface PrikazPreview {
+  context: Record<string, unknown>
+  editable: {
+    employee: { fio_genitive: string; fio_dative: string; fio_accusative: string }
+    employment: { position_ru: string; salary_words_ru: string }
+  }
+}
+
+// Trigger a browser download from a blob response, honouring the server filename.
+function downloadBlob(blob: Blob, contentDisposition: string | undefined, fallback: string) {
+  let filename = fallback
+  const match = contentDisposition?.match(/filename\*=UTF-8''([^;]+)/i)
+  if (match) filename = decodeURIComponent(match[1])
+  const url = window.URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  window.URL.revokeObjectURL(url)
+}
+
+export const personnelApi = {
+  // ИИН travels only in the request body (PII rule).
+  validateIin: async (iin: string, birth_date?: string | null, gender?: string | null): Promise<IinCheck> => {
+    const response = await api.post('/personnel/validate/iin', { iin, birth_date, gender })
+    return response.data
+  },
+  validateBin: async (bin: string): Promise<{ valid: boolean }> => {
+    const response = await api.post('/personnel/validate/bin', { bin })
+    return response.data
+  },
+
+  listCompanies: async (): Promise<PersonnelCompany[]> => (await api.get('/personnel/companies')).data,
+  createCompany: async (data: Partial<PersonnelCompany>): Promise<PersonnelCompany> =>
+    (await api.post('/personnel/companies', data)).data,
+  updateCompany: async (id: number, data: Partial<PersonnelCompany>): Promise<PersonnelCompany> =>
+    (await api.put(`/personnel/companies/${id}`, data)).data,
+
+  listEmployees: async (): Promise<PersonnelEmployee[]> => (await api.get('/personnel/employees')).data,
+  createEmployee: async (data: Partial<PersonnelEmployee>): Promise<PersonnelEmployee> =>
+    (await api.post('/personnel/employees', data)).data,
+  updateEmployee: async (id: number, data: Partial<PersonnelEmployee>): Promise<PersonnelEmployee> =>
+    (await api.put(`/personnel/employees/${id}`, data)).data,
+
+  createEmployment: async (data: Partial<PersonnelEmployment>): Promise<PersonnelEmployment> =>
+    (await api.post('/personnel/employments', data)).data,
+  updateEmployment: async (id: number, data: Partial<PersonnelEmployment>): Promise<PersonnelEmployment> =>
+    (await api.put(`/personnel/employments/${id}`, data)).data,
+  getEmployment: async (id: number): Promise<PersonnelEmployment> =>
+    (await api.get(`/personnel/employments/${id}`)).data,
+
+  prikazPreview: async (employmentId: number): Promise<PrikazPreview> =>
+    (await api.get(`/personnel/employments/${employmentId}/documents/prikaz/preview`)).data,
+
+  downloadPrikaz: async (employmentId: number): Promise<void> => {
+    const response = await api.get(
+      `/personnel/employments/${employmentId}/documents/prikaz`,
+      { responseType: 'blob' }
+    )
+    downloadBlob(response.data, response.headers['content-disposition'], 'ПриказПриём.docx')
+  },
+}
+
 export default api
