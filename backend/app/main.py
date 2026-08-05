@@ -11,6 +11,7 @@ from app.licenses.router import router as licenses_router
 from app.settings.router import router as settings_router
 from app.services.router import router as services_router, seed_services
 from app.personnel.router import router as personnel_router
+from app.personnel.schema_sync import ensure_personnel_schema
 from app.database import SessionLocal
 # Import models so they are registered with Base.metadata
 import app.licenses.models  # noqa: F401
@@ -24,6 +25,9 @@ Base.metadata.create_all(bind=engine)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Startup: additively sync the personnel schema BEFORE serving requests
+    # (create_all adds new tables but not new columns to existing ones).
+    ensure_personnel_schema(engine)
     # Startup: seed the service registry / migrate roles (idempotent)
     db = SessionLocal()
     try:
