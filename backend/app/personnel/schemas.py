@@ -183,3 +183,79 @@ class PrikazPreviewResponse(BaseModel):
     context: dict
     editable: dict          # {"employee": {...ФИО падежи}, "employment": {position_ru, salary_words_ru}}
     warnings: List[str] = []
+
+
+# --- Document-package inputs (stateless, ТЗ §2/§8) --------------------
+
+class InventoryItemIn(BaseModel):
+    name: str = ""
+    code: str = ""
+    unit: str = ""
+    qty: Decimal = Decimal(0)
+    price: Decimal = Decimal(0)
+
+
+class CommissionMemberIn(BaseModel):
+    position: str = ""
+    fio_short: str = ""
+
+
+class PerechenPositionIn(BaseModel):
+    name: str = ""
+    reason: str = ""
+
+
+class LiabilityIn(BaseModel):
+    number: str = ""
+    doc_date: Optional[date] = None
+
+
+class NonCompeteIn(BaseModel):
+    number: str = ""
+    doc_date: Optional[date] = None
+    term_noncompete: str = ""       # сроки — ПОЛЯ, не константы
+    term_nonsolicit: str = ""
+    term_confidential: str = ""
+    territory: str = ""
+    activity: str = ""
+    competitors: str = ""
+    penalty: str = ""
+
+
+class ActIn(BaseModel):
+    number: str = ""
+    doc_date: Optional[date] = None
+    inventory_date: Optional[date] = None
+    order_number: str = ""
+    order_date: Optional[date] = None
+    notes: str = ""
+    commission: List[CommissionMemberIn] = []
+
+
+class PerechenIn(BaseModel):
+    number: str = ""
+    doc_date: Optional[date] = None
+    responsible_fio: str = ""
+    responsible_position: str = ""
+    control: str = "оставляю за собой"
+    positions: List[PerechenPositionIn] = []
+    acquainted: List[CommissionMemberIn] = []
+
+
+class PackageRequest(BaseModel):
+    company: CompanyBase
+    employee: EmployeeIn
+    employment: EmploymentIn
+    hr_responsible_fio: str = ""
+    documents: List[str]                        # prikaz | zayavlenie | matotvet | akt | nekonkurencii | perechen
+    deductions: List[str] = []                  # for zayavlenie
+    apply_from: Optional[date] = None
+    liability: Optional[LiabilityIn] = None     # for matotvet / akt basis
+    noncompete: Optional[NonCompeteIn] = None   # for nekonkurencii / perechen terms
+    act: Optional[ActIn] = None                 # for akt
+    inventory: List[InventoryItemIn] = []       # for akt опись
+    perechen: Optional[PerechenIn] = None       # for perechen
+
+
+class InventoryParseResponse(BaseModel):
+    items: List[InventoryItemIn]

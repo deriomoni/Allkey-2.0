@@ -11,6 +11,7 @@ production, lightweight sample objects in tests) — they never touch the sessio
 from __future__ import annotations
 
 from datetime import date
+from decimal import Decimal
 from typing import List, Optional
 
 from app.personnel.helpers import fio as fio_h
@@ -202,6 +203,107 @@ def build_prikaz_preview(company, employee, employment, hr_responsible_fio: str 
                 "salary_words_ru": ctx["employment"]["salary_words_ru"],
             },
         },
+    }
+
+
+def build_matotvet_context(company, employee, employment, liability) -> dict:
+    """Context for dogovor_matotvetstvennost.docx (universal form; опись — отдельный акт).
+    liability needs only number + date_words (ТЗ §4.1)."""
+    return {
+        "company": build_company_context(company),
+        "employee": build_employee_context(employee),
+        "employment": build_employment_context(employment),
+        "liability": {
+            "number": getattr(liability, "number", "") or "",
+            "date_words": _words(getattr(liability, "doc_date", None)),
+        },
+    }
+
+
+def build_nekonkurencii_context(company, employee, employment, nc) -> dict:
+    """Context for dogovor_nekonkurencii.docx. Terms are fields, not constants (§2 п.7)."""
+    return {
+        "company": build_company_context(company),
+        "employee": build_employee_context(employee),
+        "employment": build_employment_context(employment),
+        "nc": {
+            "number": nc.number, "date_words": _words(nc.doc_date),
+            "term_noncompete": nc.term_noncompete, "term_nonsolicit": nc.term_nonsolicit,
+            "term_confidential": nc.term_confidential, "territory": nc.territory,
+            "activity": nc.activity, "competitors": nc.competitors, "penalty": nc.penalty,
+        },
+    }
+
+
+def build_akt_context(company, employee, employment, act, inventory, liability) -> dict:
+    """Context for akt_priema_peredachi.docx. Опись rows and their totals are computed
+    from the inventory (name/code/unit/qty/price); transferor = company signer,
+    receiver = employee — derived, not re-typed."""
+    comp = build_company_context(company)
+    emp = build_employee_context(employee)
+
+    items = []
+    total = Decimal(0)
+    for it in inventory:
+        qty = it.qty or Decimal(0)
+        price = it.price or Decimal(0)
+        line_sum = qty * price
+        total += line_sum
+        items.append({
+            "name": it.name, "code": it.code, "unit": it.unit,
+            "qty": _num(qty), "price": format_figures(price), "sum": format_figures(line_sum),
+        })
+    count = len(items)
+
+    return {
+        "company": comp,
+        "liability": {
+            "number": getattr(liability, "number", "") or "",
+            "date_short": _short(getattr(liability, "doc_date", None)),
+        },
+        "items": items,
+        "act": {
+            "number": act.number, "date_words": _words(act.doc_date),
+            "transferor_position": comp["signer_position"],
+            "transferor_position_genitive": comp["signer_position_genitive"],
+            "transferor_fio_genitive": comp["signer_fio_genitive"],
+            "transferor_fio_short": comp["signer_fio_short"],
+            "receiver_position": employment.position_ru,
+            "receiver_fio_full": emp["fio_full"],
+            "receiver_iin": emp["iin"],
+            "receiver_fio_short": emp["fio_short"],
+            "inventory_date": _short(act.inventory_date),
+            "order_number": act.order_number,
+            "order_date": _short(act.order_date),
+            "total_figures": format_figures(total),
+            "total_words": ru_int_to_words(int(total)),
+            "items_count": count,
+            "items_count_words": ru_int_to_words(count),
+            "notes": act.notes,
+            "commission": [{"position": m.position, "fio_short": m.fio_short} for m in act.commission],
+        },
+    }
+
+
+def build_perechen_context(company, perechen, nc) -> dict:
+    """Context for prikaz_perechen_nekonkurencii.docx (приказ об утверждении перечня)."""
+    comp = build_company_context(company)
+    last, first, middle = split_fio(perechen.responsible_fio)
+    responsible_accusative = fio_h.fio_full(last, first, middle, fio_h.ACCUSATIVE, "male")
+    return {
+        "company": comp,
+        "order": {
+            "number": perechen.number, "date_words": _words(perechen.doc_date), "date_short": _short(perechen.doc_date),
+            "responsible_position": perechen.responsible_position,
+            "responsible_fio_accusative": responsible_accusative,
+            "control": perechen.control,
+        },
+        "nc": {
+            "term_noncompete": nc.term_noncompete if nc else "",
+            "term_nonsolicit": nc.term_nonsolicit if nc else "",
+        },
+        "positions": [{"name": p.name, "reason": p.reason} for p in perechen.positions],
+        "acquainted": [{"position": a.position, "fio_short": a.fio_short} for a in perechen.acquainted],
     }
 
 

@@ -7,10 +7,11 @@ placeholders.
 """
 from __future__ import annotations
 
+import zipfile
 from datetime import date
 from io import BytesIO
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional, Tuple
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 
@@ -28,6 +29,21 @@ def render_template(template_filename: str, context: dict) -> BytesIO:
     tpl.render(context)
     buffer = BytesIO()
     tpl.save(buffer)
+    buffer.seek(0)
+    return buffer
+
+
+def render_bytes(template_filename: str, context: dict) -> bytes:
+    """Render a template to raw .docx bytes (for bundling into a ZIP)."""
+    return render_template(template_filename, context).getvalue()
+
+
+def build_zip(files: List[Tuple[str, bytes]]) -> BytesIO:
+    """Bundle (filename, bytes) pairs into an in-memory ZIP."""
+    buffer = BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+        for name, data in files:
+            archive.writestr(name, data)
     buffer.seek(0)
     return buffer
 
