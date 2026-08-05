@@ -17,4 +17,5 @@ alembic==1.13.1
 num2words==0.5.13
 pymorphy3==2.0.6
 pymorphy3-dicts-ru==2.4.417150.4580142
+docxtpl==0.20.2
 pytest==8.1.1

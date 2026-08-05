@@ -119,6 +119,32 @@ def fio_full(
     return " ".join(p for p in (parts["last"], parts["first"], parts["middle"]) if p)
 
 
+def inflect_phrase(text: str, case: str, gender: str = "male") -> str:
+    """Best-effort declension of a short noun phrase (e.g. a job title:
+    'Генеральный директор' -> genitive 'Генерального директора').
+
+    Used for the signer's position in the material-liability contract. Each token
+    is inflected independently; unknown tokens are left as-is. Output is editable
+    downstream, so approximate agreement on rare titles is acceptable.
+    """
+    text = (text or "").strip()
+    if not text or case == NOMINATIVE:
+        return text
+    grammeme = _CASE_GRAMMEME.get(case)
+    if grammeme is None:
+        return text
+
+    out = []
+    for token in text.split():
+        parses = _morph().parse(token)
+        if not parses:
+            out.append(token)
+            continue
+        result = parses[0].inflect({grammeme})
+        out.append(_match_case(token, result.word) if result else token)
+    return " ".join(out)
+
+
 def fio_short(last: str, first: str = "", middle: str = "") -> str:
     """'Климов В.А.' — surname plus initials, nominative."""
     initials = ""

@@ -28,11 +28,13 @@ class Company(Base):
     name_ru = Column(String, nullable=False)
     name_kk = Column(String, default="")
     bin = Column(String, nullable=False, index=True)          # ENCRYPT-AT-REST (§13.7)
+    city = Column(String, default="")                         # место издания документов
     legal_address = Column(String, default="")
     actual_address = Column(String, default="")
 
     director_fio_ru = Column(String, default="")
     director_fio_kk = Column(String, default="")
+    director_gender = Column(String, default="male")          # male | female — для склонения подписанта
     signatory_position = Column(String, default="Директор")
     acts_on_basis = Column(String, default="Устава")         # Устав / доверенность № ...
 
@@ -105,6 +107,7 @@ class Employment(Base):
     work_time_to = Column(String, default="18:00")
     lunch_from = Column(String, default="13:00")
     lunch_to = Column(String, default="14:00")
+    days_off = Column(String, default="суббота, воскресенье")
     vacation_days = Column(Integer, default=24)
 
     material_liability = Column(Boolean, default=False)       # §2 п.6 flag
@@ -113,8 +116,10 @@ class Employment(Base):
 
     # Numbering is continuous per company and year, with manual override (ТЗ §5).
     contract_number = Column(String, default="")
+    contract_date = Column(Date, nullable=True)
     order_number = Column(String, default="")
     order_date = Column(Date, nullable=True)
+    application_date = Column(Date, nullable=True)            # дата заявления работника (без номера)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 

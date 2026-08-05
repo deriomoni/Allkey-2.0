@@ -72,6 +72,11 @@ def ru_int_to_words(n: int) -> str:
     return num2words(n, lang="ru")
 
 
+def format_figures(n: Number) -> str:
+    """Group an integer amount with spaces: 300000 -> '300 000'."""
+    return f"{int(Decimal(str(n))):,}".replace(",", " ")
+
+
 # --- Currency ---------------------------------------------------------------
 
 def _split_amount(amount: Number) -> "tuple[int, int]":
