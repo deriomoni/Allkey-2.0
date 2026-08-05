@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   personnelApi,
   type PersonnelCompany,
@@ -6,19 +6,21 @@ import {
   type PersonnelEmployment,
   type IinCheck,
   type PrikazPreview,
+  type PrikazBody,
 } from '../api/client'
 
-// Draft persistence (ТЗ §8): the form survives a page reload — data from a
-// client often arrives piecemeal.
-const DRAFT_KEY = 'hr_priem_draft_v1'
+// The module is STATELESS: employees' personal data is never sent to storage.
+// The whole draft lives on the client (localStorage) and is POSTed only to render
+// a document. It survives a reload and auto-clears after a day.
+const DRAFT_KEY = 'hr_priem_draft_v2'
+const DRAFT_TTL_MS = 24 * 60 * 60 * 1000
 
 type Draft = {
   company: Partial<PersonnelCompany>
   employee: Partial<PersonnelEmployee>
   employment: Partial<PersonnelEmployment>
   companyId?: number
-  employeeId?: number
-  employmentId?: number
+  savedAt?: number
 }
 
 const EMPTY_DRAFT: Draft = {
@@ -34,12 +36,18 @@ const EMPTY_DRAFT: Draft = {
 function loadDraft(): Draft {
   try {
     const raw = localStorage.getItem(DRAFT_KEY)
-    if (raw) return { ...EMPTY_DRAFT, ...JSON.parse(raw) }
+    if (raw) {
+      const d = JSON.parse(raw) as Draft
+      if (d.savedAt && Date.now() - d.savedAt > DRAFT_TTL_MS) {
+        localStorage.removeItem(DRAFT_KEY)   // gigiene: auto-clear stale drafts
+        return EMPTY_DRAFT
+      }
+      return { ...EMPTY_DRAFT, ...d }
+    }
   } catch { /* ignore */ }
   return EMPTY_DRAFT
 }
 
-// Turn an axios error into a message that explains what is wrong, not "validation error".
 function errText(e: unknown, fallback: string): string {
   // @ts-expect-error narrow axios shape
   const detail = e?.response?.data?.detail
@@ -48,24 +56,19 @@ function errText(e: unknown, fallback: string): string {
   return fallback
 }
 
+function body(d: Draft): PrikazBody {
+  return { company: d.company, employee: d.employee, employment: d.employment }
+}
+
 function Field(props: {
-  label: string
-  value: string | number | null | undefined
-  onChange: (v: string) => void
-  type?: string
-  placeholder?: string
-  hint?: string
+  label: string; value: string | number | null | undefined
+  onChange: (v: string) => void; type?: string; placeholder?: string
 }) {
   return (
     <div className="form-group">
       <label>{props.label}</label>
-      <input
-        type={props.type || 'text'}
-        value={props.value ?? ''}
-        placeholder={props.placeholder}
-        onChange={(e) => props.onChange(e.target.value)}
-      />
-      {props.hint && <div style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>{props.hint}</div>}
+      <input type={props.type || 'text'} value={props.value ?? ''} placeholder={props.placeholder}
+        onChange={(e) => props.onChange(e.target.value)} />
     </div>
   )
 }
@@ -78,17 +81,16 @@ export default function HrPage() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+  const importRef = useRef<HTMLInputElement>(null)
 
-  // Persist every change to survive reloads.
-  useEffect(() => { localStorage.setItem(DRAFT_KEY, JSON.stringify(draft)) }, [draft])
+  useEffect(() => {
+    localStorage.setItem(DRAFT_KEY, JSON.stringify({ ...draft, savedAt: Date.now() }))
+  }, [draft])
   useEffect(() => { personnelApi.listCompanies().then(setCompanies).catch(() => {}) }, [])
 
-  const setCompany = (patch: Partial<PersonnelCompany>) =>
-    setDraft((d) => ({ ...d, company: { ...d.company, ...patch } }))
-  const setEmployee = (patch: Partial<PersonnelEmployee>) =>
-    setDraft((d) => ({ ...d, employee: { ...d.employee, ...patch } }))
-  const setEmployment = (patch: Partial<PersonnelEmployment>) =>
-    setDraft((d) => ({ ...d, employment: { ...d.employment, ...patch } }))
+  const setCompany = (patch: Partial<PersonnelCompany>) => setDraft((d) => ({ ...d, company: { ...d.company, ...patch } }))
+  const setEmployee = (patch: Partial<PersonnelEmployee>) => setDraft((d) => ({ ...d, employee: { ...d.employee, ...patch } }))
+  const setEmployment = (patch: Partial<PersonnelEmployment>) => setDraft((d) => ({ ...d, employment: { ...d.employment, ...patch } }))
 
   const flash = (m: string) => { setNotice(m); setError(''); setTimeout(() => setNotice(''), 3000) }
   const fail = (e: unknown, fb: string) => setError(errText(e, fb))
@@ -98,7 +100,6 @@ export default function HrPage() {
     try {
       const res = await personnelApi.validateIin(value, draft.employee.birth_date, draft.employee.gender)
       setIin(res)
-      // autofill birth date / gender from the ИИН when empty
       if (res.valid) {
         const patch: Partial<PersonnelEmployee> = {}
         if (res.birth_date && !draft.employee.birth_date) patch.birth_date = res.birth_date
@@ -108,7 +109,8 @@ export default function HrPage() {
     } catch (e) { fail(e, 'Не удалось проверить ИИН') }
   }
 
-  async function saveCompany() {
+  // Company is the one stored entity (open-registry requisites) — optional convenience.
+  async function saveCompanyToDirectory() {
     setBusy(true); setError('')
     try {
       const saved = draft.companyId
@@ -116,75 +118,60 @@ export default function HrPage() {
         : await personnelApi.createCompany(draft.company)
       setDraft((d) => ({ ...d, companyId: saved.id, company: saved }))
       setCompanies(await personnelApi.listCompanies())
-      flash('Компания сохранена')
+      flash('Компания сохранена в справочник')
     } catch (e) { fail(e, 'Не удалось сохранить компанию') } finally { setBusy(false) }
   }
-
   function pickCompany(id: number) {
     const c = companies.find((x) => x.id === id)
     if (c) setDraft((d) => ({ ...d, companyId: c.id, company: c }))
   }
 
-  async function saveEmployee() {
-    setBusy(true); setError('')
-    try {
-      const saved = draft.employeeId
-        ? await personnelApi.updateEmployee(draft.employeeId, draft.employee)
-        : await personnelApi.createEmployee(draft.employee)
-      setDraft((d) => ({ ...d, employeeId: saved.id, employee: saved }))
-      flash(saved.warnings?.length ? saved.warnings.join('; ') : 'Работник сохранён')
-    } catch (e) { fail(e, 'Не удалось сохранить работника') } finally { setBusy(false) }
-  }
-
-  async function saveEmployment() {
-    if (!draft.companyId || !draft.employeeId) { setError('Сначала сохраните компанию и работника'); return }
-    setBusy(true); setError('')
-    try {
-      const payload = { ...draft.employment, company_id: draft.companyId, employee_id: draft.employeeId }
-      const saved = draft.employmentId
-        ? await personnelApi.updateEmployment(draft.employmentId, payload)
-        : await personnelApi.createEmployment(payload)
-      setDraft((d) => ({ ...d, employmentId: saved.id, employment: saved }))
-      flash(saved.warnings?.length ? saved.warnings.join('; ') : 'Условия приёма сохранены')
-    } catch (e) { fail(e, 'Не удалось сохранить условия приёма') } finally { setBusy(false) }
-  }
-
   async function loadPreview() {
-    if (!draft.employmentId) { setError('Сначала сохраните условия приёма'); return }
     setBusy(true); setError('')
-    try { setPreview(await personnelApi.prikazPreview(draft.employmentId)) }
+    try { setPreview(await personnelApi.prikazPreview(body(draft))) }
     catch (e) { fail(e, 'Не удалось получить предпросмотр') } finally { setBusy(false) }
   }
 
-  // Save an edited auto-field back to where it persists, then refresh the preview.
-  async function saveEmployeeOverride(field: string, value: string) {
-    if (!draft.employeeId) return
+  // Editing an auto-value updates the client draft, then re-previews. Nothing is stored.
+  async function applyEmployeeEdit(field: string, value: string) {
+    const next = { ...draft, employee: { ...draft.employee, [field]: value } }
+    setDraft(next)
     setBusy(true); setError('')
-    try {
-      await personnelApi.updateEmployee(draft.employeeId, { [field]: value })
-      await loadPreview()
-      flash('Правка сохранена в карточку работника')
-    } catch (e) { fail(e, 'Не удалось сохранить правку') } finally { setBusy(false) }
+    try { setPreview(await personnelApi.prikazPreview(body(next))); flash('Правка учтена') }
+    catch (e) { fail(e, 'Ошибка') } finally { setBusy(false) }
   }
-  async function saveEmploymentOverride(field: string, value: string) {
-    if (!draft.employmentId) return
+  async function applyEmploymentEdit(field: string, value: string) {
+    const next = { ...draft, employment: { ...draft.employment, [field]: value } }
+    setDraft(next)
     setBusy(true); setError('')
-    try {
-      await personnelApi.updateEmployment(draft.employmentId, { [field]: value })
-      await loadPreview()
-      flash('Правка сохранена')
-    } catch (e) { fail(e, 'Не удалось сохранить правку') } finally { setBusy(false) }
+    try { setPreview(await personnelApi.prikazPreview(body(next))); flash('Правка учтена') }
+    catch (e) { fail(e, 'Ошибка') } finally { setBusy(false) }
   }
 
   async function download() {
-    if (!draft.employmentId) return
     setBusy(true); setError('')
-    try { await personnelApi.downloadPrikaz(draft.employmentId) }
+    try { await personnelApi.generatePrikaz(body(draft)) }
     catch (e) { fail(e, 'Не удалось сформировать приказ') } finally { setBusy(false) }
   }
 
+  function exportDraft() {
+    const blob = new Blob([JSON.stringify(draft, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `черновик_приём_${draft.employee.last_name || 'без_имени'}.json`
+    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
+  }
+  function importDraft(file: File) {
+    const reader = new FileReader()
+    reader.onload = () => {
+      try { setDraft({ ...EMPTY_DRAFT, ...JSON.parse(String(reader.result)) }); setPreview(null); flash('Черновик загружен') }
+      catch { setError('Не удалось прочитать файл черновика') }
+    }
+    reader.readAsText(file)
+  }
   function resetDraft() {
-    if (!confirm('Очистить форму и начать заново?')) return
+    if (!confirm('Очистить все введённые данные?')) return
     localStorage.removeItem(DRAFT_KEY)
     setDraft(EMPTY_DRAFT); setPreview(null); setIin(null); setError(''); setNotice('')
   }
@@ -193,10 +180,22 @@ export default function HrPage() {
 
   return (
     <div style={{ maxWidth: 900, margin: '0 auto', paddingBottom: 60 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '16px 0' }}>
-        <h2>Приём на работу</h2>
-        <button className="btn btn-secondary" onClick={resetDraft}>Очистить черновик</button>
+      <h2 style={{ margin: '16px 0' }}>Приём на работу</h2>
+
+      <div style={{ background: '#fff7ed', border: '1px solid #fed7aa', color: '#9a3412', padding: '12px 16px', borderRadius: 8, marginBottom: 16 }}>
+        <strong>Данные не сохраняются на сервере.</strong> Сервис не хранит персональные данные ваших
+        сотрудников — заполненная форма живёт только в этом браузере. Скачайте документы до закрытия
+        страницы. Черновик можно сохранить файлом (кнопка ниже) и загрузить позже.
       </div>
+
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
+        <button className="btn btn-secondary" onClick={exportDraft}>Скачать черновик (JSON)</button>
+        <button className="btn btn-secondary" onClick={() => importRef.current?.click()}>Загрузить черновик</button>
+        <input ref={importRef} type="file" accept="application/json" style={{ display: 'none' }}
+          onChange={(ev) => ev.target.files?.[0] && importDraft(ev.target.files[0])} />
+        <button className="btn btn-secondary" onClick={resetDraft}>Очистить данные</button>
+      </div>
+
       {error && <div className="error-message">{error}</div>}
       {notice && <div style={{ background: '#ecfdf5', color: '#065f46', padding: '10px 14px', borderRadius: 8, marginBottom: 12 }}>{notice}</div>}
 
@@ -205,9 +204,9 @@ export default function HrPage() {
         <h3>1. Работодатель</h3>
         {companies.length > 0 && (
           <div className="form-group">
-            <label>Выбрать существующую</label>
+            <label>Выбрать из справочника</label>
             <select value={draft.companyId ?? ''} onChange={(ev) => pickCompany(Number(ev.target.value))}>
-              <option value="">— создать новую —</option>
+              <option value="">— заполнить вручную —</option>
               {companies.map((x) => <option key={x.id} value={x.id}>{x.name_ru} (БИН {x.bin})</option>)}
             </select>
           </div>
@@ -225,8 +224,8 @@ export default function HrPage() {
         </div>
         <Field label="Должность подписанта" value={c.signatory_position} onChange={(v) => setCompany({ signatory_position: v })} />
         <Field label="Действует на основании" value={c.acts_on_basis} onChange={(v) => setCompany({ acts_on_basis: v })} />
-        <button className="btn btn-primary" onClick={saveCompany} disabled={busy}>
-          {draft.companyId ? 'Обновить компанию' : 'Сохранить компанию'}
+        <button className="btn btn-secondary" onClick={saveCompanyToDirectory} disabled={busy}>
+          {draft.companyId ? 'Обновить в справочнике' : 'Сохранить в справочник (реквизиты юрлица)'}
         </button>
       </section>
 
@@ -238,15 +237,12 @@ export default function HrPage() {
         <Field label="Отчество" value={e.middle_name} onChange={(v) => setEmployee({ middle_name: v })} />
         <div className="form-group">
           <label>ИИН</label>
-          <input
-            value={e.iin ?? ''}
-            placeholder="12 цифр"
+          <input value={e.iin ?? ''} placeholder="12 цифр"
             onChange={(ev) => setEmployee({ iin: ev.target.value })}
-            onBlur={(ev) => checkIin(ev.target.value)}
-          />
+            onBlur={(ev) => checkIin(ev.target.value)} />
           {iin && !iin.valid && (
             <div style={{ color: '#b91c1c', fontSize: 13, marginTop: 4 }}>
-              ИИН не прошёл проверку: должно быть 12 цифр с верной контрольной суммой и корректной датой рождения.
+              ИИН не прошёл проверку: нужно 12 цифр с верной контрольной суммой и корректной датой рождения.
             </div>
           )}
           {iin && iin.valid && (
@@ -275,9 +271,6 @@ export default function HrPage() {
         </div>
         <Field label="Адрес (факт.)" value={e.actual_address} onChange={(v) => setEmployee({ actual_address: v })} />
         <Field label="Телефон" value={e.phone} onChange={(v) => setEmployee({ phone: v })} />
-        <button className="btn btn-primary" onClick={saveEmployee} disabled={busy}>
-          {draft.employeeId ? 'Обновить работника' : 'Сохранить работника'}
-        </button>
       </section>
 
       {/* 3. Conditions */}
@@ -295,45 +288,40 @@ export default function HrPage() {
           </select>
         </div>
         <Field label="Испытательный срок, мес (0–3)" type="number" value={m.probation_months} onChange={(v) => setEmployment({ probation_months: Number(v) })} />
-        <Field label="№ трудового договора" value={m.contract_number} onChange={(v) => setEmployment({ contract_number: v })} />
+        <Field label="№ трудового договора (вручную)" value={m.contract_number} onChange={(v) => setEmployment({ contract_number: v })} />
         <Field label="Дата ТД" type="date" value={m.contract_date} onChange={(v) => setEmployment({ contract_date: v })} />
-        <Field label="№ приказа" value={m.order_number} onChange={(v) => setEmployment({ order_number: v })} />
+        <Field label="№ приказа (вручную)" value={m.order_number} onChange={(v) => setEmployment({ order_number: v })} />
         <Field label="Дата приказа" type="date" value={m.order_date} onChange={(v) => setEmployment({ order_date: v })} />
         <Field label="Дата заявления" type="date" value={m.application_date} onChange={(v) => setEmployment({ application_date: v })} />
         <Field label="Часов в неделю" type="number" value={m.hours_per_week} onChange={(v) => setEmployment({ hours_per_week: Number(v) })} />
         <Field label="Выходные" value={m.days_off} onChange={(v) => setEmployment({ days_off: v })} />
-        <button className="btn btn-primary" onClick={saveEmployment} disabled={busy}>
-          {draft.employmentId ? 'Обновить условия' : 'Сохранить условия'}
-        </button>
-        {(m.warnings?.length ?? 0) > 0 && (
-          <div style={{ background: '#fffbeb', color: '#92400e', padding: '10px 14px', borderRadius: 8, marginTop: 10 }}>
-            {m.warnings!.map((w, i) => <div key={i}>⚠ {w}</div>)}
-          </div>
-        )}
       </section>
 
       {/* 4. Preview & generate */}
       <section>
         <h3>4. Предпросмотр и формирование</h3>
-        <button className="btn btn-secondary" onClick={loadPreview} disabled={busy || !draft.employmentId}>
-          Обновить предпросмотр
-        </button>
+        <button className="btn btn-secondary" onClick={loadPreview} disabled={busy}>Обновить предпросмотр</button>
         {preview && (
           <div style={{ marginTop: 16 }}>
+            {preview.warnings.length > 0 && (
+              <div style={{ background: '#fffbeb', color: '#92400e', padding: '10px 14px', borderRadius: 8, marginBottom: 12 }}>
+                {preview.warnings.map((w, i) => <div key={i}>⚠ {w}</div>)}
+              </div>
+            )}
             <p style={{ fontSize: 13, color: '#6b7280' }}>
-              Автогенерируемые значения можно поправить — правка ФИО пишется в карточку работника
-              и применяется во всех его документах; должность и сумма прописью — к этому приёму.
+              Автогенерируемые значения можно поправить — правки хранятся в черновике на этом компьютере
+              и попадают в документ. Ничего на сервере не сохраняется.
             </p>
             <EditableRow label="ФИО (родительный)" initial={preview.editable.employee.fio_genitive}
-              onSave={(v) => saveEmployeeOverride('fio_genitive_override', v)} />
+              onSave={(v) => applyEmployeeEdit('fio_genitive_override', v)} />
             <EditableRow label="ФИО (дательный)" initial={preview.editable.employee.fio_dative}
-              onSave={(v) => saveEmployeeOverride('fio_dative_override', v)} />
+              onSave={(v) => applyEmployeeEdit('fio_dative_override', v)} />
             <EditableRow label="ФИО (винительный)" initial={preview.editable.employee.fio_accusative}
-              onSave={(v) => saveEmployeeOverride('fio_accusative_override', v)} />
+              onSave={(v) => applyEmployeeEdit('fio_accusative_override', v)} />
             <EditableRow label="Должность" initial={preview.editable.employment.position_ru}
-              onSave={(v) => saveEmploymentOverride('position_ru', v)} />
+              onSave={(v) => applyEmploymentEdit('position_ru', v)} />
             <EditableRow label="Оклад прописью" initial={preview.editable.employment.salary_words_ru}
-              onSave={(v) => saveEmploymentOverride('salary_words_override', v)} />
+              onSave={(v) => applyEmploymentEdit('salary_words_override', v)} />
             <button className="btn btn-primary" style={{ marginTop: 16 }} onClick={download} disabled={busy}>
               Сформировать приказ (.docx)
             </button>
@@ -354,7 +342,7 @@ function EditableRow(props: { label: string; initial: string; onSave: (v: string
         <label>{props.label}</label>
         <input value={value} onChange={(e) => setValue(e.target.value)} />
       </div>
-      <button className="btn btn-secondary" disabled={!dirty} onClick={() => props.onSave(value)}>Сохранить</button>
+      <button className="btn btn-secondary" disabled={!dirty} onClick={() => props.onSave(value)}>Применить</button>
     </div>
   )
 }

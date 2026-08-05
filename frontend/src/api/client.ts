@@ -599,6 +599,15 @@ export interface PrikazPreview {
     employee: { fio_genitive: string; fio_dative: string; fio_accusative: string }
     employment: { position_ru: string; salary_words_ru: string }
   }
+  warnings: string[]
+}
+
+// The whole hiring, sent in the request body — the server stores nothing.
+export interface PrikazBody {
+  company: Partial<PersonnelCompany>
+  employee: Partial<PersonnelEmployee>
+  employment: Partial<PersonnelEmployment>
+  hr_responsible_fio?: string
 }
 
 // Trigger a browser download from a blob response, honouring the server filename.
@@ -627,33 +636,20 @@ export const personnelApi = {
     return response.data
   },
 
+  // Company (employer requisites) is the only stored entity — kept so users
+  // don't re-type the БИН and director every time.
   listCompanies: async (): Promise<PersonnelCompany[]> => (await api.get('/personnel/companies')).data,
   createCompany: async (data: Partial<PersonnelCompany>): Promise<PersonnelCompany> =>
     (await api.post('/personnel/companies', data)).data,
   updateCompany: async (id: number, data: Partial<PersonnelCompany>): Promise<PersonnelCompany> =>
     (await api.put(`/personnel/companies/${id}`, data)).data,
 
-  listEmployees: async (): Promise<PersonnelEmployee[]> => (await api.get('/personnel/employees')).data,
-  createEmployee: async (data: Partial<PersonnelEmployee>): Promise<PersonnelEmployee> =>
-    (await api.post('/personnel/employees', data)).data,
-  updateEmployee: async (id: number, data: Partial<PersonnelEmployee>): Promise<PersonnelEmployee> =>
-    (await api.put(`/personnel/employees/${id}`, data)).data,
+  // Stateless generation — the whole hiring is in the body, nothing is stored.
+  prikazPreview: async (body: PrikazBody): Promise<PrikazPreview> =>
+    (await api.post('/personnel/documents/prikaz/preview', body)).data,
 
-  createEmployment: async (data: Partial<PersonnelEmployment>): Promise<PersonnelEmployment> =>
-    (await api.post('/personnel/employments', data)).data,
-  updateEmployment: async (id: number, data: Partial<PersonnelEmployment>): Promise<PersonnelEmployment> =>
-    (await api.put(`/personnel/employments/${id}`, data)).data,
-  getEmployment: async (id: number): Promise<PersonnelEmployment> =>
-    (await api.get(`/personnel/employments/${id}`)).data,
-
-  prikazPreview: async (employmentId: number): Promise<PrikazPreview> =>
-    (await api.get(`/personnel/employments/${employmentId}/documents/prikaz/preview`)).data,
-
-  downloadPrikaz: async (employmentId: number): Promise<void> => {
-    const response = await api.get(
-      `/personnel/employments/${employmentId}/documents/prikaz`,
-      { responseType: 'blob' }
-    )
+  generatePrikaz: async (body: PrikazBody): Promise<void> => {
+    const response = await api.post('/personnel/documents/prikaz', body, { responseType: 'blob' })
     downloadBlob(response.data, response.headers['content-disposition'], 'ПриказПриём.docx')
   },
 }
