@@ -176,3 +176,12 @@ def test_parse_inventory_with_header():
     assert resp.items[0].name == "Ноутбук"
     assert resp.items[0].qty == Decimal("2")
     assert resp.items[1].price == Decimal("90000")
+
+
+def test_parse_inventory_missing_columns_message():
+    data = _xlsx([["Товар", "Штук"], ["Ноутбук", 2]])  # no Цена column
+    upload = UploadFile(filename="opis.xlsx", file=BytesIO(data))
+    with pytest.raises(HTTPException) as exc:
+        run(R.parse_inventory(file=upload, _user=FAKE_USER))
+    assert exc.value.status_code == 400
+    assert "Цена" in exc.value.detail and "Количество" in exc.value.detail

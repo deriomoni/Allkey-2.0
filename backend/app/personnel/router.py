@@ -282,14 +282,29 @@ async def parse_inventory(
                 return i
         return None
 
-    has_header = any(any(k in h for k in ("наимен", "назв", "код", "кол", "цена", "ед")) for h in header)
-    if has_header:
-        ci_name = col("наимен", "назв") or 0
-        ci_code, ci_unit, ci_qty, ci_price = col("код", "номер", "инв"), col("ед"), col("кол"), col("цена", "стоим")
-        data_rows = rows[1:]
-    else:
-        ci_name, ci_code, ci_unit, ci_qty, ci_price = 0, 1, 2, 3, 4
-        data_rows = rows
+    ci_name = col("наимен", "назв", "товар", "ценност")
+    ci_qty = col("кол")
+    ci_price = col("цена", "стоим")
+    ci_code = col("код", "номер", "инв", "артик")
+    ci_unit = col("ед", "изм")
+
+    missing = []
+    if ci_name is None:
+        missing.append("Наименование")
+    if ci_qty is None:
+        missing.append("Количество")
+    if ci_price is None:
+        missing.append("Цена")
+    if missing:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "В файле не найдены колонки: " + ", ".join(missing) + ". "
+                "Первая строка должна быть заголовком со столбцами: Наименование, Количество, "
+                "Цена (по желанию — Код/инв. номер, Ед. изм.)."
+            ),
+        )
+    data_rows = rows[1:]
 
     def cell(row, i):
         return row[i] if (i is not None and i < len(row) and row[i] is not None) else ""

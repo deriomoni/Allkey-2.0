@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import {
   personnelApi,
   type PersonnelCompany,
@@ -7,6 +7,9 @@ import {
   type IinCheck,
   type PrikazPreview,
   type PrikazBody,
+  type PackageBody,
+  type InventoryItem,
+  type CommissionMember,
 } from '../api/client'
 
 // The module is STATELESS: employees' personal data is never sent to storage.
@@ -15,12 +18,21 @@ import {
 const DRAFT_KEY = 'hr_priem_draft_v2'
 const DRAFT_TTL_MS = 24 * 60 * 60 * 1000
 
+type ActDraft = {
+  number: string; doc_date: string | null; inventory_date: string | null
+  order_number: string; order_date: string | null; notes: string; commission: CommissionMember[]
+}
+
 type Draft = {
   company: Partial<PersonnelCompany>
   employee: Partial<PersonnelEmployee>
   employment: Partial<PersonnelEmployment>
   companyId?: number
   savedAt?: number
+  documents: Record<string, boolean>
+  liability: { number: string; doc_date: string | null }
+  act: ActDraft
+  inventory: InventoryItem[]
 }
 
 const EMPTY_DRAFT: Draft = {
@@ -31,7 +43,26 @@ const EMPTY_DRAFT: Draft = {
     work_time_from: '09:00', work_time_to: '18:00', lunch_from: '13:00', lunch_to: '14:00',
     days_off: 'суббота, воскресенье', vacation_days: 24, ipn_deduction: 'base_30_mrp',
   },
+  documents: { prikaz: true, matotvet: false, akt: false },
+  liability: { number: '', doc_date: null },
+  act: { number: '', doc_date: null, inventory_date: null, order_number: '', order_date: null, notes: '', commission: [] },
+  inventory: [],
 }
+
+const num = (v: string | number | null | undefined): number => {
+  const n = parseFloat(String(v ?? '').replace(/\s/g, '').replace(',', '.'))
+  return Number.isFinite(n) ? n : 0
+}
+const fmt = (n: number): string => n.toLocaleString('ru-RU').replace(/,/g, ' ')
+
+const cellS: CSSProperties = { padding: '4px 6px', borderBottom: '1px solid #f1f5f9' }
+const inS: CSSProperties = { width: '100%', padding: '4px 6px' }
+
+const PACKAGE_DOCS: [string, string][] = [
+  ['prikaz', 'Приказ о приёме на работу'],
+  ['matotvet', 'Договор о полной материальной ответственности'],
+  ['akt', 'Акт приёма-передачи ценностей'],
+]
 
 function loadDraft(): Draft {
   try {
@@ -152,6 +183,64 @@ export default function HrPage() {
     setBusy(true); setError('')
     try { await personnelApi.generatePrikaz(body(draft)) }
     catch (e) { fail(e, 'Не удалось сформировать приказ') } finally { setBusy(false) }
+  }
+
+  // --- document package (заход 1: matotvet + akt) ---
+  const [importPreview, setImportPreview] = useState<InventoryItem[] | null>(null)
+  const invRef = useRef<HTMLInputElement>(null)
+
+  const toggleDoc = (key: string) =>
+    setDraft((d) => ({ ...d, documents: { ...d.documents, [key]: !d.documents[key] } }))
+  const setLiability = (patch: Partial<Draft['liability']>) =>
+    setDraft((d) => ({ ...d, liability: { ...d.liability, ...patch } }))
+  const setAct = (patch: Partial<ActDraft>) =>
+    setDraft((d) => ({ ...d, act: { ...d.act, ...patch } }))
+
+  const addRow = () =>
+    setDraft((d) => ({ ...d, inventory: [...d.inventory, { name: '', code: '', unit: '', qty: '', price: '' }] }))
+  const updateRow = (i: number, patch: Partial<InventoryItem>) =>
+    setDraft((d) => ({ ...d, inventory: d.inventory.map((r, j) => (j === i ? { ...r, ...patch } : r)) }))
+  const deleteRow = (i: number) =>
+    setDraft((d) => ({ ...d, inventory: d.inventory.filter((_, j) => j !== i) }))
+
+  const addCommission = () =>
+    setAct({ commission: [...draft.act.commission, { position: '', fio_short: '' }] })
+  const updateCommission = (i: number, patch: Partial<CommissionMember>) =>
+    setAct({ commission: draft.act.commission.map((r, j) => (j === i ? { ...r, ...patch } : r)) })
+  const deleteCommission = (i: number) =>
+    setAct({ commission: draft.act.commission.filter((_, j) => j !== i) })
+
+  async function onInventoryFile(file: File) {
+    setError('')
+    try {
+      const items = await personnelApi.parseInventory(file)
+      if (!items.length) { setError('В файле не найдено ни одной позиции'); return }
+      setImportPreview(items)   // show what was recognized BEFORE adding — user confirms/cancels
+    } catch (e) { fail(e, 'Не удалось разобрать файл') }
+    finally { if (invRef.current) invRef.current.value = '' }
+  }
+  function confirmImport() {
+    if (importPreview) setDraft((d) => ({ ...d, inventory: [...d.inventory, ...importPreview] }))
+    setImportPreview(null); flash('Опись добавлена')
+  }
+
+  const invTotal = draft.inventory.reduce((sum, r) => sum + num(r.qty) * num(r.price), 0)
+
+  async function generatePackage() {
+    const documents = Object.keys(draft.documents).filter((k) => draft.documents[k])
+    if (!documents.length) { setError('Отметьте хотя бы один документ'); return }
+    if (draft.documents.akt && draft.inventory.length === 0) {
+      setError('Для акта приёма-передачи добавьте хотя бы одну позицию описи (или снимите галочку «Акт»)')
+      return
+    }
+    const b: PackageBody = {
+      company: draft.company, employee: draft.employee, employment: draft.employment, documents,
+    }
+    if (draft.documents.matotvet || draft.documents.akt) b.liability = draft.liability
+    if (draft.documents.akt) { b.act = draft.act; b.inventory = draft.inventory }
+    setBusy(true); setError('')
+    try { await personnelApi.generatePackage(b) }
+    catch (e) { fail(e, 'Не удалось сформировать пакет') } finally { setBusy(false) }
   }
 
   function exportDraft() {
@@ -328,6 +417,134 @@ export default function HrPage() {
           </div>
         )}
       </section>
+
+      {/* 5. Package (заход 1: приказ + матответственность + акт) */}
+      <section style={{ marginTop: 32, borderTop: '1px solid #e5e7eb', paddingTop: 20 }}>
+        <h3>5. Пакет документов (ZIP)</h3>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 12 }}>
+          {PACKAGE_DOCS.map(([key, label]) => (
+            <label key={key} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <input type="checkbox" checked={!!draft.documents[key]} onChange={() => toggleDoc(key)} />
+              {label}
+            </label>
+          ))}
+        </div>
+
+        {(draft.documents.matotvet || draft.documents.akt) && (
+          <div style={{ background: '#f8fafc', borderRadius: 8, padding: 14, marginBottom: 12 }}>
+            <h4 style={{ marginBottom: 8 }}>Реквизиты договора о матответственности</h4>
+            <Field label="№ договора" value={draft.liability.number} onChange={(v) => setLiability({ number: v })} />
+            <Field label="Дата договора" type="date" value={draft.liability.doc_date} onChange={(v) => setLiability({ doc_date: v })} />
+          </div>
+        )}
+
+        {draft.documents.akt && (
+          <div style={{ background: '#f8fafc', borderRadius: 8, padding: 14, marginBottom: 12 }}>
+            <h4 style={{ marginBottom: 8 }}>Акт приёма-передачи</h4>
+            <Field label="№ акта" value={draft.act.number} onChange={(v) => setAct({ number: v })} />
+            <Field label="Дата акта" type="date" value={draft.act.doc_date} onChange={(v) => setAct({ doc_date: v })} />
+            <Field label="Дата инвентаризации" type="date" value={draft.act.inventory_date} onChange={(v) => setAct({ inventory_date: v })} />
+            <Field label="№ приказа-основания" value={draft.act.order_number} onChange={(v) => setAct({ order_number: v })} />
+            <Field label="Дата приказа-основания" type="date" value={draft.act.order_date} onChange={(v) => setAct({ order_date: v })} />
+            <Field label="Особые отметки" value={draft.act.notes} onChange={(v) => setAct({ notes: v })} />
+
+            <div style={{ marginTop: 12 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+                <strong>Опись ценностей</strong>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button className="btn btn-secondary" onClick={addRow}>+ строка</button>
+                  <button className="btn btn-secondary" onClick={() => invRef.current?.click()}>Загрузить из Excel</button>
+                  <input ref={invRef} type="file" accept=".xlsx" style={{ display: 'none' }}
+                    onChange={(ev) => ev.target.files?.[0] && onInventoryFile(ev.target.files[0])} />
+                </div>
+              </div>
+              {draft.inventory.length === 0 ? (
+                <p style={{ color: '#6b7280', fontSize: 13, marginTop: 6 }}>
+                  Опись пуста. Добавьте строки вручную или загрузите из Excel
+                  (колонки: Наименование, Количество, Цена; по желанию — Код, Ед. изм.).
+                </p>
+              ) : (
+                <div style={{ overflowX: 'auto', marginTop: 6 }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                    <thead>
+                      <tr>{['№', 'Наименование', 'Код', 'Ед.', 'Кол-во', 'Цена', 'Сумма', ''].map((h, i) =>
+                        <th key={i} style={{ textAlign: 'left', padding: '4px 6px', borderBottom: '1px solid #e5e7eb' }}>{h}</th>)}</tr>
+                    </thead>
+                    <tbody>
+                      {draft.inventory.map((r, i) => (
+                        <tr key={i}>
+                          <td style={cellS}>{i + 1}</td>
+                          <td style={cellS}><input value={r.name} onChange={(e) => updateRow(i, { name: e.target.value })} style={inS} /></td>
+                          <td style={cellS}><input value={r.code} onChange={(e) => updateRow(i, { code: e.target.value })} style={{ ...inS, width: 80 }} /></td>
+                          <td style={cellS}><input value={r.unit} onChange={(e) => updateRow(i, { unit: e.target.value })} style={{ ...inS, width: 60 }} /></td>
+                          <td style={cellS}><input value={String(r.qty)} onChange={(e) => updateRow(i, { qty: e.target.value })} style={{ ...inS, width: 70 }} /></td>
+                          <td style={cellS}><input value={String(r.price)} onChange={(e) => updateRow(i, { price: e.target.value })} style={{ ...inS, width: 100 }} /></td>
+                          <td style={{ ...cellS, whiteSpace: 'nowrap' }}>{fmt(num(r.qty) * num(r.price))}</td>
+                          <td style={cellS}><button className="btn btn-secondary" onClick={() => deleteRow(i)} title="Удалить строку">×</button></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr>
+                        <td colSpan={6} style={{ ...cellS, textAlign: 'right', fontWeight: 600 }}>Итого:</td>
+                        <td style={{ ...cellS, fontWeight: 600, whiteSpace: 'nowrap' }}>{fmt(invTotal)} ₸</td>
+                        <td />
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            <div style={{ marginTop: 12 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <strong>Комиссия</strong>
+                <button className="btn btn-secondary" onClick={addCommission}>+ член комиссии</button>
+              </div>
+              {draft.act.commission.map((mrow, i) => (
+                <div key={i} style={{ display: 'flex', gap: 8, marginTop: 6 }}>
+                  <input placeholder="Должность" value={mrow.position} onChange={(e) => updateCommission(i, { position: e.target.value })} style={{ ...inS, flex: 1 }} />
+                  <input placeholder="Фамилия И.О." value={mrow.fio_short} onChange={(e) => updateCommission(i, { fio_short: e.target.value })} style={{ ...inS, flex: 1 }} />
+                  <button className="btn btn-secondary" onClick={() => deleteCommission(i)} title="Удалить">×</button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <button className="btn btn-primary" style={{ marginTop: 8 }} onClick={generatePackage} disabled={busy}>
+          Сформировать пакет (ZIP)
+        </button>
+      </section>
+
+      {importPreview && (
+        <div className="modal-overlay" onClick={() => setImportPreview(null)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 660 }}>
+            <div className="modal-body">
+              <h3 style={{ marginBottom: 8 }}>Распознано позиций: {importPreview.length}</h3>
+              <p style={{ fontSize: 13, color: '#6b7280', marginBottom: 10 }}>Проверьте, прежде чем добавить в опись.</p>
+              <div style={{ maxHeight: 300, overflowY: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                  <thead><tr>{['Наименование', 'Код', 'Ед.', 'Кол-во', 'Цена'].map((h, i) =>
+                    <th key={i} style={{ textAlign: 'left', padding: '4px 6px', borderBottom: '1px solid #e5e7eb' }}>{h}</th>)}</tr></thead>
+                  <tbody>
+                    {importPreview.map((r, i) => (
+                      <tr key={i}>
+                        <td style={cellS}>{r.name}</td><td style={cellS}>{r.code}</td><td style={cellS}>{r.unit}</td>
+                        <td style={cellS}>{String(r.qty)}</td><td style={cellS}>{String(r.price)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end', marginTop: 16 }}>
+                <button className="btn btn-secondary" onClick={() => setImportPreview(null)}>Отмена</button>
+                <button className="btn btn-primary" onClick={confirmImport}>Добавить в опись</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

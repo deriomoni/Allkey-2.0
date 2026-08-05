@@ -610,6 +610,48 @@ export interface PrikazBody {
   hr_responsible_fio?: string
 }
 
+export interface InventoryItem {
+  name: string
+  code: string
+  unit: string
+  qty: string | number
+  price: string | number
+}
+
+export interface CommissionMember {
+  position: string
+  fio_short: string
+}
+
+export interface LiabilityInput {
+  number: string
+  doc_date: string | null
+}
+
+export interface ActInput {
+  number: string
+  doc_date: string | null
+  inventory_date: string | null
+  order_number: string
+  order_date: string | null
+  notes: string
+  commission: CommissionMember[]
+}
+
+// Document package (ZIP) — everything in the body, server stores nothing.
+export interface PackageBody {
+  company: Partial<PersonnelCompany>
+  employee: Partial<PersonnelEmployee>
+  employment: Partial<PersonnelEmployment>
+  hr_responsible_fio?: string
+  documents: string[]
+  deductions?: string[]
+  apply_from?: string | null
+  liability?: LiabilityInput | null
+  act?: ActInput | null
+  inventory?: InventoryItem[]
+}
+
 // Trigger a browser download from a blob response, honouring the server filename.
 function downloadBlob(blob: Blob, contentDisposition: string | undefined, fallback: string) {
   let filename = fallback
@@ -651,6 +693,19 @@ export const personnelApi = {
   generatePrikaz: async (body: PrikazBody): Promise<void> => {
     const response = await api.post('/personnel/documents/prikaz', body, { responseType: 'blob' })
     downloadBlob(response.data, response.headers['content-disposition'], 'ПриказПриём.docx')
+  },
+
+  // Parse an .xlsx опись → inventory rows (shown for confirmation before adding).
+  parseInventory: async (file: File): Promise<InventoryItem[]> => {
+    const fd = new FormData()
+    fd.append('file', file)
+    const r = await api.post('/personnel/parse-inventory', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
+    return r.data.items
+  },
+
+  generatePackage: async (body: PackageBody): Promise<void> => {
+    const response = await api.post('/personnel/documents/package', body, { responseType: 'blob' })
+    downloadBlob(response.data, response.headers['content-disposition'], 'Пакет.zip')
   },
 }
 
