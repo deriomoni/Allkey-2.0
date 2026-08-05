@@ -25,6 +25,9 @@ build/
 data/
 *.xlsx
 *.xls
+# ...but personnel document templates must be versioned with the code
+!backend/app/personnel/templates/**/*.xlsx
+!backend/app/personnel/templates/**/*.xls
 
 # Logs
 *.log

@@ -13,3 +13,8 @@ pydantic[email]==2.5.3
 pydantic-settings==2.1.0
 email-validator==2.1.0
 alembic==1.13.1
+# personnel module (HR documents)
+num2words==0.5.13
+pymorphy3==2.0.6
+pymorphy3-dicts-ru==2.4.417150.4580142
+pytest==8.1.1

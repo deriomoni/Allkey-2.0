@@ -10,11 +10,13 @@ from app.reconciliation.router import router as reconciliation_router, cleanup_t
 from app.licenses.router import router as licenses_router
 from app.settings.router import router as settings_router
 from app.services.router import router as services_router, seed_services
+from app.personnel.router import router as personnel_router
 from app.database import SessionLocal
 # Import models so they are registered with Base.metadata
 import app.licenses.models  # noqa: F401
 import app.settings.models  # noqa: F401
 import app.services.models  # noqa: F401
+import app.personnel.models  # noqa: F401
 
 # Create database tables
 Base.metadata.create_all(bind=engine)
@@ -64,6 +66,7 @@ app.include_router(reconciliation_router)
 app.include_router(licenses_router)
 app.include_router(settings_router)
 app.include_router(services_router)
+app.include_router(personnel_router)
 
 
 @app.get("/")
