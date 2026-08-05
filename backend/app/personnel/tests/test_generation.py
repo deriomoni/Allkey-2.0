@@ -184,6 +184,15 @@ def test_fio_override_takes_priority():
     assert ctx["fio_genitive"] == "Климова Василия Александровича (ручная правка)"
 
 
+def test_salary_words_override_reaches_document():
+    company, employee, employment = sample_entities()
+    employment.salary_words_override = "ноль"  # manual edit of the sum-in-words
+    ctx = build_order_context(company, employee, employment)
+    assert ctx["employment"]["salary_words_ru"] == "ноль"
+    text = _docx_text(render_template("prikaz_o_prieme.docx", ctx))
+    assert "(ноль) тенге" in text
+
+
 def test_output_filename():
     assert output_filename("Климов", "Василий", "Александрович", "ПриказПриём", date(2026, 8, 5)) == \
         "Климов_ВА_ПриказПриём_2026-08-05.docx"

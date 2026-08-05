@@ -111,6 +111,9 @@ class Employment(Base):
     # Ставка: 1.00 / 0.75 / 0.50 … При неполной ставке оклад ниже МЗП законен,
     # поэтому предупреждение об окладе<МЗП показываем только при полной ставке.
     rate = Column(Numeric(4, 2), default=1)
+    # Ручная правка суммы оклада прописью (напр. редкое числительное) — приоритет
+    # над автогенерацией; хранится на приёме, т.к. привязана к конкретному окладу.
+    salary_words_override = Column(String, nullable=True)
 
     hours_per_day = Column(Numeric(4, 2), nullable=True)
     hours_per_week = Column(Numeric(4, 2), nullable=True)

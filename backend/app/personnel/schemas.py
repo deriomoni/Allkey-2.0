@@ -180,6 +180,7 @@ class EmploymentBase(BaseModel):
     currency: str = "KZT"
     allowances: str = ""
     rate: Decimal = Decimal(1)
+    salary_words_override: Optional[str] = None
     hours_per_day: Optional[Decimal] = None
     hours_per_week: Optional[Decimal] = None
     work_time_from: str = "09:00"
@@ -214,6 +215,7 @@ class EmploymentUpdate(BaseModel):
     currency: Optional[str] = None
     allowances: Optional[str] = None
     rate: Optional[Decimal] = None
+    salary_words_override: Optional[str] = None
     hours_per_day: Optional[Decimal] = None
     hours_per_week: Optional[Decimal] = None
     work_time_from: Optional[str] = None
@@ -242,4 +244,4 @@ class EmploymentResponse(_ORMModel, EmploymentBase):
 
 class PrikazPreviewResponse(BaseModel):
     context: dict
-    editable_overrides: dict
+    editable: dict  # {"employee": {...ФИО падежи}, "employment": {position_ru, salary_words_ru}}

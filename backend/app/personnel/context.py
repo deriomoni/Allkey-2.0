@@ -128,7 +128,8 @@ def build_employment_context(employment) -> dict:
         "start_date_words": _words(employment.start_date),
         "start_date_short": _short(employment.start_date),
         "salary_figures": format_figures(salary),
-        "salary_words_ru": ru_int_to_words(int(salary)),
+        "salary_words_ru": getattr(employment, "salary_words_override", None)
+        or ru_int_to_words(int(salary)),
         "probation_months": months,
         "probation_months_words": ru_int_to_words(months) if months else "",
         "probation_end_date_short": probation_end,
@@ -184,13 +185,23 @@ def build_deduction_application_context(
 
 
 def build_prikaz_preview(company, employee, employment, hr_responsible_fio: str = "") -> dict:
-    """Preview payload for the form: the full rendered context plus the subset of
-    auto-generated values that are editable and PERSISTED on the employee card
-    (the ФИО declensions). The form shows the context, lets the accountant edit
-    the declensions, and saves them back to the employee (ТЗ §6, §8)."""
+    """Preview payload for the form: the full rendered context plus the auto-generated
+    values the accountant most often edits, grouped by where the edit is PERSISTED
+    (ТЗ §6, §8):
+      * employee — ФИО in three cases (saved to the employee card, reused everywhere);
+      * employment — position and the salary-in-words (saved to this hiring).
+    Editing any of them flows into the generated document via the same context.
+    """
+    ctx = build_order_context(company, employee, employment, hr_responsible_fio)
     return {
-        "context": build_order_context(company, employee, employment, hr_responsible_fio),
-        "editable_overrides": current_declensions(employee),
+        "context": ctx,
+        "editable": {
+            "employee": current_declensions(employee),
+            "employment": {
+                "position_ru": ctx["employment"]["position"],
+                "salary_words_ru": ctx["employment"]["salary_words_ru"],
+            },
+        },
     }
 
 
