@@ -173,6 +173,17 @@ def test_render_akt_table_and_commission_loops():
         assert needle in text, f"missing in rendered akt: {needle!r}"
 
 
+def test_fio_override_takes_priority():
+    from app.personnel.context import current_declensions, build_employee_context
+    _, employee, _ = sample_entities()
+    employee.fio_genitive_override = "Климова Василия Александровича (ручная правка)"
+    decl = current_declensions(employee)
+    assert decl["fio_genitive"] == "Климова Василия Александровича (ручная правка)"
+    assert decl["fio_dative"] == "Климову Василию Александровичу"      # not overridden → autogen
+    ctx = build_employee_context(employee)
+    assert ctx["fio_genitive"] == "Климова Василия Александровича (ручная правка)"
+
+
 def test_output_filename():
     assert output_filename("Климов", "Василий", "Александрович", "ПриказПриём", date(2026, 8, 5)) == \
         "Климов_ВА_ПриказПриём_2026-08-05.docx"

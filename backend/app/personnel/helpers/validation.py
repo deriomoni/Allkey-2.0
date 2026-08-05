@@ -14,10 +14,16 @@ from app.personnel.helpers.iin import parse_iin
 from app.personnel.rates import get_rates
 
 
-def validate_salary(oklad: Decimal, on: Optional[date] = None) -> List[str]:
-    """Warn if the salary is below the minimum wage in force."""
+def validate_salary(oklad: Decimal, rate: float = 1.0, on: Optional[date] = None) -> List[str]:
+    """Warn if the salary is below the minimum wage — but only at a full rate.
+
+    At a part-time rate (rate < 1.0) a salary below МЗП is lawful, so suppressing
+    the warning there keeps it meaningful (ТЗ §6 / user rule).
+    """
     warnings: List[str] = []
-    rates = get_rates(on or (date.today() if on is None else on))
+    if rate is not None and float(rate) < 1.0:
+        return warnings
+    rates = get_rates(on or date.today())
     if oklad < rates.mzp:
         warnings.append(
             f"Оклад {oklad} ₸ ниже МЗП ({rates.mzp} ₸). Проверьте условия оплаты."

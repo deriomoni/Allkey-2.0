@@ -75,6 +75,14 @@ class Employee(Base):
     iban = Column(String, default="")
 
     citizenship = Column(String, default="Республики Казахстан")
+
+    # Ручные правки склонения ФИО (ТЗ §6.1): если задано — имеет приоритет над
+    # автогенерацией и подставляется во ВСЕ документы работника, чтобы не править
+    # заново. Пустое (NULL) — используется автогенерация.
+    fio_genitive_override = Column(String, nullable=True)
+    fio_dative_override = Column(String, nullable=True)
+    fio_accusative_override = Column(String, nullable=True)
+
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     employments = relationship("Employment", back_populates="employee")
@@ -100,6 +108,9 @@ class Employment(Base):
     salary = Column(Numeric(14, 2), default=0)
     currency = Column(String, default="KZT")
     allowances = Column(String, default="")
+    # Ставка: 1.00 / 0.75 / 0.50 … При неполной ставке оклад ниже МЗП законен,
+    # поэтому предупреждение об окладе<МЗП показываем только при полной ставке.
+    rate = Column(Numeric(4, 2), default=1)
 
     hours_per_day = Column(Numeric(4, 2), nullable=True)
     hours_per_week = Column(Numeric(4, 2), nullable=True)

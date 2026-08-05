@@ -83,15 +83,31 @@ def build_company_context(company) -> dict:
     }
 
 
-def build_employee_context(employee) -> dict:
+def current_declensions(employee) -> dict:
+    """The genitive/dative/accusative ФИО actually in force for this employee:
+    the manual override on the card if set, otherwise the automatic declension.
+    Manual overrides apply to every document of the employee (ТЗ §6.1 / user rule)."""
     last, first, middle = employee.last_name, employee.first_name, employee.middle_name or ""
     gender = employee.gender or "male"
     return {
+        "fio_genitive": getattr(employee, "fio_genitive_override", None)
+        or fio_h.fio_full(last, first, middle, fio_h.GENITIVE, gender),
+        "fio_dative": getattr(employee, "fio_dative_override", None)
+        or fio_h.fio_full(last, first, middle, fio_h.DATIVE, gender),
+        "fio_accusative": getattr(employee, "fio_accusative_override", None)
+        or fio_h.fio_full(last, first, middle, fio_h.ACCUSATIVE, gender),
+    }
+
+
+def build_employee_context(employee) -> dict:
+    last, first, middle = employee.last_name, employee.first_name, employee.middle_name or ""
+    decl = current_declensions(employee)
+    return {
         "fio_full": fio_h.fio_full(last, first, middle),
         "fio_short": fio_h.fio_short(last, first, middle),
-        "fio_genitive": fio_h.fio_full(last, first, middle, fio_h.GENITIVE, gender),
-        "fio_dative": fio_h.fio_full(last, first, middle, fio_h.DATIVE, gender),
-        "fio_accusative_upper": fio_h.fio_full(last, first, middle, fio_h.ACCUSATIVE, gender).upper(),
+        "fio_genitive": decl["fio_genitive"],
+        "fio_dative": decl["fio_dative"],
+        "fio_accusative_upper": decl["fio_accusative"].upper(),
         "iin": employee.iin,
         "id_document": format_id_document(employee),
         "address_actual": employee.actual_address or "",
@@ -164,6 +180,17 @@ def build_deduction_application_context(
         "employee": build_employee_context(employee),
         "deductions": build_deductions_context(selection, apply_from),
         "application": {"date_words": _words(application_date)},
+    }
+
+
+def build_prikaz_preview(company, employee, employment, hr_responsible_fio: str = "") -> dict:
+    """Preview payload for the form: the full rendered context plus the subset of
+    auto-generated values that are editable and PERSISTED on the employee card
+    (the ФИО declensions). The form shows the context, lets the accountant edit
+    the declensions, and saves them back to the employee (ТЗ §6, §8)."""
+    return {
+        "context": build_order_context(company, employee, employment, hr_responsible_fio),
+        "editable_overrides": current_declensions(employee),
     }
 
 

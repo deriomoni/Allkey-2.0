@@ -14,7 +14,8 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.personnel.context import (
-    build_order_context, build_deduction_application_context, DEDUCTION_TEXTS,
+    build_order_context, build_deduction_application_context, build_prikaz_preview,
+    DEDUCTION_TEXTS,
 )
 from app.personnel.generator import render_template, output_filename
 from app.personnel.helpers.iin import is_valid_iin, is_valid_bin, parse_iin
@@ -24,7 +25,7 @@ from app.personnel.rates import get_rates
 from app.personnel.schemas import (
     IinCheckRequest, IinCheckResponse,
     BinCheckRequest, BinCheckResponse,
-    RatesResponse, ZayavlenieVychetyRequest,
+    RatesResponse, ZayavlenieVychetyRequest, PrikazPreviewResponse,
 )
 from app.services.dependencies import require_service
 from app.users.models import User
@@ -99,6 +100,22 @@ async def validate_bin(
 ):
     """Validate a БИН (length + checksum)."""
     return BinCheckResponse(valid=is_valid_bin(data.bin))
+
+
+@router.get("/employments/{employment_id}/documents/prikaz/preview", response_model=PrikazPreviewResponse)
+async def prikaz_preview(
+    employment_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_service(SERVICE_CODE)),
+):
+    """Editable-fields preview for the form: full rendered context + the ФИО
+    declensions that are editable and persisted on the employee card (§6, §8)."""
+    employment = _get_employment_or_404(db, employment_id)
+    preview = build_prikaz_preview(
+        employment.company, employment.employee, employment,
+        hr_responsible_fio=user.full_name,
+    )
+    return PrikazPreviewResponse(**preview)
 
 
 @router.get("/employments/{employment_id}/documents/prikaz")

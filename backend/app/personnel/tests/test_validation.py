@@ -8,12 +8,22 @@ from app.personnel.helpers.validation import (
 from app.personnel.rates import get_rates
 
 
-def test_salary_below_mzp_warns():
+def test_salary_below_mzp_warns_at_full_rate():
     on = date(2026, 3, 1)
     mzp = get_rates(on).mzp
-    assert validate_salary(Decimal(mzp - 1), on) != []
-    assert validate_salary(Decimal(mzp), on) == []
-    assert validate_salary(Decimal(mzp + 100000), on) == []
+    assert validate_salary(Decimal(mzp - 1), rate=1.0, on=on) != []
+    assert validate_salary(Decimal(mzp), rate=1.0, on=on) == []
+    assert validate_salary(Decimal(mzp + 100000), rate=1.0, on=on) == []
+
+
+def test_salary_below_mzp_not_warned_at_part_rate():
+    on = date(2026, 3, 1)
+    mzp = get_rates(on).mzp
+    # part-time: below МЗП is lawful, no warning
+    assert validate_salary(Decimal(mzp - 1), rate=0.5, on=on) == []
+    assert validate_salary(Decimal(mzp // 2), rate=0.75, on=on) == []
+    # default rate is full → still warns
+    assert validate_salary(Decimal(mzp - 1), on=on) != []
 
 
 def test_probation_bounds():
