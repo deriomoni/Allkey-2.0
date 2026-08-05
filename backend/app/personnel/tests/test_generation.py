@@ -10,8 +10,6 @@ from datetime import date
 from decimal import Decimal
 from types import SimpleNamespace
 
-import pytest
-
 from app.personnel.context import (
     build_order_context, build_deductions_context, build_deduction_application_context,
 )
@@ -108,12 +106,6 @@ def test_render_without_probation_uses_else_branch():
     assert "испытательный срок продолжительностью" not in text
 
 
-@pytest.mark.xfail(
-    reason="Шаблон zayavlenie_vychety_ipn.docx: цикл вычетов свёрстан как один "
-           "параграф {%p for %}...{%p endfor %}; docxtpl не рендерит. Ждём "
-           "исправленный шаблон или согласие на правку тега (без правки текста).",
-    strict=False,
-)
 def test_render_zayavlenie_vychety_fills_and_loops():
     company, employee, _ = sample_entities()
     ctx = build_deduction_application_context(
@@ -136,6 +128,49 @@ def test_render_zayavlenie_vychety_fills_and_loops():
         "Климов Василий Александрович",                          # signature: fio_full
     ]:
         assert needle in text, f"missing in rendered zayavlenie: {needle!r}"
+
+
+def _akt_context():
+    """Inline context for akt_priema_peredachi.docx. The акт is fed from the form
+    (опись + комиссия) which is not built yet, so the context is assembled here to
+    prove the template + engine render (table-row loop and paragraph loop)."""
+    return {
+        "company": {"city": "Алматы", "name_full": "ТОО «Ромашка»", "bin": "150640001237"},
+        "liability": {"number": "7", "date_short": "05.08.2026"},
+        "items": [
+            {"name": "Ноутбук Dell", "code": "НВ-001", "unit": "шт", "qty": 2, "price": "350 000", "sum": "700 000"},
+            {"name": "Принтер HP", "code": "НВ-002", "unit": "шт", "qty": 1, "price": "90 000", "sum": "90 000"},
+        ],
+        "act": {
+            "number": "1", "date_words": "05 августа 2026 года",
+            "transferor_position": "Директор", "transferor_position_genitive": "Директора",
+            "transferor_fio_genitive": "Иванова Ивана Ивановича", "transferor_fio_short": "Иванов И.И.",
+            "receiver_position": "менеджер", "receiver_fio_full": "Климов Василий Александрович",
+            "receiver_iin": "900715312346", "receiver_fio_short": "Климов В.А.",
+            "inventory_date": "05.08.2026", "order_number": "15", "order_date": "05.08.2026",
+            "total_figures": "790 000", "total_words": "семьсот девяносто тысяч",
+            "items_count": 2, "items_count_words": "два", "notes": "",
+            "commission": [
+                {"position": "Главный бухгалтер", "fio_short": "Петрова А.А."},
+                {"position": "Кладовщик", "fio_short": "Сидоров С.С."},
+            ],
+        },
+    }
+
+
+def test_render_akt_table_and_commission_loops():
+    text = _docx_text(render_template("akt_priema_peredachi.docx", _akt_context()))
+
+    assert "{{" not in text and "{%" not in text
+    for needle in [
+        "Ноутбук Dell", "НВ-001", "700 000",        # table-row loop, item 1
+        "Принтер HP", "НВ-002",                       # table-row loop, item 2
+        "Главный бухгалтер", "Петрова А.А.",          # paragraph loop, commission 1
+        "Кладовщик", "Сидоров С.С.",                  # paragraph loop, commission 2
+        "790 000 (семьсот девяносто тысяч) тенге",
+        "Климов Василий Александрович",
+    ]:
+        assert needle in text, f"missing in rendered akt: {needle!r}"
 
 
 def test_output_filename():
