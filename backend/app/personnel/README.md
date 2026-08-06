@@ -5,6 +5,15 @@ lives in the client draft and is POSTed only to render documents. Only `Company`
 (employer requisites) and `DocumentTemplate` are persisted. See
 [`templates/README.md`](templates/README.md) for the template library and rules.
 
+## ⚠️ Kazakh column — proofread before sale
+
+The Kazakh side of the bilingual трудовой договор (and any future bilingual
+document) is assembled from helpers (numbers/dates/term), reference dictionaries
+(`kk_dictionaries.py`) and manually-entered translations. **It must be proofread
+by a native Kazakh speaker before the module is used with real clients.** Do not
+release bilingual output to clients until that proofreading is done. The
+`signer_basis_kz` mapping in particular is approximate.
+
 ## Reserved names — pitfalls to avoid
 
 Names that silently mean something else in the tools we use. **Do not** use them

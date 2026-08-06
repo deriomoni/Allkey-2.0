@@ -16,6 +16,7 @@ from starlette.datastructures import UploadFile
 
 from app.personnel.context import (
     build_matotvet_context, build_nekonkurencii_context, build_akt_context, build_perechen_context,
+    build_trudovoy_context,
 )
 from app.personnel.generator import render_template, render_bytes, build_zip
 from app.personnel import router as R
@@ -98,6 +99,68 @@ def test_render_perechen():
     for needle in ["Бухгалтер", "доступ к клиентской базе", "Климов В.А.", "6 (шесть) месяцев",
                    "Ахметова Асхата Болатовича"]:  # responsible_fio in accusative
         assert needle in text
+
+
+def _td(kind, **extra):
+    company = s.CompanyBase(
+        name_ru="ТОО «Ромашка»", name_kk="«Ромашка» ЖШС", bin="150640001237",
+        city="Алматы", legal_address="ул. Абая, 1", address_kz="Абай к-сі, 1",
+        director_fio_ru="Иванов Иван Иванович", director_fio_kk="Иванов Иван Иванович",
+        signatory_position="Директор", signer_position_kz="Директор", acts_on_basis="Устава",
+    )
+    employee = s.EmployeeIn(
+        last_name="Климов", first_name="Василий", middle_name="Александрович",
+        fio_full_kz="Климов Василий Александрович", iin="900715312346", gender="male",
+        document_type="id_card", document_number="012345678", document_issued_by="МВД РК",
+        id_document_kz="жеке куәлік № 012345678", actual_address="г. Алматы",
+    )
+    employment = s.EmploymentIn(
+        position_ru="менеджер", position_kk="менеджер", workplace="офис", workplace_kz="кеңсе",
+        conditions="нормальными", start_date=date(2026, 8, 5), salary=Decimal("300000"),
+        probation_months=3, hours_per_day=Decimal("8"), hours_per_week=Decimal("40"),
+        days_off="суббота, воскресенье", vacation_days=24,
+    )
+    contract = s.ContractIn(number="21", doc_date=date(2026, 8, 5), kind=kind, confidential_years="3", **extra)
+    req = s.TrudovoyRequest(company=company, employee=employee, employment=employment, contract=contract)
+    ctx = build_trudovoy_context(req.company, req.employee, req.employment, req.contract)
+    return _docx_text(render_template("trudovoy_dogovor.docx", ctx))
+
+
+def test_trudovoy_indefinite_bilingual():
+    text = _td("indefinite")
+    assert "{{" not in text and "{%" not in text
+    for needle in [
+        "ТРУДОВОЙ ДОГОВОР № 21", "ЕҢБЕК ШАРТЫ",
+        "05 августа 2026 года", "05 тамыз 2026 жыл",
+        "300 000 (триста тысяч)", "300 000 (үш жүз мың)",
+        "сенбі, жексенбі", "қалыпты",
+        "Договор заключён на неопределённый срок", "белгіленбеген мерзімге",
+        "3 (три) месяца", "3 (үш) ай",
+    ]:
+        assert needle in text, needle
+
+
+def test_trudovoy_fixed_term():
+    text = _td("fixed", term_count=1, term_unit="year", end_date=date(2027, 8, 4))
+    assert "{{" not in text and "{%" not in text
+    assert "1 (один) год" in text and "1 (бір) жыл" in text
+    assert "04 августа 2027 года" in text and "04 тамыз 2027 жыл" in text
+
+
+def test_trudovoy_task_and_substitute():
+    t1 = _td("task", task="разработка сайта", task_kz="сайт әзірлеу")
+    assert "{%" not in t1 and "разработка сайта" in t1 and "сайт әзірлеу" in t1
+    t2 = _td("substitute")
+    assert "{%" not in t2 and "замещения временно отсутствующего" in t2
+
+
+def test_kk_dictionaries():
+    from app.personnel import kk_dictionaries as kkd
+    assert kkd.kk_city("Алматы") == "Алматы"
+    assert kkd.kk_city("Караганда") == "Қарағанды"
+    assert kkd.kk_days_off("суббота, воскресенье") == "сенбі, жексенбі"
+    assert kkd.kk_conditions("нормальными") == "қалыпты"
+    assert kkd.kk_basis("Устава") == "Жарғы"
 
 
 def test_build_zip_bundles_docx():

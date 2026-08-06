@@ -22,7 +22,7 @@ from app.personnel import inventory_columns as ic
 from app.personnel.context import (
     build_order_context, build_deduction_application_context, build_prikaz_preview,
     build_matotvet_context, build_nekonkurencii_context, build_akt_context,
-    build_perechen_context, DEDUCTION_TEXTS,
+    build_perechen_context, build_trudovoy_context, DEDUCTION_TEXTS,
 )
 from app.personnel.generator import render_template, render_bytes, build_zip, output_filename
 from app.personnel.helpers.iin import is_valid_iin, is_valid_bin, parse_iin
@@ -35,6 +35,7 @@ from app.personnel.schemas import (
     BinCheckRequest, BinCheckResponse,
     RatesResponse, PrikazRequest, ZayavlenieVychetyRequest, PrikazPreviewResponse,
     PackageRequest, InventoryParseResponse, InventoryItemIn, InventoryColumn,
+    TrudovoyRequest,
 )
 from app.services.dependencies import require_service
 from app.users.models import User
@@ -173,6 +174,23 @@ async def generate_zayavlenie_vychety(
     return _docx_response(document, filename)
 
 
+@router.post("/documents/trudovoy")
+async def generate_trudovoy(
+    data: TrudovoyRequest,
+    _user: User = Depends(require_service(SERVICE_CODE)),
+):
+    """Render the bilingual «Трудовой договор» (+ Приложение №1 об окладе) .docx
+    from the posted data (§4.2). Kazakh number/date/term forms are computed; the
+    Kazakh column must be proofread before client use (see README)."""
+    context = build_trudovoy_context(data.company, data.employee, data.employment, data.contract)
+    document = render_template("trudovoy_dogovor.docx", context)
+    filename = output_filename(
+        data.employee.last_name, data.employee.first_name, data.employee.middle_name or "",
+        "ТрудовойДоговор", data.contract.doc_date,
+    )
+    return _docx_response(document, filename)
+
+
 @router.post("/documents/package")
 async def generate_package(
     data: PackageRequest,
@@ -236,6 +254,11 @@ async def generate_package(
             ctx = build_perechen_context(data.company, data.perechen, data.noncompete)
             files.append((fname("ПриказПеречень", data.perechen.doc_date),
                           render_bytes("prikaz_perechen_nekonkurencii.docx", ctx)))
+        elif doc == "td":
+            need(data.contract, "Для трудового договора нужны данные договора (contract)")
+            ctx = build_trudovoy_context(data.company, data.employee, data.employment, data.contract)
+            files.append((fname("ТрудовойДоговор", data.contract.doc_date),
+                          render_bytes("trudovoy_dogovor.docx", ctx)))
         else:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Неизвестный документ: {doc}")
 

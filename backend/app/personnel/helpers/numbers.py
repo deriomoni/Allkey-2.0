@@ -77,6 +77,19 @@ def format_figures(n: Number) -> str:
     return f"{int(Decimal(str(n))):,}".replace(",", " ")
 
 
+def pluralize_ru(n: int, forms: "tuple[str, str, str]") -> str:
+    """Pick the Russian plural form: forms = (1 год, 2 года, 5 лет)."""
+    n = abs(int(n))
+    if n % 100 in (11, 12, 13, 14):
+        return forms[2]
+    d = n % 10
+    if d == 1:
+        return forms[0]
+    if d in (2, 3, 4):
+        return forms[1]
+    return forms[2]
+
+
 # --- Currency ---------------------------------------------------------------
 
 def _split_amount(amount: Number) -> "tuple[int, int]":

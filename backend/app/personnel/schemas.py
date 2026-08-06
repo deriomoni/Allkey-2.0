@@ -65,6 +65,9 @@ class CompanyBase(BaseModel):
     director_gender: str = "male"
     signatory_position: str = "Директор"
     acts_on_basis: str = "Устава"
+    # Manual Kazakh translations for the bilingual трудовой договор (proofread before sale).
+    address_kz: str = ""
+    signer_position_kz: str = ""
     state_registration_date: Optional[date] = None
     bank: str = ""
     iik: str = ""
@@ -124,6 +127,9 @@ class EmployeeIn(BaseModel):
     gender: str = "male"
     iban: str = ""
     citizenship: str = "Республики Казахстан"
+    # Manual Kazakh translations for the bilingual трудовой договор.
+    fio_full_kz: str = ""
+    id_document_kz: str = ""
     # Manual declension edits — kept in the client draft, sent for this render only.
     fio_genitive_override: Optional[str] = None
     fio_dative_override: Optional[str] = None
@@ -132,7 +138,10 @@ class EmployeeIn(BaseModel):
 
 class EmploymentIn(BaseModel):
     position_ru: str = ""
-    position_kk: str = ""
+    position_kk: str = ""              # = position_kz in the ТД context
+    workplace: str = ""
+    workplace_kz: str = ""
+    conditions: str = "нормальными"   # характеристика условий труда (ru); kz из справочника
     department: str = ""
     contract_type: str = "indefinite"
     start_date: Optional[date] = None
@@ -177,6 +186,26 @@ class ZayavlenieVychetyRequest(BaseModel):
     employment: EmploymentIn
     deductions: List[str]               # keys: base_30_mrp | social_payments | social_882 | social_5000
     apply_from: Optional[date] = None   # по умолчанию — дата начала работы
+
+
+class ContractIn(BaseModel):
+    number: str = ""
+    doc_date: Optional[date] = None
+    kind: str = "indefinite"            # indefinite | fixed | task | substitute
+    # fixed-term: срок считается из term_count + term_unit (term/term_kz — хелперами)
+    term_count: Optional[int] = None
+    term_unit: str = "year"             # year | month
+    end_date: Optional[date] = None
+    task: str = ""                      # task-kind: описание работы (ru)
+    task_kz: str = ""                   # task-kind: описание работы (kz, вручную)
+    confidential_years: str = "3"
+
+
+class TrudovoyRequest(BaseModel):
+    company: CompanyBase
+    employee: EmployeeIn
+    employment: EmploymentIn
+    contract: ContractIn
 
 
 class PrikazPreviewResponse(BaseModel):
@@ -255,6 +284,7 @@ class PackageRequest(BaseModel):
     act: Optional[ActIn] = None                 # for akt
     inventory: List[InventoryItemIn] = []       # for akt опись
     perechen: Optional[PerechenIn] = None       # for perechen
+    contract: Optional[ContractIn] = None       # for trudovoy dogovor
 
 
 class InventoryColumn(BaseModel):

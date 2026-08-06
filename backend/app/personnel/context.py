@@ -14,9 +14,15 @@ from datetime import date
 from decimal import Decimal
 from typing import List, Optional
 
+from app.personnel import kk_dictionaries as kkd
 from app.personnel.helpers import fio as fio_h
 from app.personnel.helpers.dates import date_in_words, date_short, add_months
-from app.personnel.helpers.numbers import ru_int_to_words, format_figures
+from app.personnel.helpers.numbers import (
+    ru_int_to_words, kk_int_to_words, format_figures, pluralize_ru,
+)
+
+_UNIT_RU = {"year": ("год", "года", "лет"), "month": ("месяц", "месяца", "месяцев")}
+_UNIT_KZ = {"year": "жыл", "month": "ай"}
 
 
 # --- small utilities --------------------------------------------------------
@@ -304,6 +310,87 @@ def build_perechen_context(company, perechen, nc) -> dict:
         },
         "positions": [{"name": p.name, "reason": p.reason} for p in perechen.positions],
         "acquainted": [{"position": a.position, "fio_short": a.fio_short} for a in perechen.acquainted],
+    }
+
+
+def _kk_words_date(d: Optional[date]) -> str:
+    return date_in_words(d, "kk") if d else ""
+
+
+def _contract_term(count: int, unit: str) -> "tuple[str, str]":
+    """('1 (один) год', '1 (бір) жыл') from a structured term — so term_kz is a
+    computed helper value, not a manual field."""
+    unit_ru = pluralize_ru(count, _UNIT_RU.get(unit, _UNIT_RU["year"]))
+    unit_kz = _UNIT_KZ.get(unit, _UNIT_KZ["year"])
+    return (f"{count} ({ru_int_to_words(count)}) {unit_ru}",
+            f"{count} ({kk_int_to_words(count)}) {unit_kz}")
+
+
+def build_trudovoy_context(company, employee, employment, contract) -> dict:
+    """Full bilingual context for trudovoy_dogovor.docx (ТЗ §4.2, §2.3).
+
+    Kazakh forms of numbers/dates/term are computed by our helpers; days-off,
+    conditions, city and basis come from kk_dictionaries; the remaining Kazakh
+    strings (ФИО/должность/адрес/workplace) are manual translations passed in.
+    """
+    comp = build_company_context(company)
+    emp = build_employee_context(employee)
+    salary = employment.salary or 0
+    months = employment.probation_months or 0
+
+    term = term_kz = end_words = end_words_kz = ""
+    if contract.kind == "fixed":
+        if contract.term_count:
+            term, term_kz = _contract_term(contract.term_count, contract.term_unit)
+        end_words = _words(contract.end_date)
+        end_words_kz = _kk_words_date(contract.end_date)
+
+    return {
+        "company": {
+            "name_full": comp["name_full"], "name_full_kz": company.name_kk or "",
+            "bin": comp["bin"], "city": comp["city"], "city_kz": kkd.kk_city(company.city),
+            "address": comp["address"], "address_kz": getattr(company, "address_kz", "") or "",
+            "signer_position_genitive": comp["signer_position_genitive"],
+            "signer_position_kz": getattr(company, "signer_position_kz", "") or "",
+            "signer_fio_genitive": comp["signer_fio_genitive"],
+            "signer_fio_kz": company.director_fio_kk or "",
+            "signer_fio_short": comp["signer_fio_short"],
+            "signer_basis": comp["signer_basis"], "signer_basis_kz": kkd.kk_basis(company.acts_on_basis),
+        },
+        "employee": {
+            "fio_full": emp["fio_full"], "fio_full_kz": getattr(employee, "fio_full_kz", "") or "",
+            "fio_short": emp["fio_short"], "iin": emp["iin"],
+            "id_document": emp["id_document"], "id_document_kz": getattr(employee, "id_document_kz", "") or "",
+            "address_actual": emp["address_actual"],
+        },
+        "employment": {
+            "position": employment.position_ru, "position_kz": employment.position_kk or "",
+            "workplace": getattr(employment, "workplace", "") or "",
+            "workplace_kz": getattr(employment, "workplace_kz", "") or "",
+            "start_date_words": _words(employment.start_date),
+            "start_date_words_kz": _kk_words_date(employment.start_date),
+            "probation_months": months,
+            "probation_months_words": ru_int_to_words(months) if months else "",
+            "probation_months_words_kz": kk_int_to_words(months) if months else "",
+            "hours_per_day": _num(employment.hours_per_day), "hours_per_week": _num(employment.hours_per_week),
+            "work_from": employment.work_time_from or "", "work_to": employment.work_time_to or "",
+            "lunch_from": employment.lunch_from or "", "lunch_to": employment.lunch_to or "",
+            "days_off": employment.days_off or "", "days_off_kz": kkd.kk_days_off(employment.days_off or ""),
+            "vacation_days": employment.vacation_days or 0,
+            "conditions": getattr(employment, "conditions", "") or "",
+            "conditions_kz": kkd.kk_conditions(getattr(employment, "conditions", "")),
+            "salary_figures": format_figures(salary),
+            "salary_words_ru": ru_int_to_words(int(salary)),
+            "salary_words_kz": kk_int_to_words(int(salary)),
+        },
+        "contract": {
+            "number": contract.number, "date_words": _words(contract.doc_date),
+            "date_words_kz": _kk_words_date(contract.doc_date), "date_short": _short(contract.doc_date),
+            "kind": contract.kind, "term": term, "term_kz": term_kz,
+            "end_date_words": end_words, "end_date_words_kz": end_words_kz,
+            "task": contract.task, "task_kz": contract.task_kz,
+            "confidential_years": contract.confidential_years,
+        },
     }
 
 

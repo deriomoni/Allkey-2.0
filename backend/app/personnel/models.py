@@ -34,10 +34,12 @@ class Company(Base):
     legal_address = Column(String, default="")
     actual_address = Column(String, default="")
 
+    address_kz = Column(String, default="")                   # kk-адрес для двуязычного ТД
     director_fio_ru = Column(String, default="")
     director_fio_kk = Column(String, default="")
     director_gender = Column(String, default="male")          # male | female — для склонения подписанта
     signatory_position = Column(String, default="Директор")
+    signer_position_kz = Column(String, default="")           # kk-должность подписанта
     acts_on_basis = Column(String, default="Устава")         # Устав / доверенность № ...
 
     state_registration_date = Column(Date, nullable=True)

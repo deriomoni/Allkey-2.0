@@ -1,7 +1,13 @@
 """Tests for number-to-words (Kazakh fully custom) and the currency wrapper."""
 from app.personnel.helpers.numbers import (
-    kk_int_to_words, amount_in_words, _split_amount,
+    kk_int_to_words, amount_in_words, _split_amount, pluralize_ru,
 )
+
+
+def test_pluralize_ru():
+    forms = ("год", "года", "лет")
+    assert [pluralize_ru(n, forms) for n in (1, 2, 5, 11, 21, 22, 25)] == \
+        ["год", "года", "лет", "лет", "год", "года", "лет"]
 
 
 def test_kk_zero_and_units():
