@@ -9,6 +9,7 @@ venv/
 .env
 .env.local
 .env.production
+.env.test
 
 # IDE
 .idea/

@@ -1,0 +1,59 @@
+# Тестовый стек рядом с продом — НЕ трогает docker-compose.prod.yml.
+# Отдельный проект (name: allkey-test) => своя БД (volume allkey-test_postgres_data),
+# отдельная сеть, свои порты. БД на хост НЕ пробрасывается.
+#
+# Запуск (на сервере):
+#   docker compose -f docker-compose.test.yml --env-file .env.test up -d --build
+# Остановка:
+#   docker compose -f docker-compose.test.yml --env-file .env.test down
+name: allkey-test
+
+services:
+  db:
+    image: postgres:15-alpine
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    # Порт на хост НЕ пробрасываем: backend ходит в БД по внутренней сети (db:5432).
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: always
+    ports:
+      - "127.0.0.1:8001:8000"          # только localhost; наружу проксирует хостовый nginx
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      SECRET_KEY: ${SECRET_KEY}         # ОТДЕЛЬНЫЙ ключ теста (не продовый!)
+      ALGORITHM: HS256
+      ACCESS_TOKEN_EXPIRE_MINUTES: 1440
+      CORS_ORIGINS: https://hr.allkey.kz
+    depends_on:
+      db:
+        condition: service_healthy
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.prod
+      args:
+        VITE_API_URL: https://api.hr.allkey.kz   # вшивается в сборку фронта
+    restart: always
+    ports:
+      - "127.0.0.1:3001:80"            # только localhost
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:
