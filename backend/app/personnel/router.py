@@ -29,6 +29,7 @@ from app.personnel.generator import render_template, render_bytes, build_zip, ou
 from app.personnel.helpers.iin import is_valid_iin, is_valid_bin, parse_iin
 from app.personnel.helpers.validation import (
     validate_iin_matches, validate_salary, validate_probation, validate_dates,
+    validate_patronymic_gender,
 )
 from app.personnel.rates import get_rates
 from app.personnel.schemas import (
@@ -68,6 +69,7 @@ def _hiring_warnings(employee, employment) -> List[str]:
         warnings += validate_dates(employment.start_date, employment.contract_date)
     if employee.iin:
         warnings += validate_iin_matches(employee.iin, employee.birth_date, employee.gender)
+        warnings += validate_patronymic_gender(employee.middle_name, employee.iin)
     return warnings
 
 

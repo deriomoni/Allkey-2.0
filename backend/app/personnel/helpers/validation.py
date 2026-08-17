@@ -49,6 +49,33 @@ def validate_dates(start_date: date, contract_date: date) -> List[str]:
     return warnings
 
 
+_KZ_MALE_SUFFIX = ("ұлы", "улы")
+_KZ_FEMALE_SUFFIX = ("қызы", "кызы")
+
+
+def validate_patronymic_gender(middle_name: str, iin: str) -> List[str]:
+    """Warn on a likely typo: a Kazakh patronymic suffix encodes gender
+    (-ұлы = male, -қызы = female); if it disagrees with the gender decoded from
+    the ИИН, flag it (soft warning, not a block)."""
+    warnings: List[str] = []
+    m = (middle_name or "").strip().lower()
+    if m.endswith(_KZ_MALE_SUFFIX):
+        suffix_gender = "male"
+    elif m.endswith(_KZ_FEMALE_SUFFIX):
+        suffix_gender = "female"
+    else:
+        return warnings
+
+    info = parse_iin(iin)
+    if info is not None and info.gender is not None and info.gender != suffix_gender:
+        suffix = "-ұлы (мужское)" if suffix_gender == "male" else "-қызы (женское)"
+        iin_g = "мужской" if info.gender == "male" else "женский"
+        warnings.append(
+            f"Отчество оканчивается на {suffix}, но по ИИН пол {iin_g}. Проверьте, нет ли опечатки."
+        )
+    return warnings
+
+
 def validate_iin_matches(iin: str, birth_date: Optional[date], gender: Optional[str]) -> List[str]:
     """Cross-check the birth date / gender entered in the form against the IIN."""
     warnings: List[str] = []

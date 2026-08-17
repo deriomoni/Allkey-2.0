@@ -110,6 +110,7 @@ def build_employee_context(employee) -> dict:
     last, first, middle = employee.last_name, employee.first_name, employee.middle_name or ""
     decl = current_declensions(employee)
     return {
+        "gender": employee.gender or "male",   # для будущей подстановки одной родовой формы
         "fio_full": fio_h.fio_full(last, first, middle),
         "fio_short": fio_h.fio_short(last, first, middle),
         "fio_genitive": decl["fio_genitive"],

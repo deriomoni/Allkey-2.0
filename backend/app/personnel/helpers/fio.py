@@ -62,6 +62,55 @@ def _match_case(sample: str, inflected: str) -> str:
     return inflected
 
 
+_GEN_SOFT_AFTER = set("гкхжчшщ")  # после этих согласных родительный -а → -и
+
+
+def _rule_decline_first(name: str, case: str, gender: str) -> str:
+    """Небольшое правило склонения ИМЕНИ, когда pymorphy не знает его как имя
+    (частый случай для казахских имён). Управляется полом.
+
+    -а/-я → женская 1-е склонение (Дана→Даны, Дария→Дарии); мужское имя на
+    твёрдый согласный → Дидар→Дидара; женское имя на согласный (Айгүл) и имена
+    на и/о/у/ю/е — несклоняемы. Результат всегда редактируем в форме."""
+    n = name.strip()
+    if not n:
+        return n
+    low = n.lower()
+    last = low[-1]
+    if last in "иоуюеэё":
+        return n
+    if last in "ая":  # женский тип (для обоих полов, если имя на -а/-я)
+        stem, soft = n[:-1], last == "я"
+        prev = low[-2] if len(low) > 1 else ""
+        if case == GENITIVE:
+            end = "и" if (soft or prev in _GEN_SOFT_AFTER) else "ы"
+        elif case == DATIVE:
+            end = "е"
+        elif case == ACCUSATIVE:
+            end = "ю" if soft else "у"
+        elif case == INSTRUMENTAL:
+            end = "ей" if soft else "ой"
+        elif case == PREPOSITIONAL:
+            end = "е"
+        else:
+            return n
+        return stem + end
+    # окончание на согласный
+    if gender != "male":
+        return n            # женское имя на согласный (Айгүл, Гүлназ) не склоняется
+    if last in "йь":
+        return n            # мягкие окончания — не рискуем
+    if case in (GENITIVE, ACCUSATIVE):
+        return n + "а"
+    if case == DATIVE:
+        return n + "у"
+    if case == INSTRUMENTAL:
+        return n + "ом"
+    if case == PREPOSITIONAL:
+        return n + "е"
+    return n
+
+
 def _decline_part(part: str, kind: str, case: str, gender: str) -> str:
     """Decline one name part. `kind` is 'last' | 'first' | 'middle'.
 
@@ -83,15 +132,21 @@ def _decline_part(part: str, kind: str, case: str, gender: str) -> str:
 
     gender_gr = "masc" if gender == "male" else "femn"
     parses = _morph().parse(part)
-    # Prefer a parse tagged as this kind of proper name and matching gender.
+    # Use ONLY a parse tagged as this kind of proper name (Surn/Name/Patr), of the
+    # matching gender — so the ИИН gender really drives declension. Do NOT fall
+    # back to an arbitrary parse (that mangled «Оспан»→«оспана», «Дана»→«данной»).
     typed = [p for p in parses if _PART_TAG[kind] in p.tag]
     gendered = [p for p in typed if gender_gr in p.tag]
-    chosen = (gendered or typed or parses)[0]
+    chosen = gendered or typed
+    if chosen:
+        result = chosen[0].inflect({grammeme, gender_gr})
+        return _match_case(part, result.word) if result is not None else part
 
-    result = chosen.inflect({grammeme, gender_gr})
-    if result is None:
-        return part
-    return _match_case(part, result.word)
+    # No proper-name parse: first names (often Kazakh) get the small rule above;
+    # surnames/patronymics stay unchanged (never mangle «Оспан»).
+    if kind == "first":
+        return _rule_decline_first(part, case, gender)
+    return part
 
 
 def decline_fio(
