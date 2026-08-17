@@ -72,7 +72,9 @@ def _decline_part(part: str, kind: str, case: str, gender: str) -> str:
     part = (part or "").strip()
     if not part or case == NOMINATIVE:
         return part
-    if kind == "last" and _is_kazakh_indeclinable(part):
+    # Kazakh -ұлы/-қызы names are indeclinable in ANY position (surname OR
+    # patronymic: «Жанатұлы» as отчество must stay unchanged in all cases).
+    if _is_kazakh_indeclinable(part):
         return part
 
     grammeme = _CASE_GRAMMEME.get(case)
