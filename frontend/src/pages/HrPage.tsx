@@ -412,7 +412,8 @@ export default function HrPage() {
         <Field label="Должность" value={m.position_ru} onChange={(v) => setEmployment({ position_ru: v })} />
         <Field label="Подразделение" value={m.department} onChange={(v) => setEmployment({ department: v })} />
         <Field label="Дата начала работы" type="date" value={m.start_date} onChange={(v) => setEmployment({ start_date: v })} />
-        <Field label="Оклад, ₸" type="number" value={m.salary as string} onChange={(v) => setEmployment({ salary: v })} />
+        <Field label="Оклад, ₸ (целые тенге)" type="text" value={m.salary as string}
+          onChange={(v) => setEmployment({ salary: v.replace(/[^\d]/g, '') })} />
         <div className="form-group">
           <label>Ставка</label>
           <select value={String(m.rate ?? '1')} onChange={(ev) => setEmployment({ rate: ev.target.value })}>

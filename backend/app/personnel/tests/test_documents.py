@@ -180,6 +180,17 @@ def test_render_prikaz_pd():
         assert needle in text, needle
 
 
+def test_salary_rejects_kopecks():
+    from pydantic import ValidationError
+    with pytest.raises(ValidationError) as exc:
+        s.EmploymentIn(position_ru="менеджер", salary="347850,50")
+    assert "целыми тенге" in str(exc.value)
+    # целое принимается: число, строка, строка с пробелами
+    assert s.EmploymentIn(salary=300000).salary == 300000
+    assert s.EmploymentIn(salary="347 850").salary == 347850
+    assert s.EmploymentIn().salary == 0
+
+
 def test_kk_dictionaries():
     from app.personnel import kk_dictionaries as kkd
     assert kkd.kk_city("Алматы") == "Алматы"

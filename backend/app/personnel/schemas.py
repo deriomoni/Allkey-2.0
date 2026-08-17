@@ -1,9 +1,9 @@
 """Pydantic schemas for the personnel module."""
 from datetime import date, datetime
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import List, Optional
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
 
 
 class IinCheckRequest(BaseModel):
@@ -147,7 +147,7 @@ class EmploymentIn(BaseModel):
     start_date: Optional[date] = None
     end_date: Optional[date] = None
     probation_months: int = 0
-    salary: Decimal = Decimal(0)
+    salary: int = 0                   # оклад — только целые тенге (без копеек)
     currency: str = "KZT"
     allowances: str = ""
     rate: Decimal = Decimal(1)
@@ -169,6 +169,21 @@ class EmploymentIn(BaseModel):
     order_number: str = ""
     order_date: Optional[date] = None
     application_date: Optional[date] = None
+
+    @field_validator("salary", mode="before")
+    @classmethod
+    def _salary_whole_tenge(cls, v):
+        """Оклад указывается целыми тенге. Дробное значение отклоняется явно,
+        а не усекается молча (тихая потеря данных хуже запрета)."""
+        if v is None or v == "":
+            return 0
+        try:
+            d = Decimal(str(v).replace(" ", "").replace("\xa0", "").replace(",", "."))
+        except InvalidOperation:
+            raise ValueError("Оклад должен быть числом в тенге.")
+        if d != d.to_integral_value():
+            raise ValueError("Оклад указывается целыми тенге, без копеек.")
+        return int(d)
 
 
 # --- Generation request bodies (stateless) ----------------------------
