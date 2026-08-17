@@ -59,19 +59,35 @@ def test_kazakh_surname_without_russian_suffix_indeclinable():
         assert fio_full("Оспан", "Айгүл", "Ерланқызы", case, "female") == "Оспан Айгүл Ерланқызы"
 
 
-def test_kazakh_names_from_config():
+def test_first_name_declension_rule():
     from app.personnel.helpers.fio import _decline_part
     expected_genitive = {
+        # мужские, склоняются (правило)
         ("Нұрлан", "male"): "Нұрлана", ("Ержан", "male"): "Ержана",
         ("Тимур", "male"): "Тимура", ("Бекзат", "male"): "Бекзата",
-        ("Мадина", "female"): "Мадины",
-        # несклоняемые женские — без изменений
+        ("Ерболат", "male"): "Ерболата", ("Бауыржан", "male"): "Бауыржана",
+        ("Санжар", "male"): "Санжара", ("Аслан", "male"): "Аслана",
+        ("Абай", "male"): "Абая",            # -й
+        ("Мұстафа", "male"): "Мұстафы",      # мужское на -а
+        # женские на -а, склоняются
+        ("Мадина", "female"): "Мадины", ("Динара", "female"): "Динары",
+        # женские на согласную / -е — не склоняются
         ("Әсем", "female"): "Әсем", ("Жанар", "female"): "Жанар",
         ("Аружан", "female"): "Аружан", ("Асель", "female"): "Асель",
-        ("Сауле", "female"): "Сауле",
+        ("Сауле", "female"): "Сауле", ("Гүлнар", "female"): "Гүлнар",
+        ("Ботагөз", "female"): "Ботагөз", ("Жұлдыз", "female"): "Жұлдыз",
+        # русские через правило
+        ("Василий", "male"): "Василия", ("Мария", "female"): "Марии",
     }
     for (name, gender), gen in expected_genitive.items():
         assert _decline_part(name, "first", "genitive", gender) == gen, name
+
+
+def test_first_name_exceptions_override_rule():
+    from app.personnel.helpers.fio import _decline_part
+    # русские с беглой гласной/ё — из name_exceptions, правило их берёт неверно
+    assert _decline_part("Пётр", "first", "genitive", "male") == "Петра"
+    assert _decline_part("Павел", "first", "dative", "male") == "Павлу"
 
 
 def test_hyphenated_first_name():

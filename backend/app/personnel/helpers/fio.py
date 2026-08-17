@@ -62,20 +62,95 @@ def _match_case(sample: str, inflected: str) -> str:
     return inflected
 
 
+# Гласные окончания (кроме -а/-я), после которых имя НЕ склоняется.
+# Казахские гласные ә, ө, ү, ұ, і — по фонетике гласные.
+_VOWELS_NODECL = set("еёиоуюыэәөүұі")
+_GEN_A_SOFT_AFTER = set("гкхжчшщ")   # родительный -а → -и после этих согласных
+_INSTR_A_SOFT_AFTER = set("жчшщц")   # творительный -а → -ей после шипящих/ц
+
+
+def _rule_decline_first(name: str, case: str, gender: str) -> str:
+    """Склонение имени по окончанию и полу — норма русской грамматики для
+    иноязычных имён (не угадывание):
+      * -а/-я → 1-е склонение (независимо от пола): Динара→Динары, Мұстафа→Мұстафы;
+      * согласный или -й/-ь, мужской → 2-е склонение: Ерболат→Ерболата, Абай→Абая;
+      * согласный, женский → не склоняется: Гүлнар, Ботагөз;
+      * -е,-и,-о,-у,-ю,-ы и казахские ә,ө,ү,ұ,і → не склоняются у обоих: Сауле.
+    """
+    n = name.strip()
+    if not n:
+        return n
+    low = n.lower()
+    last = low[-1]
+    prev = low[-2] if len(low) > 1 else ""
+
+    if last == "а":
+        stem = n[:-1]
+        if case == GENITIVE:
+            return stem + ("и" if prev in _GEN_A_SOFT_AFTER else "ы")
+        if case == DATIVE:
+            return stem + "е"
+        if case == ACCUSATIVE:
+            return stem + "у"
+        if case == INSTRUMENTAL:
+            return stem + ("ей" if prev in _INSTR_A_SOFT_AFTER else "ой")
+        if case == PREPOSITIONAL:
+            return stem + "е"
+        return n
+    if last == "я":
+        stem = n[:-1]
+        vowel_before = prev in "аеёиоуыэюяәөүұі" or prev == "ь"  # -ия/-ья → дат/предл -ии
+        if case == GENITIVE:
+            return stem + "и"
+        if case == DATIVE:
+            return stem + ("и" if vowel_before else "е")
+        if case == ACCUSATIVE:
+            return stem + "ю"
+        if case == INSTRUMENTAL:
+            return stem + "ей"
+        if case == PREPOSITIONAL:
+            return stem + ("и" if vowel_before else "е")
+        return n
+    if last in _VOWELS_NODECL:
+        return n
+    # согласный или -й/-ь
+    if gender != "male":
+        return n
+    if last in "йь":
+        stem = n[:-1]
+        if case in (GENITIVE, ACCUSATIVE):
+            return stem + "я"
+        if case == DATIVE:
+            return stem + "ю"
+        if case == INSTRUMENTAL:
+            return stem + "ем"
+        if case == PREPOSITIONAL:
+            return stem + "е"
+        return n
+    # твёрдый согласный (в т.ч. казахские ғ, қ, ң, һ)
+    if case in (GENITIVE, ACCUSATIVE):
+        return n + "а"
+    if case == DATIVE:
+        return n + "у"
+    if case == INSTRUMENTAL:
+        return n + "ом"
+    if case == PREPOSITIONAL:
+        return n + "е"
+    return n
+
+
 def _decline_part(part: str, kind: str, case: str, gender: str) -> str:
     """Decline one name part. `kind` is 'last' | 'first' | 'middle'.
 
-    Principle: no reliable source → leave unchanged, never guess.
       * Kazakh -ұлы/-қызы names — indeclinable in any position.
-      * First names — the curated kz_names table first, then a pymorphy parse
-        tagged Name of the MATCHING gender; otherwise unchanged. (pymorphy
-        mis-genders many Kazakh names, so a non-gender-matched parse is ignored.)
-      * Surnames/patronymics — a pymorphy Surn/Patr parse of the matching gender,
-        else unchanged (so «Оспан», or a woman's «Ким», stay put).
-    Hyphenated first names are declined part by part (Нұрлан-Ержан).
+      * First names — name_exceptions table first, then the ending+gender rule
+        above; pymorphy is NOT used for first names (it mis-genders many Kazakh
+        names; the rule is more reliable). Hyphenated names decline part by part.
+      * Surnames/patronymics — a pymorphy Surn/Patr parse of the MATCHING gender,
+        else unchanged (женская «Ким»/«Цой» stay, мужская склоняется; «Оспан» stays).
     Every result is editable downstream.
     """
-    from app.personnel import kz_names
+    from app.personnel import name_exceptions
 
     part = (part or "").strip()
     if not part or case == NOMINATIVE:
@@ -90,19 +165,20 @@ def _decline_part(part: str, kind: str, case: str, gender: str) -> str:
     if kind == "first":
         if "-" in part:
             return "-".join(_decline_part(seg, "first", case, gender) for seg in part.split("-"))
-        looked_up = kz_names.form(part, case)
-        if looked_up is not kz_names.MISSING:
-            return looked_up if looked_up else part  # form, or unchanged (indeclinable)
+        looked_up = name_exceptions.form(part, case)
+        if looked_up is not name_exceptions.MISSING:
+            return looked_up if looked_up else part   # exception form, or indeclinable
+        return _rule_decline_first(part, case, gender)
 
     gender_gr = "masc" if gender == "male" else "femn"
     parses = _morph().parse(part)
-    # Only a proper-name parse (Surn/Name/Patr) of the MATCHING gender is trusted.
+    # Surname/patronymic: only a proper-name parse of the MATCHING gender is trusted.
     gendered = [p for p in parses if _PART_TAG[kind] in p.tag and gender_gr in p.tag]
     if gendered:
         result = gendered[0].inflect({grammeme, gender_gr})
         if result is not None:
             return _match_case(part, result.word)
-    return part  # no reliable source → unchanged (no guessing)
+    return part
 
 
 def decline_fio(
