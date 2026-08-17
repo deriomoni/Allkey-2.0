@@ -59,6 +59,38 @@ def test_kazakh_surname_without_russian_suffix_indeclinable():
         assert fio_full("Оспан", "Айгүл", "Ерланқызы", case, "female") == "Оспан Айгүл Ерланқызы"
 
 
+def test_kazakh_names_from_config():
+    from app.personnel.helpers.fio import _decline_part
+    expected_genitive = {
+        ("Нұрлан", "male"): "Нұрлана", ("Ержан", "male"): "Ержана",
+        ("Тимур", "male"): "Тимура", ("Бекзат", "male"): "Бекзата",
+        ("Мадина", "female"): "Мадины",
+        # несклоняемые женские — без изменений
+        ("Әсем", "female"): "Әсем", ("Жанар", "female"): "Жанар",
+        ("Аружан", "female"): "Аружан", ("Асель", "female"): "Асель",
+        ("Сауле", "female"): "Сауле",
+    }
+    for (name, gender), gen in expected_genitive.items():
+        assert _decline_part(name, "first", "genitive", gender) == gen, name
+
+
+def test_hyphenated_first_name():
+    from app.personnel.helpers.fio import _decline_part
+    assert _decline_part("Нұрлан-Ержан", "first", "genitive", "male") == "Нұрлана-Ержана"
+
+
+def test_consonant_surname_gender_sensitive():
+    from app.personnel.helpers.fio import _decline_part
+    # мужская фамилия на согласную склоняется, женская — нет
+    assert _decline_part("Ким", "last", "genitive", "male") == "Кима"
+    assert _decline_part("Ким", "last", "genitive", "female") == "Ким"
+    assert _decline_part("Цой", "last", "genitive", "male") == "Цоя"
+    assert _decline_part("Цой", "last", "genitive", "female") == "Цой"
+    # -о/-е русские фамилии не склоняются у обоих
+    assert _decline_part("Шевченко", "last", "genitive", "male") == "Шевченко"
+    assert _decline_part("Шевченко", "last", "genitive", "female") == "Шевченко"
+
+
 def test_short_form():
     assert fio_short("Климов", "Василий", "Александрович") == "Климов В.А."
     assert fio_short("Климов", "Василий") == "Климов В."
