@@ -22,7 +22,8 @@ from app.personnel import inventory_columns as ic
 from app.personnel.context import (
     build_order_context, build_deduction_application_context, build_prikaz_preview,
     build_matotvet_context, build_nekonkurencii_context, build_akt_context,
-    build_perechen_context, build_trudovoy_context, DEDUCTION_TEXTS,
+    build_perechen_context, build_trudovoy_context,
+    build_polozhenie_pd_context, build_prikaz_pd_context, DEDUCTION_TEXTS,
 )
 from app.personnel.generator import render_template, render_bytes, build_zip, output_filename
 from app.personnel.helpers.iin import is_valid_iin, is_valid_bin, parse_iin
@@ -259,6 +260,16 @@ async def generate_package(
             ctx = build_trudovoy_context(data.company, data.employee, data.employment, data.contract)
             files.append((fname("ТрудовойДоговор", data.contract.doc_date),
                           render_bytes("trudovoy_dogovor.docx", ctx)))
+        elif doc == "polozhenie_pd":
+            need(data.policy, "Для Положения о ПД нужны данные приказа (policy)")
+            ctx = build_polozhenie_pd_context(data.company, data.policy)
+            files.append((fname("ПоложениеПД", data.policy.doc_date),
+                          render_bytes("polozhenie_personalnye_dannye.docx", ctx)))
+        elif doc == "prikaz_pd":
+            need(data.policy, "Для приказа об ответственном за ПД нужны данные (policy)")
+            ctx = build_prikaz_pd_context(data.company, data.policy)
+            files.append((fname("ПриказОтветственныйПД", data.policy.doc_date),
+                          render_bytes("prikaz_otvetstvennyy_pd.docx", ctx)))
         else:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Неизвестный документ: {doc}")
 

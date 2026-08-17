@@ -271,6 +271,17 @@ class PerechenIn(BaseModel):
     acquainted: List[CommissionMemberIn] = []
 
 
+class PolicyIn(BaseModel):
+    """Данные для приказа о назначении ответственного за ПД + Положения (§4.6)."""
+    order_number: str = ""
+    doc_date: Optional[date] = None
+    responsible_fio: str = ""             # им.п. → склоняется в винительный
+    responsible_position: str = ""        # им.п. → склоняется в винительный
+    deadline: Optional[date] = None       # срок ознакомления
+    control: str = "оставляю за собой"
+    acquainted: List[CommissionMemberIn] = []
+
+
 class PackageRequest(BaseModel):
     company: CompanyBase
     employee: EmployeeIn
@@ -285,6 +296,7 @@ class PackageRequest(BaseModel):
     inventory: List[InventoryItemIn] = []       # for akt опись
     perechen: Optional[PerechenIn] = None       # for perechen
     contract: Optional[ContractIn] = None       # for trudovoy dogovor
+    policy: Optional[PolicyIn] = None           # for polozhenie_pd / prikaz_pd (§4.6)
 
 
 class InventoryColumn(BaseModel):

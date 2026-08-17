@@ -326,6 +326,35 @@ def _contract_term(count: int, unit: str) -> "tuple[str, str]":
             f"{count} ({kk_int_to_words(count)}) {unit_kz}")
 
 
+def build_polozhenie_pd_context(company, policy) -> dict:
+    """Context for polozhenie_personalnye_dannye.docx (§4.6) — почти статичный акт,
+    нужны только наименование и реквизиты утверждающего приказа."""
+    return {
+        "company": {"name_full": build_company_context(company)["name_full"]},
+        "policy": {"order_number": policy.order_number, "order_date_short": _short(policy.doc_date)},
+    }
+
+
+def build_prikaz_pd_context(company, policy) -> dict:
+    """Context for prikaz_otvetstvennyy_pd.docx (§4.6) — приказ о назначении
+    ответственного за обработку ПД (ответственный склоняется в винительный)."""
+    comp = build_company_context(company)
+    last, first, middle = split_fio(policy.responsible_fio)
+    return {
+        "company": {
+            "name_full": comp["name_full"], "bin": comp["bin"], "city": comp["city"],
+            "signer_position": comp["signer_position"], "signer_fio_short": comp["signer_fio_short"],
+        },
+        "policy": {
+            "order_number": policy.order_number, "order_date_words": _words(policy.doc_date),
+            "responsible_fio_accusative": fio_h.fio_full(last, first, middle, fio_h.ACCUSATIVE, "male"),
+            "responsible_position_accusative": fio_h.inflect_phrase(policy.responsible_position, fio_h.ACCUSATIVE, "male"),
+            "deadline_short": _short(policy.deadline), "control": policy.control,
+        },
+        "acquainted": [{"position": a.position, "fio_short": a.fio_short} for a in policy.acquainted],
+    }
+
+
 def build_trudovoy_context(company, employee, employment, contract) -> dict:
     """Full bilingual context for trudovoy_dogovor.docx (ТЗ §4.2, §2.3).
 

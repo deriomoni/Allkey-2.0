@@ -16,7 +16,7 @@ from starlette.datastructures import UploadFile
 
 from app.personnel.context import (
     build_matotvet_context, build_nekonkurencii_context, build_akt_context, build_perechen_context,
-    build_trudovoy_context,
+    build_trudovoy_context, build_polozhenie_pd_context, build_prikaz_pd_context,
 )
 from app.personnel.generator import render_template, render_bytes, build_zip
 from app.personnel import router as R
@@ -152,6 +152,32 @@ def test_trudovoy_task_and_substitute():
     assert "{%" not in t1 and "разработка сайта" in t1 and "сайт әзірлеу" in t1
     t2 = _td("substitute")
     assert "{%" not in t2 and "замещения временно отсутствующего" in t2
+
+
+def test_render_polozhenie_pd():
+    company, _, _ = sample_entities()
+    policy = SimpleNamespace(order_number="12", doc_date=date(2026, 8, 6))
+    text = _docx_text(render_template("polozhenie_personalnye_dannye.docx",
+                                      build_polozhenie_pd_context(company, policy)))
+    assert "{{" not in text and "{%" not in text
+    assert "ТОО «Ромашка»" in text and "06.08.2026" in text
+
+
+def test_render_prikaz_pd():
+    company, _, _ = sample_entities()
+    policy = SimpleNamespace(
+        order_number="12", doc_date=date(2026, 8, 6),
+        responsible_fio="Ахметов Асхат Болатович", responsible_position="главный бухгалтер",
+        deadline=date(2026, 8, 10), control="оставляю за собой",
+        acquainted=[SimpleNamespace(position="Главный бухгалтер", fio_short="Петрова А.А."),
+                    SimpleNamespace(position="Кадровик", fio_short="Сидоров С.С.")],
+    )
+    text = _docx_text(render_template("prikaz_otvetstvennyy_pd.docx",
+                                      build_prikaz_pd_context(company, policy)))
+    assert "{{" not in text and "{%" not in text
+    for needle in ["Ахметова Асхата Болатовича", "главного бухгалтера",
+                   "06 августа 2026 года", "10.08.2026", "Петрова А.А.", "Сидоров С.С."]:
+        assert needle in text, needle
 
 
 def test_kk_dictionaries():
