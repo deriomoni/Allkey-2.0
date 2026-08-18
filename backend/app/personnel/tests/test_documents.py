@@ -272,6 +272,20 @@ def test_package_td_fixed_term():
     assert any("Трудов" in n for n in names)
 
 
+def test_package_noncompete_and_perechen():
+    names = run(_zip_names(_pkg(
+        ["nekonkurencii", "perechen"],
+        noncompete=s.NonCompeteIn(number="НК-47", doc_date=date(2026, 8, 5),
+                                  term_noncompete="6 (шесть) месяцев", penalty="500 000 тенге"),
+        perechen=s.PerechenIn(number="59", doc_date=date(2026, 8, 5),
+                              responsible_fio="Ахметов Асхат Болатович", responsible_position="директор",
+                              positions=[s.PerechenPositionIn(name="менеджер", reason="доступ к базе клиентов")]),
+    )))
+    assert len(names) == 2
+    assert any("Неконкуренц" in n for n in names)
+    assert any("Перечень" in n for n in names)
+
+
 def test_package_td_needs_contract():
     with pytest.raises(HTTPException) as exc:
         run(R.generate_package(_pkg(["td"]), user=FAKE_USER))  # no contract

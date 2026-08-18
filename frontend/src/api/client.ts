@@ -679,6 +679,35 @@ export interface ContractInput {
   confidential_years: string
 }
 
+// Договор о неконкуренции (§4.5). Сроки/условия — поля, не константы.
+export interface NonCompeteInput {
+  number: string
+  doc_date: string | null
+  term_noncompete: string
+  term_nonsolicit: string
+  term_confidential: string
+  territory: string
+  activity: string
+  competitors: string
+  penalty: string
+}
+
+export interface PerechenPosition {
+  name: string
+  reason: string
+}
+
+// Приказ об утверждении перечня должностей (к договору о неконкуренции).
+export interface PerechenInput {
+  number: string
+  doc_date: string | null
+  responsible_fio: string
+  responsible_position: string
+  control: string
+  positions: PerechenPosition[]
+  acquainted: CommissionMember[]
+}
+
 // Данные приказа об ответственном за ПД + Положения о ПД (§4.6).
 export interface PolicyInput {
   order_number: string
@@ -704,6 +733,8 @@ export interface PackageBody {
   inventory?: InventoryItem[]
   policy?: PolicyInput | null
   contract?: ContractInput | null
+  noncompete?: NonCompeteInput | null
+  perechen?: PerechenInput | null
 }
 
 // Trigger a browser download from a blob response, honouring the server filename.

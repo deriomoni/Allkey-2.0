@@ -13,6 +13,9 @@ import {
   type CommissionMember,
   type PolicyInput,
   type ContractInput,
+  type NonCompeteInput,
+  type PerechenInput,
+  type PerechenPosition,
 } from '../api/client'
 
 const CATEGORY_OPTIONS: [string, string][] = [
@@ -48,6 +51,8 @@ type Draft = {
   applyFromMonth: string          // 'YYYY-MM'; пусто → месяц приёма
   policy: PolicyInput
   contract: ContractInput
+  noncompete: NonCompeteInput
+  perechen: PerechenInput
 }
 
 const EMPTY_DRAFT: Draft = {
@@ -72,6 +77,14 @@ const EMPTY_DRAFT: Draft = {
     number: '', doc_date: null, kind: 'indefinite', term_count: null, term_unit: 'year',
     end_date: null, task: '', task_kz: '', confidential_years: '3',
   },
+  noncompete: {
+    number: '', doc_date: null, term_noncompete: '', term_nonsolicit: '', term_confidential: '',
+    territory: '', activity: '', competitors: '', penalty: '',
+  },
+  perechen: {
+    number: '', doc_date: null, responsible_fio: '', responsible_position: '',
+    control: 'оставляю за собой', positions: [], acquainted: [],
+  },
 }
 
 const num = (v: string | number | null | undefined): number => {
@@ -89,6 +102,8 @@ const PACKAGE_DOCS: [string, string][] = [
   ['td', 'Трудовой договор (двуязычный)'],
   ['matotvet', 'Договор о полной материальной ответственности'],
   ['akt', 'Акт приёма-передачи ценностей'],
+  ['nekonkurencii', 'Договор о неконкуренции'],
+  ['perechen', 'Приказ об утверждении перечня должностей'],
   ['polozhenie_pd', 'Положение о персональных данных'],
   ['prikaz_pd', 'Приказ об ответственном за персональные данные'],
 ]
@@ -259,6 +274,22 @@ export default function HrPage() {
     setPolicy({ acquainted: draft.policy.acquainted.filter((_, j) => j !== i) })
   const setContract = (patch: Partial<ContractInput>) =>
     setDraft((d) => ({ ...d, contract: { ...d.contract, ...patch } }))
+  const setNonCompete = (patch: Partial<NonCompeteInput>) =>
+    setDraft((d) => ({ ...d, noncompete: { ...d.noncompete, ...patch } }))
+  const setPerechen = (patch: Partial<PerechenInput>) =>
+    setDraft((d) => ({ ...d, perechen: { ...d.perechen, ...patch } }))
+  const addPosition = () =>
+    setPerechen({ positions: [...draft.perechen.positions, { name: '', reason: '' }] })
+  const updatePosition = (i: number, patch: Partial<PerechenPosition>) =>
+    setPerechen({ positions: draft.perechen.positions.map((r, j) => (j === i ? { ...r, ...patch } : r)) })
+  const deletePosition = (i: number) =>
+    setPerechen({ positions: draft.perechen.positions.filter((_, j) => j !== i) })
+  const addPerechenAck = () =>
+    setPerechen({ acquainted: [...draft.perechen.acquainted, { position: '', fio_short: '' }] })
+  const updatePerechenAck = (i: number, patch: Partial<CommissionMember>) =>
+    setPerechen({ acquainted: draft.perechen.acquainted.map((r, j) => (j === i ? { ...r, ...patch } : r)) })
+  const deletePerechenAck = (i: number) =>
+    setPerechen({ acquainted: draft.perechen.acquainted.filter((_, j) => j !== i) })
 
   const addRow = () =>
     setDraft((d) => ({ ...d, inventory: [...d.inventory, { name: '', code: '', unit: '', qty: '', price: '' }] }))
@@ -336,6 +367,10 @@ export default function HrPage() {
       setError('Для срочного договора укажите срок (число + единица) или дату окончания')
       return
     }
+    if (draft.documents.perechen && draft.perechen.positions.length === 0) {
+      setError('Для приказа об утверждении перечня добавьте хотя бы одну должность')
+      return
+    }
     const b: PackageBody = {
       company: draft.company, employee: draft.employee, employment: draft.employment, documents,
     }
@@ -348,6 +383,9 @@ export default function HrPage() {
     }
     if (draft.documents.polozhenie_pd || draft.documents.prikaz_pd) b.policy = draft.policy
     if (draft.documents.td) b.contract = draft.contract
+    // перечень использует сроки/условия неконкуренции — шлём noncompete и когда выбран только перечень
+    if (draft.documents.nekonkurencii || draft.documents.perechen) b.noncompete = draft.noncompete
+    if (draft.documents.perechen) b.perechen = draft.perechen
     setBusy(true); setError('')
     try { await personnelApi.generatePackage(b) }
     catch (e) { fail(e, 'Не удалось сформировать пакет') } finally { setBusy(false) }
@@ -637,6 +675,77 @@ export default function HrPage() {
                 <Field label="Обед с" value={m.lunch_from} onChange={(v) => setEmployment({ lunch_from: v })} />
                 <Field label="Обед до" value={m.lunch_to} onChange={(v) => setEmployment({ lunch_to: v })} />
               </div>
+            </div>
+          </div>
+        )}
+
+        {draft.documents.nekonkurencii && (
+          <div style={{ background: '#f8fafc', borderRadius: 8, padding: 14, marginBottom: 12 }}>
+            <h4 style={{ marginBottom: 8 }}>Договор о неконкуренции</h4>
+            <Field label="№ договора" value={draft.noncompete.number} onChange={(v) => setNonCompete({ number: v })} />
+            <Field label="Дата договора" type="date" value={draft.noncompete.doc_date} onChange={(v) => setNonCompete({ doc_date: v })} />
+            <Field label="Срок неконкуренции" value={draft.noncompete.term_noncompete}
+              onChange={(v) => setNonCompete({ term_noncompete: v })} placeholder="6 (шесть) месяцев" />
+            <Field label="Срок непереманивания" value={draft.noncompete.term_nonsolicit}
+              onChange={(v) => setNonCompete({ term_nonsolicit: v })} placeholder="12 (двенадцать) месяцев" />
+            <Field label="Срок конфиденциальности" value={draft.noncompete.term_confidential}
+              onChange={(v) => setNonCompete({ term_confidential: v })} placeholder="3 (три) года" />
+            <Field label="Территория" value={draft.noncompete.territory}
+              onChange={(v) => setNonCompete({ territory: v })} placeholder="Республики Казахстан" />
+            <Field label="Вид деятельности" value={draft.noncompete.activity}
+              onChange={(v) => setNonCompete({ activity: v })} />
+            <Field label="Конкуренты" value={draft.noncompete.competitors}
+              onChange={(v) => setNonCompete({ competitors: v })} />
+            <Field label="Штраф (неустойка)" value={draft.noncompete.penalty}
+              onChange={(v) => setNonCompete({ penalty: v })} placeholder="500 000 (пятьсот тысяч) тенге" />
+          </div>
+        )}
+
+        {draft.documents.perechen && (
+          <div style={{ background: '#f8fafc', borderRadius: 8, padding: 14, marginBottom: 12 }}>
+            <h4 style={{ marginBottom: 8 }}>Приказ об утверждении перечня должностей</h4>
+            {!draft.documents.nekonkurencii && (
+              <p style={{ fontSize: 12, color: '#6b7280', marginBottom: 8 }}>
+                Реквизиты и сроки договора о неконкуренции берутся из блока выше — отметьте «Договор о неконкуренции», если нужны точные сроки в тексте.
+              </p>
+            )}
+            <Field label="№ приказа" value={draft.perechen.number} onChange={(v) => setPerechen({ number: v })} />
+            <Field label="Дата приказа" type="date" value={draft.perechen.doc_date} onChange={(v) => setPerechen({ doc_date: v })} />
+            <Field label="Ответственный, ФИО (им.п.)" value={draft.perechen.responsible_fio}
+              onChange={(v) => setPerechen({ responsible_fio: v })} placeholder="Иванов Иван Иванович" />
+            <Field label="Должность ответственного (им.п.)" value={draft.perechen.responsible_position}
+              onChange={(v) => setPerechen({ responsible_position: v })} placeholder="директор" />
+            <Field label="Контроль (за кем)" value={draft.perechen.control} onChange={(v) => setPerechen({ control: v })} />
+
+            <div style={{ marginTop: 10 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <strong>Перечень должностей</strong>
+                <button className="btn btn-secondary" onClick={addPosition}>+ должность</button>
+              </div>
+              {draft.perechen.positions.length === 0 && (
+                <p style={{ color: '#6b7280', fontSize: 13, marginTop: 6 }}>Добавьте хотя бы одну должность.</p>
+              )}
+              {draft.perechen.positions.map((row, i) => (
+                <div key={i} style={{ display: 'flex', gap: 8, marginTop: 6 }}>
+                  <input placeholder="Должность" value={row.name} onChange={(e) => updatePosition(i, { name: e.target.value })} style={{ ...inS, flex: 1 }} />
+                  <input placeholder="Обоснование (доступ к…)" value={row.reason} onChange={(e) => updatePosition(i, { reason: e.target.value })} style={{ ...inS, flex: 1.5 }} />
+                  <button className="btn btn-secondary" onClick={() => deletePosition(i)} title="Удалить">×</button>
+                </div>
+              ))}
+            </div>
+
+            <div style={{ marginTop: 12 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <strong>Ознакомить (лист ознакомления)</strong>
+                <button className="btn btn-secondary" onClick={addPerechenAck}>+ сотрудник</button>
+              </div>
+              {draft.perechen.acquainted.map((row, i) => (
+                <div key={i} style={{ display: 'flex', gap: 8, marginTop: 6 }}>
+                  <input placeholder="Должность" value={row.position} onChange={(e) => updatePerechenAck(i, { position: e.target.value })} style={{ ...inS, flex: 1 }} />
+                  <input placeholder="Фамилия И.О." value={row.fio_short} onChange={(e) => updatePerechenAck(i, { fio_short: e.target.value })} style={{ ...inS, flex: 1 }} />
+                  <button className="btn btn-secondary" onClick={() => deletePerechenAck(i)} title="Удалить">×</button>
+                </div>
+              ))}
             </div>
           </div>
         )}
