@@ -98,14 +98,18 @@ const inS: CSSProperties = { width: '100%', padding: '4px 6px' }
 // Пакет приёма (издаются на каждый приём). Разовые документы (перечень должностей/
 // МОЛ, Положение о ПД и приказ о назначении ответственного) в форму приёма не входят —
 // их шаблоны остаются в библиотеке для отдельной разовой генерации.
-const PACKAGE_DOCS: [string, string][] = [
+// Обязательные — издаются на каждый приём, всегда в пакете (снять нельзя).
+const MANDATORY_DOCS: [string, string][] = [
   ['td', 'Трудовой договор (двуязычный)'],
   ['prikaz', 'Приказ о приёме на работу'],
   ['soglasie', 'Согласие на обработку персональных данных'],
   ['zayavlenie', 'Заявление на налоговые вычеты (ИПН)'],
-  ['matotvet', 'Договор о полной материальной ответственности (опц.)'],
-  ['akt', 'Акт приёма-передачи ценностей (опц.)'],
-  ['nekonkurencii', 'Договор о неконкуренции (опц.)'],
+]
+// Дополнительные — включаются по галочке.
+const OPTIONAL_DOCS: [string, string][] = [
+  ['matotvet', 'Договор о полной материальной ответственности'],
+  ['akt', 'Акт приёма-передачи ценностей'],
+  ['nekonkurencii', 'Договор о неконкуренции'],
 ]
 
 const CONTRACT_KINDS: [string, string][] = [
@@ -134,7 +138,10 @@ function loadDraft(): Draft {
         localStorage.removeItem(DRAFT_KEY)   // gigiene: auto-clear stale drafts
         return EMPTY_DRAFT
       }
-      return { ...EMPTY_DRAFT, ...d }
+      // Обязательные документы всегда включены (даже в старом черновике), чтобы их
+      // блоки ввода отрисовались и они попали в пакет.
+      const documents = { ...d.documents, td: true, prikaz: true, soglasie: true, zayavlenie: true }
+      return { ...EMPTY_DRAFT, ...d, documents }
     }
   } catch { /* ignore */ }
   return EMPTY_DRAFT
@@ -344,8 +351,12 @@ export default function HrPage() {
   const invTotal = draft.inventory.reduce((sum, r) => sum + num(r.qty) * num(r.price), 0)
 
   async function generatePackage() {
-    const documents = Object.keys(draft.documents).filter((k) => draft.documents[k])
-    if (!documents.length) { setError('Отметьте хотя бы один документ'); return }
+    // Ровно семь разрешённых: 4 обязательных всегда + отмеченные из 3 дополнительных.
+    // Любые посторонние ключи из старого черновика игнорируются.
+    const documents = [
+      ...MANDATORY_DOCS.map(([k]) => k),
+      ...OPTIONAL_DOCS.filter(([k]) => draft.documents[k]).map(([k]) => k),
+    ]
     if (draft.documents.akt && draft.inventory.length === 0) {
       setError('Для акта приёма-передачи добавьте хотя бы одну позицию описи (или снимите галочку «Акт»)')
       return
@@ -575,11 +586,21 @@ export default function HrPage() {
         )}
       </section>
 
-      {/* 5. Package (заход 1: приказ + матответственность + акт) */}
+      {/* 5. Package: 4 обязательных + 3 по галочке */}
       <section style={{ marginTop: 32, borderTop: '1px solid #e5e7eb', paddingTop: 20 }}>
         <h3>5. Пакет документов (ZIP)</h3>
+        <div style={{ fontSize: 13, color: '#6b7280', marginBottom: 6 }}>Обязательные (всегда в пакете):</div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 12 }}>
-          {PACKAGE_DOCS.map(([key, label]) => (
+          {MANDATORY_DOCS.map(([key, label]) => (
+            <label key={key} style={{ display: 'flex', gap: 8, alignItems: 'center', color: '#374151' }}>
+              <input type="checkbox" checked disabled />
+              {label}
+            </label>
+          ))}
+        </div>
+        <div style={{ fontSize: 13, color: '#6b7280', marginBottom: 6 }}>Дополнительно (по галочке):</div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 12 }}>
+          {OPTIONAL_DOCS.map(([key, label]) => (
             <label key={key} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
               <input type="checkbox" checked={!!draft.documents[key]} onChange={() => toggleDoc(key)} />
               {label}
