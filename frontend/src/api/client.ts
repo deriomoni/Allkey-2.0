@@ -518,7 +518,9 @@ export interface PersonnelCompany {
   director_fio_kk: string
   director_gender: string
   signatory_position: string
+  signer_position_kz: string
   acts_on_basis: string
+  address_kz: string
   state_registration_date: string | null
   bank: string
   iik: string
@@ -546,6 +548,8 @@ export interface PersonnelEmployee {
   gender: string
   iban: string
   citizenship: string
+  fio_full_kz: string
+  id_document_kz: string
   fio_genitive_override: string | null
   fio_dative_override: string | null
   fio_accusative_override: string | null
@@ -568,6 +572,10 @@ export interface PersonnelEmployment {
   allowances: string
   rate: string | number
   salary_words_override: string | null
+  workplace: string
+  workplace_kz: string
+  conditions: string
+  hours_per_day: string | number | null
   hours_per_week: number | null
   work_time_from: string
   work_time_to: string
@@ -658,6 +666,19 @@ export interface ActInput {
   commission: CommissionMember[]
 }
 
+// Данные трудового договора (§4.2). kind: indefinite | fixed | task | substitute.
+export interface ContractInput {
+  number: string
+  doc_date: string | null
+  kind: string
+  term_count: number | null      // для срочного: срок = term_count + term_unit
+  term_unit: string              // year | month
+  end_date: string | null
+  task: string                   // для договора на время выполнения работы (ru)
+  task_kz: string                // то же (kz, вручную)
+  confidential_years: string
+}
+
 // Данные приказа об ответственном за ПД + Положения о ПД (§4.6).
 export interface PolicyInput {
   order_number: string
@@ -682,6 +703,7 @@ export interface PackageBody {
   act?: ActInput | null
   inventory?: InventoryItem[]
   policy?: PolicyInput | null
+  contract?: ContractInput | null
 }
 
 // Trigger a browser download from a blob response, honouring the server filename.

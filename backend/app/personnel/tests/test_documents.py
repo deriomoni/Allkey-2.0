@@ -262,6 +262,22 @@ def test_package_pd_and_deductions():
     assert any("Приказ" in n for n in names)
 
 
+def test_package_td_fixed_term():
+    names = run(_zip_names(_pkg(
+        ["td"],
+        contract=s.ContractIn(number="47", doc_date=date(2026, 8, 5), kind="fixed",
+                              term_count=1, term_unit="year", end_date=date(2027, 8, 4)),
+    )))
+    assert len(names) == 1
+    assert any("Трудов" in n for n in names)
+
+
+def test_package_td_needs_contract():
+    with pytest.raises(HTTPException) as exc:
+        run(R.generate_package(_pkg(["td"]), user=FAKE_USER))  # no contract
+    assert exc.value.status_code == 400
+
+
 def test_package_zayavlenie_needs_deductions():
     with pytest.raises(HTTPException) as exc:
         run(R.generate_package(_pkg(["zayavlenie"], deductions=[]), user=FAKE_USER))

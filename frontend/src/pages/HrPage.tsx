@@ -12,6 +12,7 @@ import {
   type InventoryColumn,
   type CommissionMember,
   type PolicyInput,
+  type ContractInput,
 } from '../api/client'
 
 const CATEGORY_OPTIONS: [string, string][] = [
@@ -46,6 +47,7 @@ type Draft = {
   deductions: string[]
   applyFromMonth: string          // 'YYYY-MM'; пусто → месяц приёма
   policy: PolicyInput
+  contract: ContractInput
 }
 
 const EMPTY_DRAFT: Draft = {
@@ -56,7 +58,7 @@ const EMPTY_DRAFT: Draft = {
     work_time_from: '09:00', work_time_to: '18:00', lunch_from: '13:00', lunch_to: '14:00',
     days_off: 'суббота, воскресенье', vacation_days: 24, ipn_deduction: 'base_30_mrp',
   },
-  documents: { prikaz: true, zayavlenie: false, matotvet: false, akt: false, polozhenie_pd: false, prikaz_pd: false },
+  documents: { prikaz: true, zayavlenie: false, td: false, matotvet: false, akt: false, polozhenie_pd: false, prikaz_pd: false },
   liability: { number: '', doc_date: null },
   act: { number: '', doc_date: null, basis: '', notes: '', commission: [] },
   inventory: [],
@@ -65,6 +67,10 @@ const EMPTY_DRAFT: Draft = {
   policy: {
     order_number: '', doc_date: null, responsible_fio: '', responsible_position: '',
     deadline: null, control: 'оставляю за собой', acquainted: [],
+  },
+  contract: {
+    number: '', doc_date: null, kind: 'indefinite', term_count: null, term_unit: 'year',
+    end_date: null, task: '', task_kz: '', confidential_years: '3',
   },
 }
 
@@ -80,10 +86,18 @@ const inS: CSSProperties = { width: '100%', padding: '4px 6px' }
 const PACKAGE_DOCS: [string, string][] = [
   ['prikaz', 'Приказ о приёме на работу'],
   ['zayavlenie', 'Заявление на налоговые вычеты (ИПН)'],
+  ['td', 'Трудовой договор (двуязычный)'],
   ['matotvet', 'Договор о полной материальной ответственности'],
   ['akt', 'Акт приёма-передачи ценностей'],
   ['polozhenie_pd', 'Положение о персональных данных'],
   ['prikaz_pd', 'Приказ об ответственном за персональные данные'],
+]
+
+const CONTRACT_KINDS: [string, string][] = [
+  ['indefinite', 'Бессрочный'],
+  ['fixed', 'Срочный (на срок)'],
+  ['task', 'На время выполнения работы'],
+  ['substitute', 'На время замещения'],
 ]
 
 const DEDUCTION_OPTIONS: [string, string][] = [
@@ -243,6 +257,8 @@ export default function HrPage() {
     setPolicy({ acquainted: draft.policy.acquainted.map((r, j) => (j === i ? { ...r, ...patch } : r)) })
   const deleteAcquainted = (i: number) =>
     setPolicy({ acquainted: draft.policy.acquainted.filter((_, j) => j !== i) })
+  const setContract = (patch: Partial<ContractInput>) =>
+    setDraft((d) => ({ ...d, contract: { ...d.contract, ...patch } }))
 
   const addRow = () =>
     setDraft((d) => ({ ...d, inventory: [...d.inventory, { name: '', code: '', unit: '', qty: '', price: '' }] }))
@@ -316,6 +332,10 @@ export default function HrPage() {
       setError('Для заявления на вычеты отметьте хотя бы один вид вычета (или снимите галочку «Заявление»)')
       return
     }
+    if (draft.documents.td && draft.contract.kind === 'fixed' && !draft.contract.term_count && !draft.contract.end_date) {
+      setError('Для срочного договора укажите срок (число + единица) или дату окончания')
+      return
+    }
     const b: PackageBody = {
       company: draft.company, employee: draft.employee, employment: draft.employment, documents,
     }
@@ -327,6 +347,7 @@ export default function HrPage() {
       b.apply_from = draft.applyFromMonth ? `${draft.applyFromMonth}-01` : null
     }
     if (draft.documents.polozhenie_pd || draft.documents.prikaz_pd) b.policy = draft.policy
+    if (draft.documents.td) b.contract = draft.contract
     setBusy(true); setError('')
     try { await personnelApi.generatePackage(b) }
     catch (e) { fail(e, 'Не удалось сформировать пакет') } finally { setBusy(false) }
@@ -537,6 +558,84 @@ export default function HrPage() {
                 onChange={(ev) => setDraft((d) => ({ ...d, applyFromMonth: ev.target.value }))} />
               <div style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>
                 По умолчанию — месяц приёма. В документе: «начиная с {'{месяца}'} {'{года}'} года».
+              </div>
+            </div>
+          </div>
+        )}
+
+        {draft.documents.td && (
+          <div style={{ background: '#f8fafc', borderRadius: 8, padding: 14, marginBottom: 12 }}>
+            <h4 style={{ marginBottom: 8 }}>Трудовой договор</h4>
+            <div className="form-group">
+              <label>Вид договора</label>
+              <select value={draft.contract.kind} onChange={(ev) => setContract({ kind: ev.target.value })}>
+                {CONTRACT_KINDS.map(([val, label]) => <option key={val} value={val}>{label}</option>)}
+              </select>
+            </div>
+            <Field label="№ договора" value={draft.contract.number} onChange={(v) => setContract({ number: v })} />
+            <Field label="Дата договора" type="date" value={draft.contract.doc_date} onChange={(v) => setContract({ doc_date: v })} />
+
+            {draft.contract.kind === 'fixed' && (
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <div className="form-group" style={{ flex: '1 1 120px' }}>
+                  <label>Срок</label>
+                  <input type="number" min={1} value={draft.contract.term_count ?? ''}
+                    onChange={(ev) => setContract({ term_count: ev.target.value ? Number(ev.target.value) : null })} />
+                </div>
+                <div className="form-group" style={{ flex: '1 1 120px' }}>
+                  <label>Единица</label>
+                  <select value={draft.contract.term_unit} onChange={(ev) => setContract({ term_unit: ev.target.value })}>
+                    <option value="year">лет</option><option value="month">месяцев</option>
+                  </select>
+                </div>
+                <div className="form-group" style={{ flex: '1 1 160px' }}>
+                  <label>Дата окончания</label>
+                  <input type="date" value={draft.contract.end_date ?? ''}
+                    onChange={(ev) => setContract({ end_date: ev.target.value || null })} />
+                </div>
+              </div>
+            )}
+            {draft.contract.kind === 'task' && (
+              <>
+                <Field label="Описание работы (рус)" value={draft.contract.task} onChange={(v) => setContract({ task: v })} />
+                <Field label="Описание работы (каз)" value={draft.contract.task_kz} onChange={(v) => setContract({ task_kz: v })} />
+              </>
+            )}
+            <Field label="Срок конфиденциальности (лет)" value={draft.contract.confidential_years}
+              onChange={(v) => setContract({ confidential_years: v })} />
+
+            <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px dashed #cbd5e1' }}>
+              <strong style={{ fontSize: 14 }}>Казахские соответствия и режим (для двуязычного ТД)</strong>
+              <p style={{ fontSize: 12, color: '#b45309', margin: '4px 0 10px' }}>
+                Казахский текст не вычитан юристом — проверьте перевод перед подписанием.
+                Числа, даты и срок на казахском формируются автоматически.
+              </p>
+              <Field label="Наименование компании (каз)" value={c.name_kk} onChange={(v) => setCompany({ name_kk: v })} />
+              <Field label="Юр. адрес компании (каз)" value={c.address_kz} onChange={(v) => setCompany({ address_kz: v })} />
+              <Field label="ФИО директора (каз)" value={c.director_fio_kk} onChange={(v) => setCompany({ director_fio_kk: v })} />
+              <Field label="Должность подписанта (каз)" value={c.signer_position_kz} onChange={(v) => setCompany({ signer_position_kz: v })} />
+              <Field label="ФИО работника (каз)" value={e.fio_full_kz} onChange={(v) => setEmployee({ fio_full_kz: v })} />
+              <Field label="Документ работника (каз)" value={e.id_document_kz} onChange={(v) => setEmployee({ id_document_kz: v })}
+                placeholder="жеке куәлік № … ІІМ … берген" />
+              <Field label="Должность (каз)" value={m.position_kk} onChange={(v) => setEmployment({ position_kk: v })} />
+              <Field label="Место работы (рус)" value={m.workplace} onChange={(v) => setEmployment({ workplace: v })} placeholder="г. Астана, офис Работодателя" />
+              <Field label="Место работы (каз)" value={m.workplace_kz} onChange={(v) => setEmployment({ workplace_kz: v })} />
+              <Field label="Условия труда (рус)" value={m.conditions} onChange={(v) => setEmployment({ conditions: v })} placeholder="нормальными" />
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <div className="form-group" style={{ flex: '1 1 120px' }}>
+                  <label>Часов в день</label>
+                  <input type="number" value={m.hours_per_day ?? ''} onChange={(ev) => setEmployment({ hours_per_day: ev.target.value })} />
+                </div>
+                <div className="form-group" style={{ flex: '1 1 120px' }}>
+                  <label>Дней отпуска</label>
+                  <input type="number" value={m.vacation_days ?? ''} onChange={(ev) => setEmployment({ vacation_days: Number(ev.target.value) })} />
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <Field label="Начало рабочего дня" value={m.work_time_from} onChange={(v) => setEmployment({ work_time_from: v })} />
+                <Field label="Конец рабочего дня" value={m.work_time_to} onChange={(v) => setEmployment({ work_time_to: v })} />
+                <Field label="Обед с" value={m.lunch_from} onChange={(v) => setEmployment({ lunch_from: v })} />
+                <Field label="Обед до" value={m.lunch_to} onChange={(v) => setEmployment({ lunch_to: v })} />
               </div>
             </div>
           </div>
