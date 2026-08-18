@@ -78,8 +78,12 @@ const EMPTY_DRAFT: Draft = {
     end_date: null, task: '', task_kz: '', confidential_years: '3',
   },
   noncompete: {
-    number: '', doc_date: null, term_noncompete: '', term_nonsolicit: '', term_confidential: '',
-    territory: '', activity: '', competitors: '', penalty: '',
+    number: '', doc_date: null,
+    term_noncompete: '12 (двенадцати) месяцев',
+    term_nonsolicit: '3 (трёх) лет',
+    term_confidential: '5 (пяти) лет',
+    territory: '', activity: '', competitors: '',
+    penalty: '1 000 000 (один миллион) тенге',
   },
   perechen: {
     number: '', doc_date: null, responsible_fio: '', responsible_position: '',
@@ -697,7 +701,10 @@ export default function HrPage() {
             <Field label="Конкуренты" value={draft.noncompete.competitors}
               onChange={(v) => setNonCompete({ competitors: v })} />
             <Field label="Штраф (неустойка)" value={draft.noncompete.penalty}
-              onChange={(v) => setNonCompete({ penalty: v })} placeholder="500 000 (пятьсот тысяч) тенге" />
+              onChange={(v) => setNonCompete({ penalty: v })} placeholder="1 000 000 (один миллион) тенге" />
+            <div style={{ fontSize: 12, color: '#b45309', marginTop: -6, marginBottom: 4 }}>
+              Суд вправе уменьшить неустойку при явной несоразмерности (ст. 297 ГК РК). Соотносите сумму с окладом работника.
+            </div>
           </div>
         )}
 
