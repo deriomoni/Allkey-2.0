@@ -146,8 +146,11 @@ def _decline_part(part: str, kind: str, case: str, gender: str) -> str:
       * First names — name_exceptions table first, then the ending+gender rule
         above; pymorphy is NOT used for first names (it mis-genders many Kazakh
         names; the rule is more reliable). Hyphenated names decline part by part.
-      * Surnames/patronymics — a pymorphy Surn/Patr parse of the MATCHING gender,
-        else unchanged (женская «Ким»/«Цой» stay, мужская склоняется; «Оспан» stays).
+      * Surnames — a pymorphy Surn parse of the MATCHING gender first, then the
+        SAME ending+gender rule as first names (so «Оспан» declines for a man —
+        Оспана — and stays for a woman); Russian «Ким»/«Цой» handled by pymorphy.
+      * Patronymics — a pymorphy Patr parse of the matching gender, else unchanged
+        (-ұлы/-қызы already handled above; -ович/-евич are in pymorphy).
     Every result is editable downstream.
     """
     from app.personnel import name_exceptions
@@ -172,12 +175,16 @@ def _decline_part(part: str, kind: str, case: str, gender: str) -> str:
 
     gender_gr = "masc" if gender == "male" else "femn"
     parses = _morph().parse(part)
-    # Surname/patronymic: only a proper-name parse of the MATCHING gender is trusted.
+    # Surname/patronymic: a proper-name parse of the MATCHING gender is trusted.
     gendered = [p for p in parses if _PART_TAG[kind] in p.tag and gender_gr in p.tag]
     if gendered:
         result = gendered[0].inflect({grammeme, gender_gr})
         if result is not None:
             return _match_case(part, result.word)
+    # No pymorphy parse: surnames fall back to the same ending+gender rule
+    # (мужская на согласный склоняется, женская нет). Patronymics stay unchanged.
+    if kind == "last":
+        return _rule_decline_first(part, case, gender)
     return part
 
 

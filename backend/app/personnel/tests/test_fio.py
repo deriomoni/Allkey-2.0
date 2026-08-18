@@ -95,6 +95,18 @@ def test_hyphenated_first_name():
     assert _decline_part("Нұрлан-Ержан", "first", "genitive", "male") == "Нұрлана-Ержана"
 
 
+def test_kazakh_surname_rule_fallback_by_gender():
+    from app.personnel.helpers.fio import _decline_part
+    # фамилия без разбора pymorphy: мужская склоняется по правилу, женская нет
+    for surname, male_gen in [("Оспан", "Оспана"), ("Нұрлыбек", "Нұрлыбека"), ("Сейтжан", "Сейтжана")]:
+        assert _decline_part(surname, "last", "genitive", "male") == male_gen, surname
+        assert _decline_part(surname, "last", "accusative", "male") == male_gen, surname
+        assert _decline_part(surname, "last", "genitive", "female") == surname, surname
+        assert _decline_part(surname, "last", "accusative", "female") == surname, surname
+    # полное мужское ФИО без русских суффиксов — склоняются обе части
+    assert fio_full("Оспан", "Ерболат", "", "accusative", "male") == "Оспана Ерболата"
+
+
 def test_consonant_surname_gender_sensitive():
     from app.personnel.helpers.fio import _decline_part
     # мужская фамилия на согласную склоняется, женская — нет
