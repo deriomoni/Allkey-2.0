@@ -3,7 +3,7 @@ from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from typing import List, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, field_validator
 
 
 class IinCheckRequest(BaseModel):
@@ -41,32 +41,6 @@ class RatesResponse(BaseModel):
     oosms_rate: float
     sn_rate: float
     unified_payment_rate: float
-
-
-class SalaryConvertRequest(BaseModel):
-    """Пересчёт оклада «на руки ↔ к начислению». amount — целые тенге."""
-    amount: int = Field(ge=0)
-    mode: str = "gross"                       # gross (к начислению) | net (на руки)
-    apply_base_deduction: bool = True         # применён ли базовый вычет 30 МРП
-    on: Optional[date] = None
-
-    @field_validator("mode")
-    @classmethod
-    def _known_mode(cls, v: str) -> str:
-        if v not in ("gross", "net"):
-            raise ValueError("mode должен быть 'gross' или 'net'")
-        return v
-
-
-class SalaryConvertResponse(BaseModel):
-    gross: int          # к начислению — идёт в документ
-    net: int            # на руки
-    opv: int
-    vosms: int
-    ipn: int
-    base_deduction: int
-    taxable: int
-    apply_base_deduction: bool
 
 
 # ============================ CRUD schemas ============================
@@ -174,6 +148,7 @@ class EmploymentIn(BaseModel):
     end_date: Optional[date] = None
     probation_months: int = 0
     salary: int = 0                   # оклад — только целые тенге (без копеек)
+    salary_kind: str = "gross"        # gross (к начислению) | net (на руки) — меняет формулировки ТД, сумма как есть
     currency: str = "KZT"
     allowances: str = ""
     rate: Decimal = Decimal(1)
@@ -210,6 +185,13 @@ class EmploymentIn(BaseModel):
         if d != d.to_integral_value():
             raise ValueError("Оклад указывается целыми тенге, без копеек.")
         return int(d)
+
+    @field_validator("salary_kind")
+    @classmethod
+    def _known_salary_kind(cls, v: str) -> str:
+        if v not in ("gross", "net"):
+            raise ValueError("salary_kind должен быть 'gross' (к начислению) или 'net' (на руки)")
+        return v
 
 
 # --- Generation request bodies (stateless) ----------------------------

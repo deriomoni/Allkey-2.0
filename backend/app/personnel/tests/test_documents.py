@@ -109,7 +109,7 @@ def test_render_perechen():
         assert needle in text
 
 
-def _td(kind, **extra):
+def _td(kind, salary_kind="gross", **extra):
     company = s.CompanyBase(
         name_ru="ТОО «Ромашка»", name_kk="«Ромашка» ЖШС", bin="150640001237",
         city="Алматы", legal_address="ул. Абая, 1", address_kz="Абай к-сі, 1",
@@ -125,6 +125,7 @@ def _td(kind, **extra):
     employment = s.EmploymentIn(
         position_ru="менеджер", position_kk="менеджер", workplace="офис", workplace_kz="кеңсе",
         conditions="нормальными", start_date=date(2026, 8, 5), salary=Decimal("300000"),
+        salary_kind=salary_kind,
         probation_months=3, hours_per_day=Decimal("8"), hours_per_week=Decimal("40"),
         days_off="суббота, воскресенье", vacation_days=24,
     )
@@ -153,6 +154,19 @@ def test_trudovoy_fixed_term():
     assert "{{" not in text and "{%" not in text
     assert "1 (один) год" in text and "1 (бір) жыл" in text
     assert "04 августа 2027 года" in text and "04 тамыз 2027 жыл" in text
+
+
+def test_trudovoy_salary_kind_changes_wording():
+    # Сумма подставляется как есть (300 000 в обоих), но формулировка 4.1 разная.
+    gross = _td("indefinite", salary_kind="gross")
+    net = _td("indefinite", salary_kind="net")
+    assert "{%" not in gross and "{%" not in net
+    assert "300 000 (триста тысяч)" in gross and "300 000 (триста тысяч)" in net
+    assert "должностной оклад" in gross          # к начислению
+    assert "должностной оклад" not in net        # на руки — иная формулировка
+    assert gross != net
+    # Приложение № 1 об окладе убрано полностью
+    assert "Приложение № 1" not in gross and "Приложение №1" not in gross
 
 
 def test_trudovoy_task_and_substitute():

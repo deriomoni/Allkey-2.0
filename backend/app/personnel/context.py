@@ -442,6 +442,8 @@ def build_trudovoy_context(company, employee, employment, contract) -> dict:
             "salary_figures": format_figures(salary),
             "salary_words_ru": ru_int_to_words(int(salary)),
             "salary_words_kz": kk_int_to_words(int(salary)),
+            # gross|net — меняет формулировки п. 4.1/4.2 в шаблоне; сумма подставляется как есть
+            "salary_kind": getattr(employment, "salary_kind", "gross") or "gross",
         },
         "contract": {
             "number": contract.number, "date_words": _words(contract.doc_date),

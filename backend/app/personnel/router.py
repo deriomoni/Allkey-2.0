@@ -37,9 +37,8 @@ from app.personnel.schemas import (
     BinCheckRequest, BinCheckResponse,
     RatesResponse, PrikazRequest, ZayavlenieVychetyRequest, PrikazPreviewResponse,
     PackageRequest, InventoryParseResponse, InventoryItemIn, InventoryColumn,
-    TrudovoyRequest, SalaryConvertRequest, SalaryConvertResponse,
+    TrudovoyRequest,
 )
-from app.personnel.gross_net import convert_salary
 from app.services.dependencies import require_service
 from app.users.models import User
 
@@ -87,21 +86,6 @@ async def current_rates(
         opv_rate=r.opv_rate, opvr_rate=r.opvr_rate, so_rate=r.so_rate,
         vosms_rate=r.vosms_rate, oosms_rate=r.oosms_rate, sn_rate=r.sn_rate,
         unified_payment_rate=r.unified_payment_rate,
-    )
-
-
-@router.post("/salary/convert", response_model=SalaryConvertResponse)
-async def salary_convert(
-    data: SalaryConvertRequest,
-    _user: User = Depends(require_service(SERVICE_CODE)),
-):
-    """Пересчёт оклада «на руки ↔ к начислению» по ставкам 2026. В документ идёт
-    gross; ответ содержит обе суммы и разбор удержаний для показа бухгалтеру."""
-    b = convert_salary(data.amount, data.mode, data.apply_base_deduction, data.on)
-    return SalaryConvertResponse(
-        gross=b.gross, net=b.net, opv=b.opv, vosms=b.vosms, ipn=b.ipn,
-        base_deduction=b.base_deduction, taxable=b.taxable,
-        apply_base_deduction=data.apply_base_deduction,
     )
 
 
