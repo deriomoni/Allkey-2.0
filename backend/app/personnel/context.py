@@ -425,12 +425,28 @@ def build_trudovoy_context(company, employee, employment, contract) -> dict:
     }
 
 
+# Приказу о приёме НЕ нужны (есть в трудовом договоре; в приказе создавали бы
+# лишнее разглашение оклада и риск расхождения по режиму): оклад и режим работы,
+# а также ФИО в дательном. В build_employment/employee_context они остаются —
+# трудовой договор их использует.
+_ORDER_DROP_EMPLOYMENT = (
+    "salary_figures", "salary_words_ru", "hours_per_week",
+    "work_from", "work_to", "lunch_from", "lunch_to", "days_off",
+)
+
+
 def build_order_context(company, employee, employment, hr_responsible_fio: str = "") -> dict:
-    """Full context for prikaz_o_prieme.docx (ТЗ §4.4)."""
+    """Context for prikaz_o_prieme.docx (§4.4). Без оклада и режима работы —
+    их место в трудовом договоре и ПВТР (см. _ORDER_DROP_EMPLOYMENT)."""
+    emp = build_employee_context(employee)
+    emp.pop("fio_dative", None)
+    empl = build_employment_context(employment)
+    for key in _ORDER_DROP_EMPLOYMENT:
+        empl.pop(key, None)
     return {
         "company": build_company_context(company),
-        "employee": build_employee_context(employee),
-        "employment": build_employment_context(employment),
+        "employee": emp,
+        "employment": empl,
         "order": {
             "number": employment.order_number or "",
             "date_words": _words(employment.order_date),

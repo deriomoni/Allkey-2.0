@@ -57,10 +57,10 @@ def test_order_context_key_fields():
     ctx = build_order_context(company, employee, employment, hr_responsible_fio="Петрова А.А.")
 
     assert ctx["employee"]["fio_accusative_upper"] == "КЛИМОВА ВАСИЛИЯ АЛЕКСАНДРОВИЧА"
-    assert ctx["employee"]["fio_dative"] == "Климову Василию Александровичу"
     assert ctx["employee"]["fio_genitive"] == "Климова Василия Александровича"
-    assert ctx["employment"]["salary_figures"] == "300 000"
-    assert ctx["employment"]["salary_words_ru"] == "триста тысяч"
+    # оклад, режим и дательный из приказа убраны (место — в ТД/ПВТР)
+    assert "fio_dative" not in ctx["employee"]
+    assert "salary_figures" not in ctx["employment"] and "days_off" not in ctx["employment"]
     assert ctx["employment"]["probation_months_words"] == "три"
     # start 05.08.2026 + 3 мес − 1 день = 04.11.2026
     assert ctx["employment"]["probation_end_date_short"] == "04.11.2026"
@@ -85,16 +85,18 @@ def test_render_prikaz_fills_all_placeholders():
         "менеджер по продажам",
         "в отдел продаж",
         "с 05 августа 2026 года",
-        "300 000 (триста тысяч) тенге",
         "3 (три) месяца с 05.08.2026 по 04.11.2026",
-        "40-часовая рабочая неделя, с 09:00 до 18:00",
-        "единую систему учёта трудовых договоров",   # ЕСУТД clause present
+        "штатным расписанием",                         # п.2: оплата по ТД + штатному расписанию
+        "единую систему учёта трудовых договоров",     # ЕСУТД clause present
         "ознакомить работника под роспись",
         "трудовой договор № 15 от 05.08.2026",
         "заявление Климова Василия Александровича от 04.08.2026",
         "Петрова А.А.",
     ]:
         assert needle in text, f"missing in rendered doc: {needle!r}"
+
+    # Оклад и режим работы в приказе БОЛЬШЕ НЕ печатаются (место — в ТД/ПВТР).
+    assert "тенге" not in text and "рабочая неделя" not in text
 
 
 def test_render_without_probation_uses_else_branch():
@@ -184,13 +186,16 @@ def test_fio_override_takes_priority():
     assert ctx["fio_genitive"] == "Климова Василия Александровича (ручная правка)"
 
 
-def test_salary_words_override_reaches_document():
+def test_salary_words_override_reaches_employment_context():
+    # Оклад прописью используется в ТД (не в приказе): правка попадает в контекст
+    # найма, а приказ вообще не содержит суммы оклада.
     company, employee, employment = sample_entities()
     employment.salary_words_override = "ноль"  # manual edit of the sum-in-words
-    ctx = build_order_context(company, employee, employment)
-    assert ctx["employment"]["salary_words_ru"] == "ноль"
-    text = _docx_text(render_template("prikaz_o_prieme.docx", ctx))
-    assert "(ноль) тенге" in text
+    from app.personnel.context import build_employment_context
+    assert build_employment_context(employment)["salary_words_ru"] == "ноль"
+    order_ctx = build_order_context(company, employee, employment)
+    assert "salary_words_ru" not in order_ctx["employment"]
+    assert "salary_figures" not in order_ctx["employment"]
 
 
 def test_output_filename():
