@@ -272,6 +272,24 @@ def test_package_td_fixed_term():
     assert any("Трудов" in n for n in names)
 
 
+def test_package_soglasie():
+    names = run(_zip_names(_pkg(
+        ["soglasie"],
+        consent=s.SoglasieIn(doc_date=date(2026, 8, 5),
+                             responsible_position="менеджер по персоналу", responsible_fio="Ахметова А.С.",
+                             recipients=[s.RecipientIn(name="АО «Народный Банк»", bin="940140000385",
+                                                       purpose="выплата зарплаты", scope="ФИО, ИИН, счёт")]),
+    )))
+    assert len(names) == 1
+    assert any("Согласие" in n for n in names)
+
+
+def test_package_soglasie_needs_consent():
+    with pytest.raises(HTTPException) as exc:
+        run(R.generate_package(_pkg(["soglasie"]), user=FAKE_USER))  # no consent
+    assert exc.value.status_code == 400
+
+
 def test_package_noncompete_and_perechen():
     names = run(_zip_names(_pkg(
         ["nekonkurencii", "perechen"],

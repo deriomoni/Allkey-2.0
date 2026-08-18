@@ -3,7 +3,7 @@ from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from typing import List, Optional
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class IinCheckRequest(BaseModel):
@@ -41,6 +41,32 @@ class RatesResponse(BaseModel):
     oosms_rate: float
     sn_rate: float
     unified_payment_rate: float
+
+
+class SalaryConvertRequest(BaseModel):
+    """Пересчёт оклада «на руки ↔ к начислению». amount — целые тенге."""
+    amount: int = Field(ge=0)
+    mode: str = "gross"                       # gross (к начислению) | net (на руки)
+    apply_base_deduction: bool = True         # применён ли базовый вычет 30 МРП
+    on: Optional[date] = None
+
+    @field_validator("mode")
+    @classmethod
+    def _known_mode(cls, v: str) -> str:
+        if v not in ("gross", "net"):
+            raise ValueError("mode должен быть 'gross' или 'net'")
+        return v
+
+
+class SalaryConvertResponse(BaseModel):
+    gross: int          # к начислению — идёт в документ
+    net: int            # на руки
+    opv: int
+    vosms: int
+    ipn: int
+    base_deduction: int
+    taxable: int
+    apply_base_deduction: bool
 
 
 # ============================ CRUD schemas ============================
@@ -295,21 +321,42 @@ class PolicyIn(BaseModel):
     acquainted: List[CommissionMemberIn] = []
 
 
+class RecipientIn(BaseModel):
+    """Получатель ПД в согласии на обработку (банк, ОСМС, СФР и т.д.)."""
+    name: str = ""
+    bin: str = ""              # необязательно
+    purpose: str = ""          # цель передачи
+    scope: str = ""            # объём передаваемых данных
+
+
+class SoglasieIn(BaseModel):
+    """Согласие на сбор и обработку персональных данных (§4.7)."""
+    doc_date: Optional[date] = None
+    recipients: List[RecipientIn] = []
+    cross_border: bool = False
+    cross_border_countries: str = ""
+    cross_border_purpose: str = ""
+    responsible_position: str = ""
+    responsible_fio: str = ""
+    responsible_contacts: str = ""
+
+
 class PackageRequest(BaseModel):
     company: CompanyBase
     employee: EmployeeIn
     employment: EmploymentIn
     hr_responsible_fio: str = ""
-    documents: List[str]                        # prikaz | zayavlenie | matotvet | akt | nekonkurencii | perechen
+    documents: List[str]                        # td | prikaz | soglasie | zayavlenie | matotvet | akt | nekonkurencii
     deductions: List[str] = []                  # for zayavlenie
     apply_from: Optional[date] = None
     liability: Optional[LiabilityIn] = None     # for matotvet / akt basis
     noncompete: Optional[NonCompeteIn] = None   # for nekonkurencii / perechen terms
     act: Optional[ActIn] = None                 # for akt
     inventory: List[InventoryItemIn] = []       # for akt опись
-    perechen: Optional[PerechenIn] = None       # for perechen
+    perechen: Optional[PerechenIn] = None       # for perechen (library one-off)
     contract: Optional[ContractIn] = None       # for trudovoy dogovor
-    policy: Optional[PolicyIn] = None           # for polozhenie_pd / prikaz_pd (§4.6)
+    policy: Optional[PolicyIn] = None           # for polozhenie_pd / prikaz_pd (library one-off, §4.6)
+    consent: Optional[SoglasieIn] = None        # for soglasie (согласие на обработку ПД, §4.7)
 
 
 class InventoryColumn(BaseModel):

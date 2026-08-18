@@ -23,7 +23,7 @@ from app.personnel.context import (
     build_order_context, build_deduction_application_context, build_prikaz_preview,
     build_matotvet_context, build_nekonkurencii_context, build_akt_context,
     build_perechen_context, build_trudovoy_context,
-    build_polozhenie_pd_context, build_prikaz_pd_context, DEDUCTION_TEXTS,
+    build_polozhenie_pd_context, build_prikaz_pd_context, build_soglasie_context, DEDUCTION_TEXTS,
 )
 from app.personnel.generator import render_template, render_bytes, build_zip, output_filename
 from app.personnel.helpers.iin import is_valid_iin, is_valid_bin, parse_iin
@@ -37,8 +37,9 @@ from app.personnel.schemas import (
     BinCheckRequest, BinCheckResponse,
     RatesResponse, PrikazRequest, ZayavlenieVychetyRequest, PrikazPreviewResponse,
     PackageRequest, InventoryParseResponse, InventoryItemIn, InventoryColumn,
-    TrudovoyRequest,
+    TrudovoyRequest, SalaryConvertRequest, SalaryConvertResponse,
 )
+from app.personnel.gross_net import convert_salary
 from app.services.dependencies import require_service
 from app.users.models import User
 
@@ -86,6 +87,21 @@ async def current_rates(
         opv_rate=r.opv_rate, opvr_rate=r.opvr_rate, so_rate=r.so_rate,
         vosms_rate=r.vosms_rate, oosms_rate=r.oosms_rate, sn_rate=r.sn_rate,
         unified_payment_rate=r.unified_payment_rate,
+    )
+
+
+@router.post("/salary/convert", response_model=SalaryConvertResponse)
+async def salary_convert(
+    data: SalaryConvertRequest,
+    _user: User = Depends(require_service(SERVICE_CODE)),
+):
+    """Пересчёт оклада «на руки ↔ к начислению» по ставкам 2026. В документ идёт
+    gross; ответ содержит обе суммы и разбор удержаний для показа бухгалтеру."""
+    b = convert_salary(data.amount, data.mode, data.apply_base_deduction, data.on)
+    return SalaryConvertResponse(
+        gross=b.gross, net=b.net, opv=b.opv, vosms=b.vosms, ipn=b.ipn,
+        base_deduction=b.base_deduction, taxable=b.taxable,
+        apply_base_deduction=data.apply_base_deduction,
     )
 
 
@@ -237,6 +253,11 @@ async def generate_package(
             )
             files.append((fname("ЗаявлениеВычеты", data.employment.application_date),
                           render_bytes("zayavlenie_vychety_ipn.docx", ctx)))
+        elif doc == "soglasie":
+            need(data.consent, "Для согласия на обработку ПД нужны данные (consent)")
+            ctx = build_soglasie_context(data.company, emp, data.employment, data.consent)
+            files.append((fname("СогласиеПД", data.consent.doc_date),
+                          render_bytes("soglasie_personalnye_dannye.docx", ctx)))
         elif doc == "matotvet":
             need(data.liability, "Для договора о матответственности нужны реквизиты (liability)")
             ctx = build_matotvet_context(data.company, emp, data.employment, data.liability)

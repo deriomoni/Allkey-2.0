@@ -335,6 +335,37 @@ def build_polozhenie_pd_context(company, policy) -> dict:
     }
 
 
+def build_soglasie_context(company, employee, employment, consent) -> dict:
+    """Context for soglasie_personalnye_dannye.docx (§4.7) — согласие работника
+    на сбор и обработку ПД. Все реквизиты — редактируемые поля формы."""
+    comp = build_company_context(company)
+    emp = build_employee_context(employee)
+    return {
+        "company": {
+            "name_full": comp["name_full"], "bin": comp["bin"],
+            "city": comp["city"], "address": comp["address"],
+        },
+        "employee": {
+            "fio_full": emp["fio_full"], "fio_short": emp["fio_short"], "iin": emp["iin"],
+        },
+        "employment": {"position": employment.position_ru},
+        "consent": {
+            "date_words": _words(consent.doc_date),
+            "cross_border": bool(getattr(consent, "cross_border", False)),
+            "cross_border_countries": getattr(consent, "cross_border_countries", "") or "",
+            "cross_border_purpose": getattr(consent, "cross_border_purpose", "") or "",
+            "responsible_position": getattr(consent, "responsible_position", "") or "",
+            "responsible_fio": getattr(consent, "responsible_fio", "") or "",
+            "responsible_contacts": getattr(consent, "responsible_contacts", "") or "",
+        },
+        "recipients": [
+            {"name": r.name, "bin": getattr(r, "bin", "") or "",
+             "purpose": r.purpose, "scope": r.scope}
+            for r in (consent.recipients or [])
+        ],
+    }
+
+
 def build_prikaz_pd_context(company, policy) -> dict:
     """Context for prikaz_otvetstvennyy_pd.docx (§4.6) — приказ о назначении
     ответственного за обработку ПД (ответственный склоняется в винительный)."""
