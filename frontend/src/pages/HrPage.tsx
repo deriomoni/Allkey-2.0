@@ -11,6 +11,7 @@ import {
   type InventoryItem,
   type InventoryColumn,
   type CommissionMember,
+  type PolicyInput,
 } from '../api/client'
 
 const CATEGORY_OPTIONS: [string, string][] = [
@@ -42,6 +43,9 @@ type Draft = {
   liability: { number: string; doc_date: string | null }
   act: ActDraft
   inventory: InventoryItem[]
+  deductions: string[]
+  applyFromMonth: string          // 'YYYY-MM'; пусто → месяц приёма
+  policy: PolicyInput
 }
 
 const EMPTY_DRAFT: Draft = {
@@ -52,10 +56,16 @@ const EMPTY_DRAFT: Draft = {
     work_time_from: '09:00', work_time_to: '18:00', lunch_from: '13:00', lunch_to: '14:00',
     days_off: 'суббота, воскресенье', vacation_days: 24, ipn_deduction: 'base_30_mrp',
   },
-  documents: { prikaz: true, matotvet: false, akt: false },
+  documents: { prikaz: true, zayavlenie: false, matotvet: false, akt: false, polozhenie_pd: false, prikaz_pd: false },
   liability: { number: '', doc_date: null },
   act: { number: '', doc_date: null, basis: '', notes: '', commission: [] },
   inventory: [],
+  deductions: ['base_30_mrp'],
+  applyFromMonth: '',
+  policy: {
+    order_number: '', doc_date: null, responsible_fio: '', responsible_position: '',
+    deadline: null, control: 'оставляю за собой', acquainted: [],
+  },
 }
 
 const num = (v: string | number | null | undefined): number => {
@@ -69,9 +79,22 @@ const inS: CSSProperties = { width: '100%', padding: '4px 6px' }
 
 const PACKAGE_DOCS: [string, string][] = [
   ['prikaz', 'Приказ о приёме на работу'],
+  ['zayavlenie', 'Заявление на налоговые вычеты (ИПН)'],
   ['matotvet', 'Договор о полной материальной ответственности'],
   ['akt', 'Акт приёма-передачи ценностей'],
+  ['polozhenie_pd', 'Положение о персональных данных'],
+  ['prikaz_pd', 'Приказ об ответственном за персональные данные'],
 ]
+
+const DEDUCTION_OPTIONS: [string, string][] = [
+  ['base_30_mrp', 'Базовый вычет 30 МРП (за каждый месяц)'],
+  ['social_payments', 'Соц. платежи (ОПВ, ВОСМС)'],
+  ['social_882', 'Социальный вычет 882 МРП'],
+  ['social_5000', 'Социальный вычет 5 000 МРП'],
+]
+
+// 'YYYY-MM-DD' | 'YYYY-MM' → 'YYYY-MM' (для input type=month и apply_from по месяцу)
+const monthOf = (d: string | null | undefined): string => (d ? String(d).slice(0, 7) : '')
 
 function loadDraft(): Draft {
   try {
@@ -207,6 +230,19 @@ export default function HrPage() {
     setDraft((d) => ({ ...d, liability: { ...d.liability, ...patch } }))
   const setAct = (patch: Partial<ActDraft>) =>
     setDraft((d) => ({ ...d, act: { ...d.act, ...patch } }))
+  const toggleDeduction = (key: string) =>
+    setDraft((d) => ({
+      ...d,
+      deductions: d.deductions.includes(key) ? d.deductions.filter((k) => k !== key) : [...d.deductions, key],
+    }))
+  const setPolicy = (patch: Partial<PolicyInput>) =>
+    setDraft((d) => ({ ...d, policy: { ...d.policy, ...patch } }))
+  const addAcquainted = () =>
+    setPolicy({ acquainted: [...draft.policy.acquainted, { position: '', fio_short: '' }] })
+  const updateAcquainted = (i: number, patch: Partial<CommissionMember>) =>
+    setPolicy({ acquainted: draft.policy.acquainted.map((r, j) => (j === i ? { ...r, ...patch } : r)) })
+  const deleteAcquainted = (i: number) =>
+    setPolicy({ acquainted: draft.policy.acquainted.filter((_, j) => j !== i) })
 
   const addRow = () =>
     setDraft((d) => ({ ...d, inventory: [...d.inventory, { name: '', code: '', unit: '', qty: '', price: '' }] }))
@@ -276,11 +312,21 @@ export default function HrPage() {
       setError('Для акта приёма-передачи добавьте хотя бы одну позицию описи (или снимите галочку «Акт»)')
       return
     }
+    if (draft.documents.zayavlenie && draft.deductions.length === 0) {
+      setError('Для заявления на вычеты отметьте хотя бы один вид вычета (или снимите галочку «Заявление»)')
+      return
+    }
     const b: PackageBody = {
       company: draft.company, employee: draft.employee, employment: draft.employment, documents,
     }
     if (draft.documents.matotvet || draft.documents.akt) b.liability = draft.liability
     if (draft.documents.akt) { b.act = draft.act; b.inventory = draft.inventory }
+    if (draft.documents.zayavlenie) {
+      b.deductions = draft.deductions
+      // пусто → сервер берёт месяц приёма (employment.start_date); иначе первый день выбранного месяца
+      b.apply_from = draft.applyFromMonth ? `${draft.applyFromMonth}-01` : null
+    }
+    if (draft.documents.polozhenie_pd || draft.documents.prikaz_pd) b.policy = draft.policy
     setBusy(true); setError('')
     try { await personnelApi.generatePackage(b) }
     catch (e) { fail(e, 'Не удалось сформировать пакет') } finally { setBusy(false) }
@@ -474,6 +520,28 @@ export default function HrPage() {
           ))}
         </div>
 
+        {draft.documents.zayavlenie && (
+          <div style={{ background: '#f8fafc', borderRadius: 8, padding: 14, marginBottom: 12 }}>
+            <h4 style={{ marginBottom: 8 }}>Заявление на налоговые вычеты (ИПН)</h4>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 10 }}>
+              {DEDUCTION_OPTIONS.map(([key, label]) => (
+                <label key={key} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <input type="checkbox" checked={draft.deductions.includes(key)} onChange={() => toggleDeduction(key)} />
+                  {label}
+                </label>
+              ))}
+            </div>
+            <div className="form-group">
+              <label>Применять с месяца</label>
+              <input type="month" value={draft.applyFromMonth || monthOf(m.start_date)}
+                onChange={(ev) => setDraft((d) => ({ ...d, applyFromMonth: ev.target.value }))} />
+              <div style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>
+                По умолчанию — месяц приёма. В документе: «начиная с {'{месяца}'} {'{года}'} года».
+              </div>
+            </div>
+          </div>
+        )}
+
         {(draft.documents.matotvet || draft.documents.akt) && (
           <div style={{ background: '#f8fafc', borderRadius: 8, padding: 14, marginBottom: 12 }}>
             <h4 style={{ marginBottom: 8 }}>Реквизиты договора о матответственности</h4>
@@ -549,6 +617,34 @@ export default function HrPage() {
                   <input placeholder="Должность" value={mrow.position} onChange={(e) => updateCommission(i, { position: e.target.value })} style={{ ...inS, flex: 1 }} />
                   <input placeholder="Фамилия И.О." value={mrow.fio_short} onChange={(e) => updateCommission(i, { fio_short: e.target.value })} style={{ ...inS, flex: 1 }} />
                   <button className="btn btn-secondary" onClick={() => deleteCommission(i)} title="Удалить">×</button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {(draft.documents.polozhenie_pd || draft.documents.prikaz_pd) && (
+          <div style={{ background: '#f8fafc', borderRadius: 8, padding: 14, marginBottom: 12 }}>
+            <h4 style={{ marginBottom: 8 }}>Персональные данные — приказ и Положение</h4>
+            <Field label="№ приказа" value={draft.policy.order_number} onChange={(v) => setPolicy({ order_number: v })} />
+            <Field label="Дата приказа" type="date" value={draft.policy.doc_date} onChange={(v) => setPolicy({ doc_date: v })} />
+            <Field label="Ответственный, ФИО (им.п.)" value={draft.policy.responsible_fio}
+              onChange={(v) => setPolicy({ responsible_fio: v })} placeholder="Иванов Иван Иванович" />
+            <Field label="Должность ответственного (им.п.)" value={draft.policy.responsible_position}
+              onChange={(v) => setPolicy({ responsible_position: v })} placeholder="директор" />
+            <Field label="Срок ознакомления" type="date" value={draft.policy.deadline}
+              onChange={(v) => setPolicy({ deadline: v })} />
+            <Field label="Контроль (за кем)" value={draft.policy.control} onChange={(v) => setPolicy({ control: v })} />
+            <div style={{ marginTop: 10 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <strong>Ознакомить (лист ознакомления)</strong>
+                <button className="btn btn-secondary" onClick={addAcquainted}>+ сотрудник</button>
+              </div>
+              {draft.policy.acquainted.map((row, i) => (
+                <div key={i} style={{ display: 'flex', gap: 8, marginTop: 6 }}>
+                  <input placeholder="Должность" value={row.position} onChange={(e) => updateAcquainted(i, { position: e.target.value })} style={{ ...inS, flex: 1 }} />
+                  <input placeholder="Фамилия И.О." value={row.fio_short} onChange={(e) => updateAcquainted(i, { fio_short: e.target.value })} style={{ ...inS, flex: 1 }} />
+                  <button className="btn btn-secondary" onClick={() => deleteAcquainted(i)} title="Удалить">×</button>
                 </div>
               ))}
             </div>

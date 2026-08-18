@@ -224,6 +224,7 @@ async def generate_package(
             files.append((fname("ПриказПриём", data.employment.order_date),
                           render_bytes("prikaz_o_prieme.docx", ctx)))
         elif doc == "zayavlenie":
+            need(data.deductions, "Для заявления на вычеты нужен хотя бы один вид вычета (deductions)")
             unknown = [k for k in data.deductions if k not in DEDUCTION_TEXTS]
             if unknown:
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,

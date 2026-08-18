@@ -658,6 +658,17 @@ export interface ActInput {
   commission: CommissionMember[]
 }
 
+// Данные приказа об ответственном за ПД + Положения о ПД (§4.6).
+export interface PolicyInput {
+  order_number: string
+  doc_date: string | null
+  responsible_fio: string        // им.п. → склоняется в винительный на сервере
+  responsible_position: string   // им.п. → склоняется в винительный
+  deadline: string | null        // срок ознакомления
+  control: string
+  acquainted: CommissionMember[]
+}
+
 // Document package (ZIP) — everything in the body, server stores nothing.
 export interface PackageBody {
   company: Partial<PersonnelCompany>
@@ -670,6 +681,7 @@ export interface PackageBody {
   liability?: LiabilityInput | null
   act?: ActInput | null
   inventory?: InventoryItem[]
+  policy?: PolicyInput | null
 }
 
 // Trigger a browser download from a blob response, honouring the server filename.

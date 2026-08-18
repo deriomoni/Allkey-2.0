@@ -246,6 +246,28 @@ def test_package_bundles_selected_documents():
     assert any("Приказ" in n for n in names) and any("Договор" in n for n in names)
 
 
+def test_package_pd_and_deductions():
+    # ПД-пакет + заявление на вычеты: заход, который подключает фронт
+    names = run(_zip_names(_pkg(
+        ["zayavlenie", "polozhenie_pd", "prikaz_pd"],
+        deductions=["base_30_mrp", "social_882"],
+        apply_from=date(2026, 9, 1),
+        policy=s.PolicyIn(order_number="60", doc_date=date(2026, 8, 5),
+                          responsible_fio="Ахметов Асхат Болатович", responsible_position="директор",
+                          acquainted=[s.CommissionMemberIn(position="бухгалтер", fio_short="Оспанов Д.М.")]),
+    )))
+    assert len(names) == 3
+    assert any("Заявлен" in n for n in names)
+    assert any("Положен" in n for n in names)
+    assert any("Приказ" in n for n in names)
+
+
+def test_package_zayavlenie_needs_deductions():
+    with pytest.raises(HTTPException) as exc:
+        run(R.generate_package(_pkg(["zayavlenie"], deductions=[]), user=FAKE_USER))
+    assert exc.value.status_code == 400
+
+
 def test_package_missing_input_rejected():
     with pytest.raises(HTTPException) as exc:
         run(R.generate_package(_pkg(["matotvet"]), user=FAKE_USER))  # no liability
