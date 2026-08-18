@@ -37,6 +37,13 @@ def date_short(d: date) -> str:
     return f"{d.day:02d}.{d.month:02d}.{d.year}"
 
 
+def month_year_in_words(d: date) -> str:
+    """Месяц прописью в родительном падеже + год: 'августа 2026 года'.
+    Для вычетов по ст. 403 НК РК («начиная с …») — вычет за календарный месяц,
+    поэтому день не указывается."""
+    return f"{_RU_MONTHS_GENITIVE[d.month]} {d.year} года"
+
+
 def add_months(d: date, months: int) -> date:
     """Add `months` to a date, clamping the day to the target month's length
     (31 Jan + 1 month -> 28/29 Feb). Used to compute the probation end date."""

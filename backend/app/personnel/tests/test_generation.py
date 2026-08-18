@@ -123,7 +123,7 @@ def test_render_zayavlenie_vychety_fills_and_loops():
         "Климова Василия Александровича, ИИН 900715312346",   # from: fio_genitive
         "1. Базовый налоговый вычет в размере 30-кратного",    # loop item 1, numbered
         "2. Социальный налоговый вычет в размере 882-кратного",  # loop item 2
-        "начиная с 01 августа 2026 года",
+        "начиная с августа 2026 года",   # месяц, не дата (ст. 403 НК РК)
         "подтверждающих право на применение социального",       # has_social attachment clause
         "Климов Василий Александрович",                          # signature: fio_full
     ]:
@@ -203,7 +203,7 @@ def test_deductions_exact_texts():
     assert ctx["list"][0].startswith("Базовый налоговый вычет в размере 30-кратного")
     assert ctx["list"][1].startswith("Социальный налоговый вычет в размере 882-кратного")
     assert ctx["has_social"] is True
-    assert ctx["apply_from_words"] == "01 августа 2026 года"
+    assert ctx["apply_from_words"] == "августа 2026 года"
 
     ctx2 = build_deductions_context(["social_payments"], date(2026, 8, 1))
     assert ctx2["has_social"] is False

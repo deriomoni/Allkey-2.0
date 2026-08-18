@@ -16,7 +16,7 @@ from typing import List, Optional
 
 from app.personnel import kk_dictionaries as kkd
 from app.personnel.helpers import fio as fio_h
-from app.personnel.helpers.dates import date_in_words, date_short, add_months
+from app.personnel.helpers.dates import date_in_words, date_short, add_months, month_year_in_words
 from app.personnel.helpers.numbers import (
     ru_int_to_words, kk_int_to_words, format_figures, pluralize_ru,
 )
@@ -172,7 +172,8 @@ def build_deductions_context(selection: List[str], apply_from: Optional[date]) -
     """selection is an ordered list of DEDUCTION_TEXTS keys."""
     return {
         "list": [DEDUCTION_TEXTS[k] for k in selection if k in DEDUCTION_TEXTS],
-        "apply_from_words": _words(apply_from),
+        # Вычет применяется за календарный МЕСЯЦ (ст. 403 НК РК): «начиная с августа 2026 года».
+        "apply_from_words": month_year_in_words(apply_from) if apply_from else "",
         "has_social": any(k in _SOCIAL_KEYS for k in selection),
     }
 

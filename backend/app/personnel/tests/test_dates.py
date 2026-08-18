@@ -1,7 +1,14 @@
 """Tests for date-to-words in Russian and Kazakh."""
 from datetime import date
 
-from app.personnel.helpers.dates import date_in_words
+from app.personnel.helpers.dates import date_in_words, month_year_in_words
+
+
+def test_month_year_in_words():
+    # родительный падеж месяца + год, без дня («начиная с …»)
+    assert month_year_in_words(date(2026, 8, 17)) == "августа 2026 года"
+    assert month_year_in_words(date(2026, 1, 1)) == "января 2026 года"
+    assert month_year_in_words(date(2027, 12, 31)) == "декабря 2027 года"
 
 
 def test_ru_date():
