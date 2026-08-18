@@ -15,7 +15,6 @@ import {
   type NonCompeteInput,
   type SoglasieInput,
   type RecipientInput,
-  type SalaryConversion,
 } from '../api/client'
 
 const CATEGORY_OPTIONS: [string, string][] = [
@@ -52,15 +51,13 @@ type Draft = {
   contract: ContractInput
   noncompete: NonCompeteInput
   consent: SoglasieInput
-  salaryMode: 'gross' | 'net'     // 'net' — ввод «на руки», gross считается
-  netInput: string                // введённая сумма на руки (когда salaryMode='net')
 }
 
 const EMPTY_DRAFT: Draft = {
   company: { director_gender: 'male', signatory_position: 'Директор', acts_on_basis: 'Устава' },
   employee: { document_type: 'id_card', gender: 'male', citizenship: 'Республики Казахстан' },
   employment: {
-    contract_type: 'indefinite', rate: '1', probation_months: 0, currency: 'KZT',
+    contract_type: 'indefinite', rate: '1', probation_months: 0, currency: 'KZT', salary_kind: 'gross',
     work_time_from: '09:00', work_time_to: '18:00', lunch_from: '13:00', lunch_to: '14:00',
     days_off: 'суббота, воскресенье', vacation_days: 24, ipn_deduction: 'base_30_mrp',
   },
@@ -87,8 +84,6 @@ const EMPTY_DRAFT: Draft = {
     cross_border_countries: '', cross_border_purpose: '',
     responsible_position: '', responsible_fio: '', responsible_contacts: '',
   },
-  salaryMode: 'gross',
-  netInput: '',
 }
 
 const num = (v: string | number | null | undefined): number => {
@@ -178,7 +173,6 @@ export default function HrPage() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
-  const [salaryCalc, setSalaryCalc] = useState<SalaryConversion | null>(null)
   const importRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -190,23 +184,10 @@ export default function HrPage() {
   const setEmployee = (patch: Partial<PersonnelEmployee>) => setDraft((d) => ({ ...d, employee: { ...d.employee, ...patch } }))
   const setEmployment = (patch: Partial<PersonnelEmployment>) => setDraft((d) => ({ ...d, employment: { ...d.employment, ...patch } }))
 
-  // Пересчёт оклада «на руки ↔ к начислению» (формула на сервере, ставки 2026).
-  // В net-режиме считаем gross и кладём его в employment.salary (в документ идёт gross).
-  const apply30 = draft.deductions.includes('base_30_mrp')
-  const salarySource = draft.salaryMode === 'net' ? draft.netInput : String(draft.employment.salary ?? '')
-  useEffect(() => {
-    const amount = Math.round(num(salarySource))
-    if (!amount) { setSalaryCalc(null); return }
-    const t = setTimeout(async () => {
-      try {
-        const res = await personnelApi.convertSalary(amount, draft.salaryMode, apply30)
-        setSalaryCalc(res)
-        if (draft.salaryMode === 'net') setEmployment({ salary: res.gross })
-      } catch { setSalaryCalc(null) }
-    }, 350)
-    return () => clearTimeout(t)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [salarySource, draft.salaryMode, apply30])
+  // Оклад в документ идёт РОВНО КАК ВВЕЛИ. salary_kind (gross|net) — только признак: он
+  // меняет формулировку 4.1/4.2 в трудовом договоре. Никаких вычислений, ставок и процентов —
+  // расчёт от обратного при «на руки» делает 1С.
+  const salaryKind = (draft.employment.salary_kind === 'net' ? 'net' : 'gross') as 'gross' | 'net'
 
   const flash = (m: string) => { setNotice(m); setError(''); setTimeout(() => setNotice(''), 3000) }
   const fail = (e: unknown, fb: string) => setError(errText(e, fb))
@@ -525,44 +506,21 @@ export default function HrPage() {
         <Field label="Подразделение" value={m.department} onChange={(v) => setEmployment({ department: v })} />
         <Field label="Дата начала работы" type="date" value={m.start_date} onChange={(v) => setEmployment({ start_date: v })} />
         <div className="form-group">
-          <label>Оклад, ₸ (целые тенге)</label>
-          <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
-            {([['gross', 'к начислению'], ['net', 'на руки']] as const).map(([mode, label]) => (
-              <button key={mode} type="button"
-                className={`btn ${draft.salaryMode === mode ? 'btn-primary' : 'btn-secondary'}`}
-                style={{ padding: '4px 12px', fontSize: 13 }}
-                onClick={() => setDraft((d) => ({
-                  ...d, salaryMode: mode,
-                  // при переходе в «на руки» подставляем последнюю посчитанную сумму на руки
-                  netInput: mode === 'net' && !d.netInput && salaryCalc ? String(salaryCalc.net) : d.netInput,
-                }))}>
-                {label}
-              </button>
-            ))}
+          <label>Оклад, ₸ (целые тенге) — сумма идёт в документ как есть</label>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <input type="text" inputMode="numeric" style={{ flex: 2 }}
+              value={(m.salary as string) ?? ''} placeholder="сумма"
+              onChange={(ev) => setEmployment({ salary: ev.target.value.replace(/[^\d]/g, '') })} />
+            <select style={{ flex: 1 }} value={salaryKind}
+              onChange={(ev) => setEmployment({ salary_kind: ev.target.value })}>
+              <option value="gross">к начислению</option>
+              <option value="net">на руки</option>
+            </select>
           </div>
-          <input type="text" inputMode="numeric"
-            value={draft.salaryMode === 'net' ? draft.netInput : (m.salary as string) ?? ''}
-            placeholder={draft.salaryMode === 'net' ? 'сумма на руки' : 'сумма к начислению'}
-            onChange={(ev) => {
-              const digits = ev.target.value.replace(/[^\d]/g, '')
-              if (draft.salaryMode === 'net') setDraft((d) => ({ ...d, netInput: digits }))
-              else setEmployment({ salary: digits })
-            }} />
-          {salaryCalc && (
-            <div style={{ background: '#eef2ff', borderRadius: 6, padding: '8px 10px', marginTop: 6, fontSize: 13 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span>К начислению (в документ):</span><strong>{fmt(salaryCalc.gross)} ₸</strong>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span>На руки:</span><strong>{fmt(salaryCalc.net)} ₸</strong>
-              </div>
-              <div style={{ color: '#6b7280', fontSize: 12, marginTop: 4 }}>
-                Удержания: ОПВ {fmt(salaryCalc.opv)} · ВОСМС {fmt(salaryCalc.vosms)} · ИПН {fmt(salaryCalc.ipn)} ₸
-                {' · '}базовый вычет 30 МРП {apply30 ? 'применён' : 'не применён'}
-                {!apply30 && ' (включите его в «Заявлении на вычеты»)'}.
-              </div>
-            </div>
-          )}
+          <div style={{ color: '#6b7280', fontSize: 12, marginTop: 4 }}>
+            Признак меняет только формулировку в трудовом договоре. Сумма подставляется как есть;
+            при «на руки» расчёт от обратного делает 1С.
+          </div>
         </div>
         <div className="form-group">
           <label>Ставка</label>
@@ -606,6 +564,10 @@ export default function HrPage() {
               onSave={(v) => applyEmploymentEdit('position_ru', v)} />
             <EditableRow label="Оклад прописью" initial={preview.editable.employment.salary_words_ru}
               onSave={(v) => applyEmploymentEdit('salary_words_override', v)} />
+            <div style={{ fontSize: 13, color: '#374151', margin: '4px 0 8px' }}>
+              Оклад в договоре указан: <strong>{salaryKind === 'net' ? 'на руки' : 'к начислению'}</strong>
+              {' '}(важно при переносе в 1С{salaryKind === 'net' ? ': «на руки» → расчёт от обратного' : ''}).
+            </div>
             <button className="btn btn-primary" style={{ marginTop: 16 }} onClick={download} disabled={busy}>
               Сформировать приказ (.docx)
             </button>
