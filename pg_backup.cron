@@ -1,0 +1,10 @@
+# /etc/cron.d/allkey-pg-backup
+# Ежедневный бэкап БД allkey в 02:30 по времени сервера.
+# Установка и настройка — см. BACKUP.md. НЕ применяется автоматически.
+#
+# Поправьте путь к скрипту под реальное расположение репозитория на сервере.
+# Пятое поле (root) — пользователь, от которого запускается задача.
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+30 2 * * * root /opt/allkey/pg_backup.sh >> /var/log/allkey-backup.log 2>&1
