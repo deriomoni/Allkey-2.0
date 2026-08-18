@@ -269,9 +269,7 @@ class NonCompeteIn(BaseModel):
 class ActIn(BaseModel):
     number: str = ""
     doc_date: Optional[date] = None
-    inventory_date: Optional[date] = None
-    order_number: str = ""
-    order_date: Optional[date] = None
+    basis: str = ""                       # свободное «Основание»: «приказ № 14 от …» (пусто → не выводится)
     notes: str = ""
     commission: List[CommissionMemberIn] = []
 

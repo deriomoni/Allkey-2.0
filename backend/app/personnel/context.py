@@ -280,9 +280,7 @@ def build_akt_context(company, employee, employment, act, inventory, liability) 
             "receiver_fio_full": emp["fio_full"],
             "receiver_iin": emp["iin"],
             "receiver_fio_short": emp["fio_short"],
-            "inventory_date": _short(act.inventory_date),
-            "order_number": act.order_number,
-            "order_date": _short(act.order_date),
+            "basis": getattr(act, "basis", "") or "",   # свободное «Основание» (пусто → не выводится)
             "total_figures": format_figures(total),
             "total_words": ru_int_to_words(int(total)),
             "items_count": count,

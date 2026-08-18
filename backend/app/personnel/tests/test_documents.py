@@ -69,19 +69,27 @@ def test_render_akt_with_totals():
         SimpleNamespace(name="Принтер HP", code="НВ-002", unit="шт", qty=Decimal("1"), price=Decimal("90000")),
     ]
     act = SimpleNamespace(
-        number="1", doc_date=date(2026, 8, 5), inventory_date=date(2026, 8, 5),
-        order_number="15", order_date=date(2026, 8, 5), notes="",
+        number="1", doc_date=date(2026, 8, 5), basis="приказ № 14 от 05.08.2026", notes="",
         commission=[SimpleNamespace(position="Главный бухгалтер", fio_short="Петрова А.А."),
                     SimpleNamespace(position="Кладовщик", fio_short="Сидоров С.С.")],
     )
+    # вариант 1: со ссылкой на договор о матответственности
     ctx = build_akt_context(company, employee, employment, act, inventory,
                             SimpleNamespace(number="7", doc_date=date(2026, 8, 5)))
     text = _docx_text(render_template("akt_priema_peredachi.docx", ctx))
     assert "{{" not in text and "{%" not in text
-    for needle in ["Ноутбук Dell", "Принтер HP", "Петрова А.А.", "Сидоров С.С."]:
+    for needle in ["Ноутбук Dell", "Принтер HP", "Петрова А.А.", "Сидоров С.С.",
+                   "приказ № 14 от 05.08.2026"]:
         assert needle in text
     # totals computed: 2*350000 + 1*90000 = 790000
     assert "790 000 (семьсот девяносто тысяч) тенге" in text
+
+    # вариант 2: без договора (liability пустой) — акт всё равно рендерится
+    text2 = _docx_text(render_template(
+        "akt_priema_peredachi.docx",
+        build_akt_context(company, employee, employment, act, inventory,
+                          SimpleNamespace(number="", doc_date=None))))
+    assert "{{" not in text2 and "{%" not in text2 and "Ноутбук Dell" in text2
 
 
 def test_render_perechen():

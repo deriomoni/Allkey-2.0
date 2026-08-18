@@ -29,8 +29,7 @@ const DRAFT_KEY = 'hr_priem_draft_v2'
 const DRAFT_TTL_MS = 24 * 60 * 60 * 1000
 
 type ActDraft = {
-  number: string; doc_date: string | null; inventory_date: string | null
-  order_number: string; order_date: string | null; notes: string; commission: CommissionMember[]
+  number: string; doc_date: string | null; basis: string; notes: string; commission: CommissionMember[]
 }
 
 type Draft = {
@@ -55,7 +54,7 @@ const EMPTY_DRAFT: Draft = {
   },
   documents: { prikaz: true, matotvet: false, akt: false },
   liability: { number: '', doc_date: null },
-  act: { number: '', doc_date: null, inventory_date: null, order_number: '', order_date: null, notes: '', commission: [] },
+  act: { number: '', doc_date: null, basis: '', notes: '', commission: [] },
   inventory: [],
 }
 
@@ -488,9 +487,8 @@ export default function HrPage() {
             <h4 style={{ marginBottom: 8 }}>Акт приёма-передачи</h4>
             <Field label="№ акта" value={draft.act.number} onChange={(v) => setAct({ number: v })} />
             <Field label="Дата акта" type="date" value={draft.act.doc_date} onChange={(v) => setAct({ doc_date: v })} />
-            <Field label="Дата инвентаризации" type="date" value={draft.act.inventory_date} onChange={(v) => setAct({ inventory_date: v })} />
-            <Field label="№ приказа-основания" value={draft.act.order_number} onChange={(v) => setAct({ order_number: v })} />
-            <Field label="Дата приказа-основания" type="date" value={draft.act.order_date} onChange={(v) => setAct({ order_date: v })} />
+            <Field label="Основание (напр. «приказ № 14 от 17.08.2026»; пусто — не выводится)"
+              value={draft.act.basis} onChange={(v) => setAct({ basis: v })} />
             <Field label="Особые отметки" value={draft.act.notes} onChange={(v) => setAct({ notes: v })} />
 
             <div style={{ marginTop: 12 }}>

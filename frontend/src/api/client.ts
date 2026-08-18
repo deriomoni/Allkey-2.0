@@ -653,9 +653,7 @@ export interface LiabilityInput {
 export interface ActInput {
   number: string
   doc_date: string | null
-  inventory_date: string | null
-  order_number: string
-  order_date: string | null
+  basis: string          // свободное «Основание» (напр. «приказ № 14 от …»); пусто → не выводится
   notes: string
   commission: CommissionMember[]
 }
@@ -739,6 +737,38 @@ export const personnelApi = {
     const response = await api.post('/personnel/documents/package', body, { responseType: 'blob' })
     downloadBlob(response.data, response.headers['content-disposition'], 'Пакет.zip')
   },
+}
+
+// ─── Помогайка по форме 101.04 (внутренняя бета) ───────────────────────────
+// Пока только /meta: версия справочника и константы года. Движок расчёта —
+// следующая фаза, налоговая логика живёт на бэкенде и на фронт не дублируется.
+
+export interface F10104Meta {
+  rules_version: string
+  valid_from: string
+  tax_code: string
+  status: string
+  refbooks: {
+    kpn_rates: number
+    service_kinds: number
+    income_codes: number
+    offshore_list: number
+    conventions: number
+    flags: number
+  }
+  constants: {
+    source: string
+    mrp: number
+    mzp: number
+    vat_rate: number
+    vat_registration_threshold_mrp: number
+    vat_registration_threshold_kzt: number
+  }
+  engine: string
+}
+
+export const f10104Api = {
+  getMeta: async (): Promise<F10104Meta> => (await api.get('/f10104/meta')).data,
 }
 
 export default api
