@@ -11,11 +11,11 @@ import {
   type InventoryItem,
   type InventoryColumn,
   type CommissionMember,
-  type PolicyInput,
   type ContractInput,
   type NonCompeteInput,
-  type PerechenInput,
-  type PerechenPosition,
+  type SoglasieInput,
+  type RecipientInput,
+  type SalaryConversion,
 } from '../api/client'
 
 const CATEGORY_OPTIONS: [string, string][] = [
@@ -49,10 +49,11 @@ type Draft = {
   inventory: InventoryItem[]
   deductions: string[]
   applyFromMonth: string          // 'YYYY-MM'; пусто → месяц приёма
-  policy: PolicyInput
   contract: ContractInput
   noncompete: NonCompeteInput
-  perechen: PerechenInput
+  consent: SoglasieInput
+  salaryMode: 'gross' | 'net'     // 'net' — ввод «на руки», gross считается
+  netInput: string                // введённая сумма на руки (когда salaryMode='net')
 }
 
 const EMPTY_DRAFT: Draft = {
@@ -63,16 +64,12 @@ const EMPTY_DRAFT: Draft = {
     work_time_from: '09:00', work_time_to: '18:00', lunch_from: '13:00', lunch_to: '14:00',
     days_off: 'суббота, воскресенье', vacation_days: 24, ipn_deduction: 'base_30_mrp',
   },
-  documents: { prikaz: true, zayavlenie: false, td: false, matotvet: false, akt: false, polozhenie_pd: false, prikaz_pd: false },
+  documents: { td: true, prikaz: true, soglasie: true, zayavlenie: true, matotvet: false, akt: false, nekonkurencii: false },
   liability: { number: '', doc_date: null },
   act: { number: '', doc_date: null, basis: '', notes: '', commission: [] },
   inventory: [],
   deductions: ['base_30_mrp'],
   applyFromMonth: '',
-  policy: {
-    order_number: '', doc_date: null, responsible_fio: '', responsible_position: '',
-    deadline: null, control: 'оставляю за собой', acquainted: [],
-  },
   contract: {
     number: '', doc_date: null, kind: 'indefinite', term_count: null, term_unit: 'year',
     end_date: null, task: '', task_kz: '', confidential_years: '3',
@@ -85,10 +82,13 @@ const EMPTY_DRAFT: Draft = {
     territory: '', activity: '', competitors: '',
     penalty: '1 000 000 (один миллион) тенге',
   },
-  perechen: {
-    number: '', doc_date: null, responsible_fio: '', responsible_position: '',
-    control: 'оставляю за собой', positions: [], acquainted: [],
+  consent: {
+    doc_date: null, recipients: [], cross_border: false,
+    cross_border_countries: '', cross_border_purpose: '',
+    responsible_position: '', responsible_fio: '', responsible_contacts: '',
   },
+  salaryMode: 'gross',
+  netInput: '',
 }
 
 const num = (v: string | number | null | undefined): number => {
@@ -100,16 +100,17 @@ const fmt = (n: number): string => n.toLocaleString('ru-RU').replace(/,/g, ' ')
 const cellS: CSSProperties = { padding: '4px 6px', borderBottom: '1px solid #f1f5f9' }
 const inS: CSSProperties = { width: '100%', padding: '4px 6px' }
 
+// Пакет приёма (издаются на каждый приём). Разовые документы (перечень должностей/
+// МОЛ, Положение о ПД и приказ о назначении ответственного) в форму приёма не входят —
+// их шаблоны остаются в библиотеке для отдельной разовой генерации.
 const PACKAGE_DOCS: [string, string][] = [
-  ['prikaz', 'Приказ о приёме на работу'],
-  ['zayavlenie', 'Заявление на налоговые вычеты (ИПН)'],
   ['td', 'Трудовой договор (двуязычный)'],
-  ['matotvet', 'Договор о полной материальной ответственности'],
-  ['akt', 'Акт приёма-передачи ценностей'],
-  ['nekonkurencii', 'Договор о неконкуренции'],
-  ['perechen', 'Приказ об утверждении перечня должностей'],
-  ['polozhenie_pd', 'Положение о персональных данных'],
-  ['prikaz_pd', 'Приказ об ответственном за персональные данные'],
+  ['prikaz', 'Приказ о приёме на работу'],
+  ['soglasie', 'Согласие на обработку персональных данных'],
+  ['zayavlenie', 'Заявление на налоговые вычеты (ИПН)'],
+  ['matotvet', 'Договор о полной материальной ответственности (опц.)'],
+  ['akt', 'Акт приёма-передачи ценностей (опц.)'],
+  ['nekonkurencii', 'Договор о неконкуренции (опц.)'],
 ]
 
 const CONTRACT_KINDS: [string, string][] = [
@@ -177,6 +178,7 @@ export default function HrPage() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+  const [salaryCalc, setSalaryCalc] = useState<SalaryConversion | null>(null)
   const importRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -187,6 +189,24 @@ export default function HrPage() {
   const setCompany = (patch: Partial<PersonnelCompany>) => setDraft((d) => ({ ...d, company: { ...d.company, ...patch } }))
   const setEmployee = (patch: Partial<PersonnelEmployee>) => setDraft((d) => ({ ...d, employee: { ...d.employee, ...patch } }))
   const setEmployment = (patch: Partial<PersonnelEmployment>) => setDraft((d) => ({ ...d, employment: { ...d.employment, ...patch } }))
+
+  // Пересчёт оклада «на руки ↔ к начислению» (формула на сервере, ставки 2026).
+  // В net-режиме считаем gross и кладём его в employment.salary (в документ идёт gross).
+  const apply30 = draft.deductions.includes('base_30_mrp')
+  const salarySource = draft.salaryMode === 'net' ? draft.netInput : String(draft.employment.salary ?? '')
+  useEffect(() => {
+    const amount = Math.round(num(salarySource))
+    if (!amount) { setSalaryCalc(null); return }
+    const t = setTimeout(async () => {
+      try {
+        const res = await personnelApi.convertSalary(amount, draft.salaryMode, apply30)
+        setSalaryCalc(res)
+        if (draft.salaryMode === 'net') setEmployment({ salary: res.gross })
+      } catch { setSalaryCalc(null) }
+    }, 350)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [salarySource, draft.salaryMode, apply30])
 
   const flash = (m: string) => { setNotice(m); setError(''); setTimeout(() => setNotice(''), 3000) }
   const fail = (e: unknown, fb: string) => setError(errText(e, fb))
@@ -268,32 +288,18 @@ export default function HrPage() {
       ...d,
       deductions: d.deductions.includes(key) ? d.deductions.filter((k) => k !== key) : [...d.deductions, key],
     }))
-  const setPolicy = (patch: Partial<PolicyInput>) =>
-    setDraft((d) => ({ ...d, policy: { ...d.policy, ...patch } }))
-  const addAcquainted = () =>
-    setPolicy({ acquainted: [...draft.policy.acquainted, { position: '', fio_short: '' }] })
-  const updateAcquainted = (i: number, patch: Partial<CommissionMember>) =>
-    setPolicy({ acquainted: draft.policy.acquainted.map((r, j) => (j === i ? { ...r, ...patch } : r)) })
-  const deleteAcquainted = (i: number) =>
-    setPolicy({ acquainted: draft.policy.acquainted.filter((_, j) => j !== i) })
   const setContract = (patch: Partial<ContractInput>) =>
     setDraft((d) => ({ ...d, contract: { ...d.contract, ...patch } }))
   const setNonCompete = (patch: Partial<NonCompeteInput>) =>
     setDraft((d) => ({ ...d, noncompete: { ...d.noncompete, ...patch } }))
-  const setPerechen = (patch: Partial<PerechenInput>) =>
-    setDraft((d) => ({ ...d, perechen: { ...d.perechen, ...patch } }))
-  const addPosition = () =>
-    setPerechen({ positions: [...draft.perechen.positions, { name: '', reason: '' }] })
-  const updatePosition = (i: number, patch: Partial<PerechenPosition>) =>
-    setPerechen({ positions: draft.perechen.positions.map((r, j) => (j === i ? { ...r, ...patch } : r)) })
-  const deletePosition = (i: number) =>
-    setPerechen({ positions: draft.perechen.positions.filter((_, j) => j !== i) })
-  const addPerechenAck = () =>
-    setPerechen({ acquainted: [...draft.perechen.acquainted, { position: '', fio_short: '' }] })
-  const updatePerechenAck = (i: number, patch: Partial<CommissionMember>) =>
-    setPerechen({ acquainted: draft.perechen.acquainted.map((r, j) => (j === i ? { ...r, ...patch } : r)) })
-  const deletePerechenAck = (i: number) =>
-    setPerechen({ acquainted: draft.perechen.acquainted.filter((_, j) => j !== i) })
+  const setConsent = (patch: Partial<SoglasieInput>) =>
+    setDraft((d) => ({ ...d, consent: { ...d.consent, ...patch } }))
+  const addRecipient = () =>
+    setConsent({ recipients: [...draft.consent.recipients, { name: '', bin: '', purpose: '', scope: '' }] })
+  const updateRecipient = (i: number, patch: Partial<RecipientInput>) =>
+    setConsent({ recipients: draft.consent.recipients.map((r, j) => (j === i ? { ...r, ...patch } : r)) })
+  const deleteRecipient = (i: number) =>
+    setConsent({ recipients: draft.consent.recipients.filter((_, j) => j !== i) })
 
   const addRow = () =>
     setDraft((d) => ({ ...d, inventory: [...d.inventory, { name: '', code: '', unit: '', qty: '', price: '' }] }))
@@ -371,8 +377,8 @@ export default function HrPage() {
       setError('Для срочного договора укажите срок (число + единица) или дату окончания')
       return
     }
-    if (draft.documents.perechen && draft.perechen.positions.length === 0) {
-      setError('Для приказа об утверждении перечня добавьте хотя бы одну должность')
+    if (draft.documents.soglasie && draft.consent.recipients.length === 0) {
+      setError('Для согласия на обработку ПД добавьте хотя бы одного получателя данных')
       return
     }
     const b: PackageBody = {
@@ -385,11 +391,9 @@ export default function HrPage() {
       // пусто → сервер берёт месяц приёма (employment.start_date); иначе первый день выбранного месяца
       b.apply_from = draft.applyFromMonth ? `${draft.applyFromMonth}-01` : null
     }
-    if (draft.documents.polozhenie_pd || draft.documents.prikaz_pd) b.policy = draft.policy
     if (draft.documents.td) b.contract = draft.contract
-    // перечень использует сроки/условия неконкуренции — шлём noncompete и когда выбран только перечень
-    if (draft.documents.nekonkurencii || draft.documents.perechen) b.noncompete = draft.noncompete
-    if (draft.documents.perechen) b.perechen = draft.perechen
+    if (draft.documents.nekonkurencii) b.noncompete = draft.noncompete
+    if (draft.documents.soglasie) b.consent = draft.consent
     setBusy(true); setError('')
     try { await personnelApi.generatePackage(b) }
     catch (e) { fail(e, 'Не удалось сформировать пакет') } finally { setBusy(false) }
@@ -520,8 +524,46 @@ export default function HrPage() {
         <Field label="Должность" value={m.position_ru} onChange={(v) => setEmployment({ position_ru: v })} />
         <Field label="Подразделение" value={m.department} onChange={(v) => setEmployment({ department: v })} />
         <Field label="Дата начала работы" type="date" value={m.start_date} onChange={(v) => setEmployment({ start_date: v })} />
-        <Field label="Оклад, ₸ (целые тенге)" type="text" value={m.salary as string}
-          onChange={(v) => setEmployment({ salary: v.replace(/[^\d]/g, '') })} />
+        <div className="form-group">
+          <label>Оклад, ₸ (целые тенге)</label>
+          <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
+            {([['gross', 'к начислению'], ['net', 'на руки']] as const).map(([mode, label]) => (
+              <button key={mode} type="button"
+                className={`btn ${draft.salaryMode === mode ? 'btn-primary' : 'btn-secondary'}`}
+                style={{ padding: '4px 12px', fontSize: 13 }}
+                onClick={() => setDraft((d) => ({
+                  ...d, salaryMode: mode,
+                  // при переходе в «на руки» подставляем последнюю посчитанную сумму на руки
+                  netInput: mode === 'net' && !d.netInput && salaryCalc ? String(salaryCalc.net) : d.netInput,
+                }))}>
+                {label}
+              </button>
+            ))}
+          </div>
+          <input type="text" inputMode="numeric"
+            value={draft.salaryMode === 'net' ? draft.netInput : (m.salary as string) ?? ''}
+            placeholder={draft.salaryMode === 'net' ? 'сумма на руки' : 'сумма к начислению'}
+            onChange={(ev) => {
+              const digits = ev.target.value.replace(/[^\d]/g, '')
+              if (draft.salaryMode === 'net') setDraft((d) => ({ ...d, netInput: digits }))
+              else setEmployment({ salary: digits })
+            }} />
+          {salaryCalc && (
+            <div style={{ background: '#eef2ff', borderRadius: 6, padding: '8px 10px', marginTop: 6, fontSize: 13 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span>К начислению (в документ):</span><strong>{fmt(salaryCalc.gross)} ₸</strong>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span>На руки:</span><strong>{fmt(salaryCalc.net)} ₸</strong>
+              </div>
+              <div style={{ color: '#6b7280', fontSize: 12, marginTop: 4 }}>
+                Удержания: ОПВ {fmt(salaryCalc.opv)} · ВОСМС {fmt(salaryCalc.vosms)} · ИПН {fmt(salaryCalc.ipn)} ₸
+                {' · '}базовый вычет 30 МРП {apply30 ? 'применён' : 'не применён'}
+                {!apply30 && ' (включите его в «Заявлении на вычеты»)'}.
+              </div>
+            </div>
+          )}
+        </div>
         <div className="form-group">
           <label>Ставка</label>
           <select value={String(m.rate ?? '1')} onChange={(ev) => setEmployment({ rate: ev.target.value })}>
@@ -708,55 +750,6 @@ export default function HrPage() {
           </div>
         )}
 
-        {draft.documents.perechen && (
-          <div style={{ background: '#f8fafc', borderRadius: 8, padding: 14, marginBottom: 12 }}>
-            <h4 style={{ marginBottom: 8 }}>Приказ об утверждении перечня должностей</h4>
-            {!draft.documents.nekonkurencii && (
-              <p style={{ fontSize: 12, color: '#6b7280', marginBottom: 8 }}>
-                Реквизиты и сроки договора о неконкуренции берутся из блока выше — отметьте «Договор о неконкуренции», если нужны точные сроки в тексте.
-              </p>
-            )}
-            <Field label="№ приказа" value={draft.perechen.number} onChange={(v) => setPerechen({ number: v })} />
-            <Field label="Дата приказа" type="date" value={draft.perechen.doc_date} onChange={(v) => setPerechen({ doc_date: v })} />
-            <Field label="Ответственный, ФИО (им.п.)" value={draft.perechen.responsible_fio}
-              onChange={(v) => setPerechen({ responsible_fio: v })} placeholder="Иванов Иван Иванович" />
-            <Field label="Должность ответственного (им.п.)" value={draft.perechen.responsible_position}
-              onChange={(v) => setPerechen({ responsible_position: v })} placeholder="директор" />
-            <Field label="Контроль (за кем)" value={draft.perechen.control} onChange={(v) => setPerechen({ control: v })} />
-
-            <div style={{ marginTop: 10 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <strong>Перечень должностей</strong>
-                <button className="btn btn-secondary" onClick={addPosition}>+ должность</button>
-              </div>
-              {draft.perechen.positions.length === 0 && (
-                <p style={{ color: '#6b7280', fontSize: 13, marginTop: 6 }}>Добавьте хотя бы одну должность.</p>
-              )}
-              {draft.perechen.positions.map((row, i) => (
-                <div key={i} style={{ display: 'flex', gap: 8, marginTop: 6 }}>
-                  <input placeholder="Должность" value={row.name} onChange={(e) => updatePosition(i, { name: e.target.value })} style={{ ...inS, flex: 1 }} />
-                  <input placeholder="Обоснование (доступ к…)" value={row.reason} onChange={(e) => updatePosition(i, { reason: e.target.value })} style={{ ...inS, flex: 1.5 }} />
-                  <button className="btn btn-secondary" onClick={() => deletePosition(i)} title="Удалить">×</button>
-                </div>
-              ))}
-            </div>
-
-            <div style={{ marginTop: 12 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <strong>Ознакомить (лист ознакомления)</strong>
-                <button className="btn btn-secondary" onClick={addPerechenAck}>+ сотрудник</button>
-              </div>
-              {draft.perechen.acquainted.map((row, i) => (
-                <div key={i} style={{ display: 'flex', gap: 8, marginTop: 6 }}>
-                  <input placeholder="Должность" value={row.position} onChange={(e) => updatePerechenAck(i, { position: e.target.value })} style={{ ...inS, flex: 1 }} />
-                  <input placeholder="Фамилия И.О." value={row.fio_short} onChange={(e) => updatePerechenAck(i, { fio_short: e.target.value })} style={{ ...inS, flex: 1 }} />
-                  <button className="btn btn-secondary" onClick={() => deletePerechenAck(i)} title="Удалить">×</button>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
         {(draft.documents.matotvet || draft.documents.akt) && (
           <div style={{ background: '#f8fafc', borderRadius: 8, padding: 14, marginBottom: 12 }}>
             <h4 style={{ marginBottom: 8 }}>Реквизиты договора о матответственности</h4>
@@ -838,28 +831,48 @@ export default function HrPage() {
           </div>
         )}
 
-        {(draft.documents.polozhenie_pd || draft.documents.prikaz_pd) && (
+        {draft.documents.soglasie && (
           <div style={{ background: '#f8fafc', borderRadius: 8, padding: 14, marginBottom: 12 }}>
-            <h4 style={{ marginBottom: 8 }}>Персональные данные — приказ и Положение</h4>
-            <Field label="№ приказа" value={draft.policy.order_number} onChange={(v) => setPolicy({ order_number: v })} />
-            <Field label="Дата приказа" type="date" value={draft.policy.doc_date} onChange={(v) => setPolicy({ doc_date: v })} />
-            <Field label="Ответственный, ФИО (им.п.)" value={draft.policy.responsible_fio}
-              onChange={(v) => setPolicy({ responsible_fio: v })} placeholder="Иванов Иван Иванович" />
-            <Field label="Должность ответственного (им.п.)" value={draft.policy.responsible_position}
-              onChange={(v) => setPolicy({ responsible_position: v })} placeholder="директор" />
-            <Field label="Срок ознакомления" type="date" value={draft.policy.deadline}
-              onChange={(v) => setPolicy({ deadline: v })} />
-            <Field label="Контроль (за кем)" value={draft.policy.control} onChange={(v) => setPolicy({ control: v })} />
+            <h4 style={{ marginBottom: 8 }}>Согласие на обработку персональных данных</h4>
+            <Field label="Дата согласия" type="date" value={draft.consent.doc_date} onChange={(v) => setConsent({ doc_date: v })} />
+            <Field label="Ответственный за обработку ПД, должность" value={draft.consent.responsible_position}
+              onChange={(v) => setConsent({ responsible_position: v })} placeholder="менеджер по персоналу" />
+            <Field label="Ответственный за обработку ПД, ФИО" value={draft.consent.responsible_fio}
+              onChange={(v) => setConsent({ responsible_fio: v })} placeholder="Иванова И.И." />
+            <Field label="Контакты ответственного" value={draft.consent.responsible_contacts}
+              onChange={(v) => setConsent({ responsible_contacts: v })} placeholder="телефон, e-mail" />
+
+            <label style={{ display: 'flex', gap: 8, alignItems: 'center', margin: '8px 0' }}>
+              <input type="checkbox" checked={draft.consent.cross_border}
+                onChange={(ev) => setConsent({ cross_border: ev.target.checked })} />
+              Трансграничная передача (в другие страны)
+            </label>
+            {draft.consent.cross_border && (
+              <>
+                <Field label="Страны передачи" value={draft.consent.cross_border_countries}
+                  onChange={(v) => setConsent({ cross_border_countries: v })} placeholder="Российская Федерация, …" />
+                <Field label="Цель трансграничной передачи" value={draft.consent.cross_border_purpose}
+                  onChange={(v) => setConsent({ cross_border_purpose: v })} />
+              </>
+            )}
+
             <div style={{ marginTop: 10 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <strong>Ознакомить (лист ознакомления)</strong>
-                <button className="btn btn-secondary" onClick={addAcquainted}>+ сотрудник</button>
+                <strong>Получатели данных</strong>
+                <button className="btn btn-secondary" onClick={addRecipient}>+ получатель</button>
               </div>
-              {draft.policy.acquainted.map((row, i) => (
-                <div key={i} style={{ display: 'flex', gap: 8, marginTop: 6 }}>
-                  <input placeholder="Должность" value={row.position} onChange={(e) => updateAcquainted(i, { position: e.target.value })} style={{ ...inS, flex: 1 }} />
-                  <input placeholder="Фамилия И.О." value={row.fio_short} onChange={(e) => updateAcquainted(i, { fio_short: e.target.value })} style={{ ...inS, flex: 1 }} />
-                  <button className="btn btn-secondary" onClick={() => deleteAcquainted(i)} title="Удалить">×</button>
+              {draft.consent.recipients.length === 0 && (
+                <p style={{ color: '#6b7280', fontSize: 13, marginTop: 6 }}>
+                  Добавьте хотя бы одного получателя (банк, госкорпорация, ОСМС и т.д.). БИН — необязательно.
+                </p>
+              )}
+              {draft.consent.recipients.map((row, i) => (
+                <div key={i} style={{ display: 'flex', gap: 8, marginTop: 6, flexWrap: 'wrap' }}>
+                  <input placeholder="Наименование" value={row.name} onChange={(e) => updateRecipient(i, { name: e.target.value })} style={{ ...inS, flex: '2 1 180px' }} />
+                  <input placeholder="БИН (необяз.)" value={row.bin} onChange={(e) => updateRecipient(i, { bin: e.target.value })} style={{ ...inS, flex: '1 1 110px' }} />
+                  <input placeholder="Цель передачи" value={row.purpose} onChange={(e) => updateRecipient(i, { purpose: e.target.value })} style={{ ...inS, flex: '2 1 160px' }} />
+                  <input placeholder="Объём данных" value={row.scope} onChange={(e) => updateRecipient(i, { scope: e.target.value })} style={{ ...inS, flex: '2 1 160px' }} />
+                  <button className="btn btn-secondary" onClick={() => deleteRecipient(i)} title="Удалить">×</button>
                 </div>
               ))}
             </div>

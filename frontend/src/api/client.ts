@@ -708,6 +708,36 @@ export interface PerechenInput {
   acquainted: CommissionMember[]
 }
 
+// Согласие на сбор и обработку персональных данных (§4.7).
+export interface RecipientInput {
+  name: string
+  bin: string          // необязательно
+  purpose: string
+  scope: string
+}
+export interface SoglasieInput {
+  doc_date: string | null
+  recipients: RecipientInput[]
+  cross_border: boolean
+  cross_border_countries: string
+  cross_border_purpose: string
+  responsible_position: string
+  responsible_fio: string
+  responsible_contacts: string
+}
+
+// Ответ пересчёта оклада: gross идёт в документ, обе суммы показываем бухгалтеру.
+export interface SalaryConversion {
+  gross: number
+  net: number
+  opv: number
+  vosms: number
+  ipn: number
+  base_deduction: number
+  taxable: number
+  apply_base_deduction: boolean
+}
+
 // Данные приказа об ответственном за ПД + Положения о ПД (§4.6).
 export interface PolicyInput {
   order_number: string
@@ -735,6 +765,7 @@ export interface PackageBody {
   contract?: ContractInput | null
   noncompete?: NonCompeteInput | null
   perechen?: PerechenInput | null
+  consent?: SoglasieInput | null
 }
 
 // Trigger a browser download from a blob response, honouring the server filename.
@@ -802,6 +833,12 @@ export const personnelApi = {
     const response = await api.post('/personnel/documents/package', body, { responseType: 'blob' })
     downloadBlob(response.data, response.headers['content-disposition'], 'Пакет.zip')
   },
+
+  // Пересчёт оклада на руки ↔ к начислению по ставкам 2026 (формула на сервере).
+  convertSalary: async (
+    amount: number, mode: 'gross' | 'net', apply_base_deduction: boolean,
+  ): Promise<SalaryConversion> =>
+    (await api.post('/personnel/salary/convert', { amount, mode, apply_base_deduction })).data,
 }
 
 // ─── Помогайка по форме 101.04 (внутренняя бета) ───────────────────────────
