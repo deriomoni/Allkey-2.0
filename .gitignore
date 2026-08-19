@@ -29,6 +29,11 @@ data/
 # ...but personnel document templates must be versioned with the code
 !backend/app/personnel/templates/**/*.xlsx
 !backend/app/personnel/templates/**/*.xls
+# ...and the 101.04 rulebook is application data, not a scratch directory.
+# The directory itself must be re-included first: git cannot re-include a file
+# whose parent directory is excluded.
+!backend/app/f10104/data/
+!backend/app/f10104/data/**
 
 # Logs
 *.log

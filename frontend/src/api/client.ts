@@ -852,8 +852,85 @@ export interface F10104Meta {
   engine: string
 }
 
+export interface F10104Country {
+  key: string
+  name: string
+  iso: string | null
+  is_offshore: boolean
+  offshore_no: number | null
+  has_convention: boolean
+  is_eaeu: boolean
+}
+
+export interface F10104ServiceKind {
+  id: string
+  label: string
+  group: string
+}
+
+export interface F10104Flag {
+  code: string
+  severity: 'info' | 'medium' | 'high'
+  title: string
+  text: string
+  basis: string | null
+}
+
+export interface F10104Refbooks {
+  rules_version: string
+  countries: F10104Country[]
+  currencies: string[]
+  service_kinds: F10104ServiceKind[]
+  flags: Record<string, F10104Flag>
+  vat_exemptions: { id: string; label: string }[]
+  disclaimer: { text: string; print_footer: string; manual_review_banner: string }
+}
+
+// Ответы визарда: ключ — идентификатор вопроса из ТЗ §4 («S1.1», «S4.2»).
+export type F10104Answers = Record<string, unknown>
+
 export const f10104Api = {
   getMeta: async (): Promise<F10104Meta> => (await api.get('/f10104/meta')).data,
+
+  getRefbooks: async (): Promise<F10104Refbooks> => (await api.get('/f10104/refbooks')).data,
+
+  // Расчёт целиком на сервере: налоговой логики на фронтенде нет.
+  evaluate: async (answers: F10104Answers): Promise<Record<string, any>> =>
+    (await api.post('/f10104/evaluate', { answers })).data,
+}
+
+// ─── Курсы валют НБ РК ─────────────────────────────────────────────────────
+// Общий сервис, не часть помогайки: доступен любому аутентифицированному
+// пользователю и будет переиспользован отдельным модулем курсов.
+
+export interface NbrkRateRow {
+  date: string
+  code: string
+  name: string | null
+  rate: number
+  quant: number
+  carriedForward: boolean
+  sourceDate: string
+}
+
+export interface NbrkOfficialRate {
+  code: string
+  name: string | null
+  rate: number
+  quant: number
+  requestedDate: string
+  actualDate: string
+  carriedForward: boolean
+}
+
+export const ratesApi = {
+  getRange: async (codes: string[], from: string, to: string): Promise<NbrkRateRow[]> =>
+    (await api.get('/api/rates', {
+      params: { codes: codes.length ? codes.join(',') : 'ALL', from, to },
+    })).data,
+
+  getOfficial: async (code: string, date: string): Promise<NbrkOfficialRate> =>
+    (await api.get('/api/rates/official', { params: { code, date } })).data,
 }
 
 export default api

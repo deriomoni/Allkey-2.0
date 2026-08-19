@@ -13,6 +13,8 @@ from app.services.router import router as services_router, seed_services
 from app.personnel.router import router as personnel_router
 from app.personnel.crud import crud_router as personnel_crud_router
 from app.personnel.schema_sync import ensure_personnel_schema
+from app.f10104.router import router as f10104_router
+from app.rates.router import router as rates_router
 from app.database import SessionLocal
 # Import models so they are registered with Base.metadata
 import app.licenses.models  # noqa: F401
@@ -73,6 +75,10 @@ app.include_router(settings_router)
 app.include_router(services_router)
 app.include_router(personnel_router)
 app.include_router(personnel_crud_router)
+# f10104 хранит только справочник в файле — моделей и таблиц у модуля нет.
+app.include_router(f10104_router)
+# Курсы НБ РК — общий сервис, доступен любому аутентифицированному пользователю.
+app.include_router(rates_router)
 
 
 @app.get("/")

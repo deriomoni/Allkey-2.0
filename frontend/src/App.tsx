@@ -7,6 +7,7 @@ import Case1Page from './pages/Case1Page'
 import Case2Page from './pages/Case2Page'
 import Case3Page from './pages/Case3Page'
 import HrPage from './pages/HrPage'
+import F10104Page from './pages/F10104Page'
 import UsersPage from './pages/UsersPage'
 import SettingsPage from './pages/SettingsPage'
 import AccessPage from './pages/AccessPage'
@@ -41,6 +42,7 @@ function App() {
           <Route path="case2" element={<ProtectedRoute service="case2"><div className="container"><Case2Page /></div></ProtectedRoute>} />
           <Route path="case3" element={<ProtectedRoute service="case3"><div className="container"><Case3Page /></div></ProtectedRoute>} />
           <Route path="hr" element={<ProtectedRoute service="hr"><div className="container"><HrPage /></div></ProtectedRoute>} />
+          <Route path="f10104" element={<ProtectedRoute service="f10104"><div className="container"><F10104Page /></div></ProtectedRoute>} />
           <Route path="users" element={<ProtectedRoute><UsersPage /></ProtectedRoute>} />
           <Route path="access" element={<ProtectedRoute><AccessPage /></ProtectedRoute>} />
           <Route path="settings" element={<ProtectedRoute><div className="container"><SettingsPage /></div></ProtectedRoute>} />

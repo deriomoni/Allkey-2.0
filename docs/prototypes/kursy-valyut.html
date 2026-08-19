@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Курсы валют НБ РК — загрузка за период · allkey.kz</title>
+<style>
+:root{--bg:#0f1115;--panel:#171a21;--panel2:#1e222b;--line:#2a2f3a;--txt:#e6e9ef;--muted:#9aa3b2;
+--accent:#4f8cff;--accent2:#6ee7b7;--warn:#f5a524;--danger:#f26d6d;--ok:#4ade80;--info:#7dd3fc;--r:10px}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--txt);font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif}
+.beta{background:linear-gradient(90deg,#3a2a00,#4a3300);border-bottom:1px solid #6b4c00;padding:9px 20px;font-size:13px;color:#ffd48a;text-align:center}
+.wrap{max-width:1080px;margin:0 auto;padding:0 20px 80px}
+header{padding:26px 0 8px}
+h1{font-size:22px;margin:0 0 6px;letter-spacing:-.2px}
+.sub{color:var(--muted);font-size:13.5px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:20px;margin:16px 0}
+label.f{display:block;font-size:12.5px;color:var(--muted);margin:0 0 5px}
+input,select{background:var(--panel2);border:1px solid var(--line);color:var(--txt);border-radius:8px;padding:9px 11px;font:inherit;font-size:14px;width:100%}
+input:focus,select:focus{outline:none;border-color:var(--accent)}
+.row{display:grid;grid-template-columns:2fr 1fr 1fr auto;gap:12px;align-items:end}
+button{font:inherit;font-size:14.5px;border-radius:8px;padding:10px 20px;border:1px solid var(--line);background:var(--panel2);color:var(--txt);cursor:pointer}
+button:hover{background:#262c38}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+button.primary:hover{background:#3d7bf0}
+button:disabled{opacity:.45;cursor:not-allowed}
+.chips{display:flex;flex-wrap:wrap;gap:7px;margin-top:9px}
+.chip{padding:5px 11px;border-radius:99px;border:1px solid var(--line);background:var(--panel2);font-size:12.5px;cursor:pointer;user-select:none}
+.chip.on{background:#1b2740;border-color:var(--accent);color:#cfe0ff}
+.pre{display:flex;gap:7px;flex-wrap:wrap;margin-top:10px}
+.pre button{padding:6px 12px;font-size:12.5px}
+table{width:100%;border-collapse:collapse;font-size:13.5px;margin-top:6px}
+th,td{text-align:left;padding:7px 10px;border-bottom:1px solid var(--line)}
+th{color:var(--muted);font-weight:500;font-size:11.5px;text-transform:uppercase;letter-spacing:.4px;position:sticky;top:0;background:var(--panel)}
+td.num{text-align:right;font-family:ui-monospace,Menlo,monospace}
+tr.carried td{color:var(--muted)}
+.tag{display:inline-block;font-size:10.5px;padding:1px 7px;border-radius:99px;background:#2a3550;color:#a9c4ff;margin-left:7px}
+.tag.warn{background:#4a3300;color:#ffd48a}
+.scroll{max-height:460px;overflow:auto;border:1px solid var(--line);border-radius:8px;margin-top:12px}
+.note{border-left:3px solid var(--info);background:#132430;border-radius:0 8px 8px 0;padding:11px 14px;font-size:13px;color:#cfe9f7;margin-top:14px}
+.err{border-left:3px solid var(--danger);background:#2c1618;border-radius:0 8px 8px 0;padding:12px 15px;font-size:13.5px;color:#ffd7d7;margin-top:14px}
+.stat{display:flex;gap:22px;flex-wrap:wrap;margin-top:14px;font-size:13px;color:var(--muted)}
+.stat b{color:var(--txt);font-size:16px;display:block;margin-top:2px}
+.mono{font-family:ui-monospace,Menlo,monospace;font-size:12.5px}
+.bar{height:4px;background:var(--panel2);border-radius:99px;overflow:hidden;margin-top:12px}
+.bar>i{display:block;height:100%;background:linear-gradient(90deg,var(--accent),var(--accent2));width:0;transition:width .2s}
+details{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:12px 15px;margin-top:14px}
+summary{cursor:pointer;font-size:14px}
+details pre{overflow:auto;font-size:12px;color:#c3cbd8;background:#12151c;padding:12px;border-radius:6px}
+</style>
+</head>
+<body>
+<div class="beta">⚠️ Внутренняя бета allkey.kz · загрузка курсов Национального Банка РК</div>
+<div class="wrap">
+<header>
+  <h1>Курсы валют Национального Банка РК</h1>
+  <div class="sub">Выберите валюты и период — курсы подтянутся с nationalbank.kz. Аналог загрузки курсов в 1С.</div>
+</header>
+
+<div class="card">
+  <div class="row">
+    <div>
+      <label class="f">Валюты</label>
+      <input id="codes" value="USD, EUR, RUB" placeholder="USD, EUR, RUB или ALL">
+      <div class="chips" id="chips"></div>
+    </div>
+    <div><label class="f">Дата с</label><input type="date" id="from" value="2026-06-01"></div>
+    <div><label class="f">Дата по</label><input type="date" id="to" value="2026-06-30"></div>
+    <div><button class="primary" id="go">Загрузить</button></div>
+  </div>
+  <div class="pre">
+    <button data-p="q1">I квартал 2026</button>
+    <button data-p="q2">II квартал 2026</button>
+    <button data-p="q3">III квартал 2026</button>
+    <button data-p="m">Текущий месяц</button>
+    <button data-p="y">С начала года</button>
+  </div>
+  <div class="bar"><i id="bar"></i></div>
+  <div id="msg"></div>
+</div>
+
+<div class="card" id="res" style="display:none">
+  <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
+    <div class="stat" id="stat"></div>
+    <div style="display:flex;gap:8px">
+      <button id="csv">Скачать CSV</button>
+      <button id="json">Скачать JSON</button>
+      <button id="copy">Копировать</button>
+    </div>
+  </div>
+  <div class="scroll"><table><thead><tr>
+    <th>Дата</th><th>Код</th><th>Валюта</th><th style="text-align:right">Курс за 1 ед.</th><th>Источник</th>
+  </tr></thead><tbody id="tb"></tbody></table></div>
+</div>
+
+<details>
+<summary>Как это подключается к сайту</summary>
+<p style="font-size:13.5px;color:#c3cbd8">
+Браузер не может обращаться к <span class="mono">nationalbank.kz</span> напрямую: сайт НБ РК не отдаёт заголовки CORS,
+запрос из фронтенда будет заблокирован. Поэтому загрузка идёт <b>через бэкенд</b>, который заодно кэширует
+результат — опубликованный курс за прошедшую дату не меняется никогда, тянуть его повторно бессмысленно.
+</p>
+<p style="font-size:13.5px;color:#c3cbd8">Контракт эндпоинта, который ожидает этот интерфейс:</p>
+<pre>GET /api/rates?codes=USD,EUR&from=2026-06-01&to=2026-06-30
+
+200 OK
+[
+  { "date":"2026-06-01", "code":"USD", "name":"ДОЛЛАР США",
+    "rate":464.02, "quant":1, "carriedForward":false, "sourceDate":"2026-06-01" },
+  { "date":"2026-06-02", "code":"USD", "name":"ДОЛЛАР США",
+    "rate":464.02, "quant":1, "carriedForward":true,  "sourceDate":"2026-06-01" }
+]</pre>
+<p style="font-size:13.5px;color:#c3cbd8">
+Серверная реализация — файл <span class="mono">nbrk-rates.js</span>, зависимостей нет.
+Эндпоинты НБ РК: <span class="mono">/rss/get_rates.cfm?fdate=ДД.ММ.ГГГГ</span> за конкретную дату,
+<span class="mono">/rss/rates_all.xml</span> — последние опубликованные.
+</p>
+</details>
+</div>
+
+<script>
+/* ── Настройка ──────────────────────────────────────────────
+   Укажите адрес своего эндпоинта. Пока он не поднят, интерфейс
+   работает в демо-режиме на сгенерированных данных, чтобы можно
+   было посмотреть поведение и формат выгрузки.                */
+const API = '/api/rates';
+let DEMO = false;
+
+const POPULAR = ['USD','EUR','RUB','CNY','GBP','TRY','AED','KRW','JPY','CHF','KGS','UZS','PLN','INR'];
+const NAMES = {USD:'ДОЛЛАР США',EUR:'ЕВРО',RUB:'РОССИЙСКИЙ РУБЛЬ',CNY:'КИТАЙСКИЙ ЮАНЬ',GBP:'ФУНТ СТЕРЛИНГОВ',
+ TRY:'ТУРЕЦКАЯ ЛИРА',AED:'ДИРХАМ ОАЭ',KRW:'ВОНА РЕСП. КОРЕЯ',JPY:'ЯПОНСКАЯ ИЕНА',CHF:'ШВЕЙЦАРСКИЙ ФРАНК',
+ KGS:'КИРГИЗСКИЙ СОМ',UZS:'УЗБЕКСКИЙ СУМ',PLN:'ПОЛЬСКИЙ ЗЛОТЫЙ',INR:'ИНДИЙСКАЯ РУПИЯ'};
+const SEED = {USD:464.02,EUR:536.18,RUB:5.54,CNY:68.83,GBP:625.41,TRY:11.4,AED:126.3,KRW:0.335,
+ JPY:2.92,CHF:573.1,KGS:5.31,UZS:0.0365,PLN:126.4,INR:5.28};
+
+let rows = [];
+const $ = s => document.querySelector(s);
+const fmtRate = n => n.toLocaleString('ru-RU',{minimumFractionDigits:2,maximumFractionDigits:6});
+
+/* чипы валют */
+const chips = $('#chips');
+POPULAR.forEach(c => {
+  const el = document.createElement('span');
+  el.className = 'chip'; el.textContent = c;
+  el.onclick = () => {
+    const cur = $('#codes').value.split(',').map(s=>s.trim().toUpperCase()).filter(Boolean);
+    const i = cur.indexOf(c);
+    if (i>=0) cur.splice(i,1); else cur.push(c);
+    $('#codes').value = cur.join(', ');
+    syncChips();
+  };
+  chips.appendChild(el);
+});
+function syncChips(){
+  const cur = $('#codes').value.toUpperCase();
+  [...chips.children].forEach(el => el.classList.toggle('on', cur.includes(el.textContent)));
+}
+$('#codes').addEventListener('input', syncChips); syncChips();
+
+/* пресеты периодов */
+const iso = d => d.toISOString().slice(0,10);
+document.querySelectorAll('.pre button').forEach(b => b.onclick = () => {
+  const y = 2026, p = b.dataset.p, now = new Date();
+  const set = (f,t)=>{ $('#from').value=f; $('#to').value=t; };
+  if(p==='q1') set(`${y}-01-01`,`${y}-03-31`);
+  if(p==='q2') set(`${y}-04-01`,`${y}-06-30`);
+  if(p==='q3') set(`${y}-07-01`,`${y}-09-30`);
+  if(p==='m')  set(iso(new Date(now.getFullYear(),now.getMonth(),1)), iso(now));
+  if(p==='y')  set(`${now.getFullYear()}-01-01`, iso(now));
+});
+
+/* загрузка */
+$('#go').onclick = async () => {
+  const codes = $('#codes').value.split(',').map(s=>s.trim().toUpperCase()).filter(Boolean);
+  const from = $('#from').value, to = $('#to').value;
+  $('#msg').innerHTML=''; $('#res').style.display='none'; $('#bar').style.width='0';
+  if(!from||!to||from>to){ $('#msg').innerHTML='<div class="err">Проверьте период: дата «с» должна быть не позже даты «по».</div>'; return; }
+  const days = Math.round((new Date(to)-new Date(from))/86400000)+1;
+  if(days>400){ $('#msg').innerHTML='<div class="err">Период больше 400 дней. Разбейте на части.</div>'; return; }
+
+  $('#go').disabled = true; $('#go').textContent='Загружаю…'; $('#bar').style.width='30%';
+  try{
+    const url = `${API}?codes=${encodeURIComponent(codes.join(','))}&from=${from}&to=${to}`;
+    const res = await fetch(url);
+    if(!res.ok) throw new Error('HTTP '+res.status);
+    rows = await res.json();
+    DEMO = false;
+  }catch(e){
+    DEMO = true;
+    rows = demo(codes.length?codes:['USD','EUR','RUB'], from, to);
+    $('#msg').innerHTML = `<div class="err"><b>Эндпоинт <span class="mono">${API}</span> недоступен — показаны демонстрационные данные.</b><br>
+      Это ожидаемо, пока бэкенд не поднят. Напрямую из браузера обратиться к nationalbank.kz нельзя: сайт НБ РК не отдаёт заголовки CORS.
+      Реализация серверной части — в файле <span class="mono">nbrk-rates.js</span>, контракт эндпоинта — в блоке «Как это подключается к сайту» ниже.</div>`;
+  }
+  $('#bar').style.width='100%';
+  $('#go').disabled=false; $('#go').textContent='Загрузить';
+  render();
+};
+
+/* демо-данные: детерминированные, чтобы не менялись при перезагрузке */
+function demo(codes, from, to){
+  const out=[]; const d0=new Date(from), d1=new Date(to);
+  const last={};
+  for(let d=new Date(d0); d<=d1; d.setDate(d.getDate()+1)){
+    const cur=new Date(d), dow=cur.getDay(), day=iso(cur);
+    const workday = dow!==0 && dow!==6;
+    codes.forEach(c=>{
+      const base=SEED[c]||100;
+      if(workday){
+        const n=(cur.getDate()*7+cur.getMonth()*13+c.charCodeAt(0))%100;
+        last[c]={rate:+(base*(1+(n-50)/4000)).toFixed(base<1?6:2), src:day};
+      }
+      if(last[c]) out.push({date:day,code:c,name:NAMES[c]||c,rate:last[c].rate,quant:1,
+        carriedForward:last[c].src!==day, sourceDate:last[c].src});
+    });
+  }
+  return out;
+}
+
+function render(){
+  if(!rows.length){ $('#msg').innerHTML += '<div class="err">За выбранный период курсы не найдены.</div>'; return; }
+  const tb=$('#tb'); tb.innerHTML='';
+  rows.forEach(r=>{
+    const tr=document.createElement('tr');
+    if(r.carriedForward) tr.className='carried';
+    tr.innerHTML=`<td>${r.date.split('-').reverse().join('.')}</td><td class="mono">${r.code}</td>
+      <td>${r.name||''}</td><td class="num">${fmtRate(r.rate)}</td>
+      <td>${r.carriedForward?`<span class="tag warn">перенос с ${r.sourceDate.split('-').reverse().join('.')}</span>`:'<span class="tag">публикация</span>'}</td>`;
+    tb.appendChild(tr);
+  });
+  const codes=[...new Set(rows.map(r=>r.code))], dates=[...new Set(rows.map(r=>r.date))];
+  const carried=rows.filter(r=>r.carriedForward).length;
+  $('#stat').innerHTML=`
+    <div>Строк<b>${rows.length}</b></div>
+    <div>Валют<b>${codes.length}</b></div>
+    <div>Дней<b>${dates.length}</b></div>
+    <div>Перенесено с прошлых дат<b>${carried}</b></div>
+    ${DEMO?'<div style="color:var(--warn)">Режим<b style="color:var(--warn)">демонстрационный</b></div>':''}`;
+  $('#res').style.display='';
+}
+
+/* выгрузка */
+function dl(name, text, type){
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob(['﻿'+text],{type}));
+  a.download=name; a.click(); URL.revokeObjectURL(a.href);
+}
+const csv = () => ['Дата;Код;Валюта;Курс за 1 ед.;Перенос;Дата источника',
+  ...rows.map(r=>[r.date,r.code,r.name||'',String(r.rate).replace('.',','),r.carriedForward?'да':'',r.sourceDate].join(';'))].join('\n');
+$('#csv').onclick = () => dl('kursy-nbrk.csv', csv(), 'text/csv;charset=utf-8');
+$('#json').onclick = () => dl('kursy-nbrk.json', JSON.stringify(rows,null,1), 'application/json');
+$('#copy').onclick = async () => { await navigator.clipboard.writeText(csv()); $('#copy').textContent='Скопировано'; setTimeout(()=>$('#copy').textContent='Копировать',1500); };
+</script>
+</body>
+</html>

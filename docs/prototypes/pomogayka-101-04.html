@@ -1,0 +1,990 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Помогайка 101.04 — allkey.kz · внутренняя бета</title>
+<style>
+:root{
+  --bg:#0f1115; --panel:#171a21; --panel2:#1e222b; --line:#2a2f3a;
+  --txt:#e6e9ef; --muted:#9aa3b2; --accent:#4f8cff; --accent2:#6ee7b7;
+  --warn:#f5a524; --danger:#f26d6d; --ok:#4ade80; --info:#7dd3fc;
+  --r:10px;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--txt);font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif}
+.wrap{max-width:920px;margin:0 auto;padding:0 20px 80px}
+.beta{background:linear-gradient(90deg,#3a2a00,#4a3300);border-bottom:1px solid #6b4c00;padding:9px 20px;font-size:13px;color:#ffd48a;text-align:center}
+header{padding:28px 0 14px}
+h1{font-size:23px;margin:0 0 6px;letter-spacing:-.2px}
+.sub{color:var(--muted);font-size:13.5px}
+.bar{height:4px;background:var(--panel2);border-radius:99px;margin:18px 0 6px;overflow:hidden}
+.bar>i{display:block;height:100%;background:linear-gradient(90deg,var(--accent),var(--accent2));transition:width .3s}
+.barlbl{font-size:12px;color:var(--muted);margin-bottom:20px;display:flex;justify-content:space-between}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:22px;margin-bottom:14px}
+.q{font-size:17px;font-weight:600;margin:0 0 4px}
+.qh{color:var(--muted);font-size:13px;margin-bottom:16px}
+.opts{display:flex;flex-direction:column;gap:8px}
+.opt{display:flex;gap:11px;align-items:flex-start;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:12px 14px;cursor:pointer;transition:.12s}
+.opt:hover{border-color:#3f4756;background:#232833}
+.opt.sel{border-color:var(--accent);background:#1b2740}
+.opt input{margin-top:3px;accent-color:var(--accent)}
+.opt .ol{font-size:14.5px}
+.opt .od{font-size:12.5px;color:var(--muted);margin-top:3px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+label.f{display:block;font-size:12.5px;color:var(--muted);margin:10px 0 4px}
+input[type=text],input[type=date],input[type=number],select{width:100%;background:var(--panel2);border:1px solid var(--line);color:var(--txt);border-radius:8px;padding:10px 12px;font:inherit;font-size:14px}
+input:focus,select:focus{outline:none;border-color:var(--accent)}
+.nav{display:flex;gap:10px;justify-content:space-between;margin-top:20px}
+button{font:inherit;font-size:14.5px;border-radius:8px;padding:11px 20px;border:1px solid var(--line);background:var(--panel2);color:var(--txt);cursor:pointer;transition:.12s}
+button:hover{background:#262c38}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+button.primary:hover{background:#3d7bf0}
+button:disabled{opacity:.4;cursor:not-allowed}
+.hint{background:#16202f;border-left:3px solid var(--info);border-radius:0 8px 8px 0;padding:11px 14px;margin-top:14px;font-size:13px;color:#c9dced}
+.hint b{color:#e6f2ff}
+.flag{border-radius:8px;padding:13px 15px;margin:10px 0;font-size:13.5px}
+.flag .ft{font-weight:600;margin-bottom:4px;font-size:14px}
+.flag .fb{font-size:12px;opacity:.75;margin-top:6px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+.f-high{background:#2c1618;border:1px solid #5a2a2e;color:#ffd7d7}
+.f-medium{background:#2c2410;border:1px solid #5a4a1e;color:#ffe9bd}
+.f-info{background:#132430;border:1px solid #22485e;color:#cfe9f7}
+.res{display:flex;gap:12px;align-items:center;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:14px 16px;margin-bottom:9px}
+.res .ic{font-size:20px;width:26px;text-align:center}
+.res .rt{flex:1}
+.res .rl{font-size:12.5px;color:var(--muted)}
+.res .rv{font-size:16px;font-weight:600;margin-top:2px}
+.res .rd{font-size:12.5px;color:var(--muted);text-align:right}
+h3{font-size:15px;margin:26px 0 10px;color:#cbd3e0;border-bottom:1px solid var(--line);padding-bottom:7px}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+th{color:var(--muted);font-weight:500;font-size:12px;text-transform:uppercase;letter-spacing:.4px}
+td.g{font-family:ui-monospace,Menlo,monospace;color:var(--accent2);white-space:nowrap}
+details{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:12px 15px;margin-top:12px}
+summary{cursor:pointer;font-size:14px;font-weight:500}
+details ul{margin:10px 0 0;padding-left:18px;font-size:13px;color:#c3cbd8}
+details li{margin-bottom:6px}
+.chk{display:flex;gap:10px;align-items:flex-start;padding:9px 0;border-bottom:1px solid var(--line);font-size:13.5px}
+.chk input{margin-top:3px;accent-color:var(--accent2)}
+.chk .cd{font-size:12px;color:var(--muted);margin-top:3px}
+.disc{background:#1a1410;border:1px solid #3d2f22;border-radius:8px;padding:14px 16px;font-size:12.5px;color:#d8c9b8;margin-top:22px}
+.tag{display:inline-block;font-size:11px;padding:2px 7px;border-radius:99px;background:#2a3550;color:#a9c4ff;margin-left:6px;vertical-align:middle}
+.tag.warn{background:#4a3300;color:#ffd48a}
+.mono{font-family:ui-monospace,Menlo,monospace;font-size:12.5px}
+.calcrow{display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px dashed var(--line);font-size:13.5px}
+.calcrow .cl{color:var(--muted)}
+.calcrow.total{border-bottom:none;font-weight:600;font-size:15px;padding-top:11px}
+.pill{display:inline-block;padding:3px 9px;border-radius:99px;font-size:11.5px;background:#233046;color:#9fc0ff}
+</style>
+</head>
+<body>
+<div class="beta">⚠️ Внутренняя бета allkey.kz · доступ только для сотрудников и администратора · результаты не являются налоговой консультацией и не передаются клиентам без проверки</div>
+<div class="wrap">
+<header>
+  <h1>Помогайка по форме 101.04</h1>
+  <div class="sub">КПН и НДС за нерезидента · Налоговый кодекс РК от 18.07.2025 № 214-VIII (с 01.01.2026) · правила v1.0.0</div>
+</header>
+<div class="bar"><i id="bar" style="width:0%"></i></div>
+<div class="barlbl"><span id="steplbl">Шаг 1</span><span id="stepcnt"></span></div>
+<div id="app"></div>
+</div>
+
+<script>
+/* ============ СПРАВОЧНИКИ (сокращённые, из rules.json) ============ */
+const MRP=4325, VAT=0.16, VAT_THRESHOLD=43250000;
+
+const OFFSHORE=[
+ {no:1,n:"Княжество Андорра"},
+ {no:2,n:"Антигуа и Барбуда"},
+ {no:3,n:"Содружество Багамских Островов"},
+ {no:4,n:"Барбадос"},
+ {no:5,n:"Королевство Бахрейн"},
+ {no:6,n:"Белиз"},
+ {no:7,n:"Бруней Даруссалам"},
+ {no:8,n:"Республика Вануату"},
+ {no:9,n:"Кооперативная Республика Гайана"},
+ {no:10,n:"Республика Гватемала"},
+ {no:11,n:"Гренада"},
+ {no:12,n:"Республика Джибути"},
+ {no:13,n:"Доминиканская Республика"},
+ {no:14,n:"Содружество Доминики"},
+ {no:15,n:"Королевство Испания (только в части территории Канарских островов)"},
+ {no:16,n:"Китайская Народная Республика (только в части территорий специальных административных районов Аомынь (Макао) и Сянган (Гонконг)"},
+ {no:17,n:"Республика Колумбия"},
+ {no:18,n:"Союз Коморских Островов"},
+ {no:19,n:"Республика Коста-Рика"},
+ {no:20,n:"Малайзия (только в части территории анклава Лабуан)"},
+ {no:21,n:"Республика Либерия"},
+ {no:22,n:"Ливанская Республика"},
+ {no:23,n:"Республика Маврикий"},
+ {no:24,n:"Исламская Республика Мавритания"},
+ {no:25,n:"Португальская Республика (только в части территории островов Мадейра)"},
+ {no:26,n:"Мальдивская Республика"},
+ {no:27,n:"Республика Маршалловы Острова"},
+ {no:28,n:"Княжество Монако"},
+ {no:29,n:"Мальта"},
+ {no:30,n:"Содружество Северных Марианских Островов"},
+ {no:31,n:"Королевство Марокко (только в части территории города Танжер)"},
+ {no:32,n:"Республика Союз Мьянма"},
+ {no:33,n:"Республика Науру"},
+ {no:34,n:"Королевство Нидерланды (только в части территории острова Аруба и зависимых территорий Антильских островов)"},
+ {no:35,n:"Федеративная Республика Нигерия"},
+ {no:36,n:"Новая Зеландия (только в части территории островов Кука и Ниуэ)"},
+ {no:37,n:"Республика Палау"},
+ {no:38,n:"Республика Панама"},
+ {no:39,n:"Независимое Государство Самоа"},
+ {no:40,n:"Республика Сан-Марино"},
+ {no:41,n:"Республика Сейшельские Острова"},
+ {no:42,n:"Сент-Винсент и Гренадины"},
+ {no:43,n:"Федерация Сент-Китс и Невис"},
+ {no:44,n:"Сент-Люсия"},
+ {no:45,n:"Соединенное Королевство Великобритании и Северной Ирландии (только в части следующих территорий):"},
+ {no:46,n:"Соединенные Штаты Америки (только в части следующих территорий):"},
+ {no:47,n:"Республика Суринам"},
+ {no:48,n:"Объединенная Республика Танзания"},
+ {no:49,n:"Королевство Тонга"},
+ {no:50,n:"Республика Тринидад и Тобаго"},
+ {no:51,n:"Республика Фиджи"},
+ {no:52,n:"Республика Филиппины"},
+ {no:53,n:"Французская Республика (только в части следующих территорий):"},
+ {no:54,n:"Черногория"},
+ {no:55,n:"Демократическая Социалистическая Республика Шри-Ланка"},
+ {no:56,n:"Ямайка"}
+];
+const INCOME_CODES={
+ '1010':"доход от реализации товаров на территории Республики Казахстан, а также доход от реализации товаров, находящихся в Республике Казахстан, за ее пределы в рамках осуществления внешнеторговой деятельности",
+ '1011':"выплаты, связанные с поставкой товаров на территорию Республики Казахстан в рамках внешнеторговой деятельности, за исключением оказанных услуг, выполненных работ на территории Республики Казахстан, связанных с данной поставкой",
+ '1020':"доход от выполнения работ, оказания услуг на территории Республики Казахстан",
+ '1030':"доход от оказания управленческих услуг за пределами Республики Казахстан",
+ '1031':"доходы от выполнения работ, оказания услуг за пределами Республики Казахстан, за исключением доходов, указанных в подпунктах 3), 4) и 5) пункта 1 статьи 679 Налогового кодекса",
+ '1032':"доход от оказания финансовых услуг за пределами Республики Казахстан",
+ '1033':"доход от оказания консультационных услуг за пределами Республики Казахстан",
+ '1034':"доход от оказания инжиниринговых услуг за пределами Республики Казахстан",
+ '1035':"доход от оказания маркетинговых услуг за пределами Республики Казахстан",
+ '1036':"доход от оказания аудиторских услуг за пределами Республики Казахстан",
+ '1037':"доход от оказания юридических услуг (за исключением услуг по представительству и защите прав и законных интересов в судах, арбитраже или третейском суде, а также нотариальных услуг) за пределами Республики Казахстан",
+ '1038':"доход от оказания услуг по обработке информации за пределами Республики Казахстан",
+ '1039':"доход от оказания дизайнерских услуг за пределами Республики Казахстан",
+ '1040':"доходы лица, зарегистрированного в государстве с льготным налогообложением, от выполнения работ, оказания услуг независимо от места их фактического выполнения, оказания, а также иные доходы, установленные статьей 679 Налогового кодекса",
+ '1041':"доход от оказания рекламных услуг за пределами Республики Казахстан",
+ '1050':"доходы лица, зарегистрированного в иностранном государстве, в виде обязательств по полученному авансу (предоплате) при выполнении одного из следующих условий: не удовлетворенных нерезидентом в течение двенадцати месяцев со дня выплаты такого аванса (предоплаты); не удовлетворенных нерезидентом на дату представления ликвидационной налоговой отчетности при ликвидации лица, выплатившего аванс (предоплату)",
+ '1051':"доходы в виде обязательств по оплате резиденту за поставку товаров, оказание услуг и выполнение работ, не удовлетворенных нерезидентом в течение двенадцати месяцев со дня такой поставки товаров, оказания услуг и выполнения работ",
+ '1062':"доходы от прироста стоимости при реализации имущества, ценных бумаг и акций, указанных в подпункте 7) пункта 1 статьи 679 Налогового кодекса, и не подпадающие под условия, указанные в подпункте 9) статьи 681 Налогового кодекса",
+ '1090':"доход в виде неустойки (штрафов, пени) и других видов санкций, кроме возвращенных из бюджета необоснованно удержанных ранее штрафов",
+ '1100':"доход в виде дивидендов, получаемый от юридического лица-резидента, а также от паевых инвестиционных фондов, созданных в соответствии с Законом Республики Казахстан «Об инвестиционных и венчурных фондах»",
+ '1110':"доход в виде вознаграждений, за исключением вознаграждений по долговым ценным бумагам",
+ '1120':"доход в виде вознаграждений по долговым ценным бумагам, получаемый от эмитента",
+ '1130':"доход в виде роялти",
+ '1140':"доход от сдачи в имущественный наем (аренду) имущества, которое находится или будет находиться в Республике Казахстан, кроме финансового лизинга",
+ '1160':"доход в виде страховых премий, выплачиваемый по договорам страхования, перестрахования рисков, возникающих в Республике Казахстан",
+ '1161':"доход в виде страховых премий, выплачиваемый по договорам страхования рисков, возникающих в Республике Казахстан",
+ '1162':"доход в виде страховых премий, выплачиваемый по договорам перестрахования рисков, возникающих в Республике Казахстан",
+ '1170':"доход от оказания услуг по международной перевозке",
+ '1190':"доход, получаемый от эксплуатации трубопроводов, линий электропередачи, линий волоконно-оптической связи, находящихся на территории Республики Казахстан",
+ '1340':"другие доходы, возникающие от деятельности на территории Республики Казахстан",
+ '1500':"сумма подоходного налога, исчисленная с дохода нерезидента в соответствии с положениями Налогового кодекса и уплаченная в бюджет Республики Казахстан налоговым агентом за счет собственных средств без удержания такого подоходного налога"
+};
+
+
+const SERVICES=[
+ // group A — облагаются КПН независимо от места оказания (ст.679 п.1 пп.3)
+ {id:'info_processing',l:'Обработка информации',g:'A',vat:'buyer',vatE:'buyer'},
+ {id:'management',l:'Управленческие услуги',g:'A',vat:'buyer',vatE:'other'},
+ {id:'financial',l:'Финансовые услуги',g:'A',vat:'other',vatE:'other'},
+ {id:'consulting',l:'Консультационные услуги',g:'A',vat:'buyer',vatE:'buyer'},
+ {id:'engineering',l:'Инжиниринговые услуги',g:'A',vat:'buyer',vatE:'buyer'},
+ {id:'marketing',l:'Маркетинговые услуги',g:'A',vat:'buyer',vatE:'buyer'},
+ {id:'audit',l:'Аудиторские услуги',g:'A',vat:'buyer',vatE:'buyer'},
+ {id:'design',l:'Дизайнерские услуги',g:'A',vat:'buyer',vatE:'buyer',n:'новое в НК-2026'},
+ {id:'advertising',l:'Рекламные услуги',g:'A',vat:'buyer',vatE:'buyer',n:'новое в НК-2026'},
+ {id:'legal',l:'Юридические (кроме суда/арбитража и нотариальных)',g:'A',vat:'buyer',vatE:'buyer'},
+ // group B
+ {id:'accounting',l:'Бухгалтерские услуги',g:'B',vat:'buyer',vatE:'buyer'},
+ {id:'software_dev',l:'Разработка ПО, баз данных',g:'B',vat:'manual',vatE:'buyer'},
+ {id:'software_support',l:'Техобслуживание и обновление ПО',g:'B',vat:'buyer',vatE:'buyer'},
+ {id:'saas',l:'Доступ к интернет-ресурсу, SaaS-подписка',g:'B',vat:'buyer',vatE:'performer'},
+ {id:'hosting',l:'Хостинг, облачные сервисы',g:'B',vat:'manual',vatE:'manual'},
+ {id:'telecom',l:'Услуги связи',g:'B',vat:'buyer',vatE:'performer'},
+ {id:'staff',l:'Предоставление персонала',g:'B',vat:'buyer',vatE:'buyer'},
+ {id:'agent',l:'Услуги агента, посредника',g:'B',vat:'buyer',vatE:'manual'},
+ {id:'rnd',l:'НИОКР',g:'B',vat:'manual',vatE:'buyer'},
+ {id:'install',l:'Монтаж, наладка, сборка оборудования',g:'B',vat:'place_movable',vatE:'place_movable'},
+ {id:'repair',l:'Ремонт и ТО оборудования',g:'B',vat:'place_movable',vatE:'place_movable'},
+ {id:'construction',l:'Строительные и СМР',g:'B',vat:'real_estate',vatE:'real_estate'},
+ {id:'training',l:'Обучение, тренинги',g:'B',vat:'place_event',vatE:'place_event'},
+ {id:'transport',l:'Транспортные услуги, перевозка',g:'B',vat:'performer',vatE:'performer',flag:'F-TRANSPORT'},
+ {id:'rent_movable',l:'Аренда движимого имущества (кроме ТС)',g:'B',vat:'buyer',vatE:'buyer'},
+ {id:'rent_vehicle',l:'Аренда транспортных средств',g:'B',vat:'performer',vatE:'performer'},
+ {id:'other',l:'Прочие работы и услуги',g:'B',vat:'performer',vatE:'performer'}
+];
+
+const COUNTRIES=[
+ {c:'DE',n:'Германия',conv:1},{c:'RU',n:'Россия',conv:1,eaeu:1},{c:'CN',n:'Китай',conv:1},
+ {c:'TR',n:'Турция',conv:1},{c:'NL',n:'Нидерланды',conv:1},{c:'US',n:'США',conv:1},
+ {c:'GB',n:'Великобритания',conv:1},{c:'AE',n:'ОАЭ',conv:1},{c:'SG',n:'Сингапур',conv:1},
+ {c:'CY',n:'Кипр',conv:1},{c:'UZ',n:'Узбекистан',conv:1},{c:'KG',n:'Кыргызстан',conv:1,eaeu:1},
+ {c:'BY',n:'Беларусь',conv:1,eaeu:1},{c:'AM',n:'Армения',conv:1,eaeu:1},{c:'KR',n:'Южная Корея',conv:1},
+ {c:'CH',n:'Швейцария',conv:1},{c:'PL',n:'Польша',conv:1},{c:'IN',n:'Индия',conv:1},
+ {c:'FR',n:'Франция',conv:1},{c:'LT',n:'Литва',conv:1},
+ {c:'IT',n:'Италия',conv:1},{c:'CA',n:'Канада',conv:1},{c:'EE',n:'Эстония',conv:1},
+ {c:'LV',n:'Латвия',conv:1},{c:'CZ',n:'Чехия',conv:1},{c:'AT',n:'Австрия',conv:1},
+ {c:'JP',n:'Япония',conv:1},{c:'IN2',n:'—',conv:1},
+ {c:'XX',n:'Другая страна (конвенции нет)',conv:0}
+].filter(x=>x.c!=='IN2').concat(OFFSHORE.map(o=>({c:'OFF'+o.no,n:o.n,offshore:1,no:o.no})));
+
+const TREATY_RATES={RU:{d:'10',i:'10',r:'10'},CN:{d:'10',i:'10',r:'10'},TR:{d:'10',i:'10',r:'10'},
+ DE:{d:'5/15',i:'10',r:'10'},NL:{d:'0/5/15',i:'10',r:'10'},US:{d:'5/15',i:'10',r:'10'},
+ GB:{d:'5/15',i:'10',r:'10'},AE:{d:'5',i:'10',r:'10'},SG:{d:'5/10',i:'10',r:'10'},
+ CY:{d:'5/15',i:'10',r:'10'},UZ:{d:'10',i:'10',r:'10'},KG:{d:'10',i:'10',r:'10'},
+ BY:{d:'15',i:'10',r:'15'},KR:{d:'5/15',i:'10',r:'10'},CH:{d:'0/5/15',i:'0/10',r:'10'}};
+
+const FLAGS={
+ 'F-OFFSHORE':{s:'high',t:'Контрагент из государства с льготным налогообложением',
+   x:'Ставка 20 % применяется ко всем доходам независимо от места оказания услуг. Конвенция об избежании двойного налогообложения не применяется — сертификат резидентства не поможет. Перечень утверждён приказом МФ РК от 12.09.2025 № 492, 56 юрисдикций.',b:'ст. 679 п. 1 пп. 4), ст. 682 п. 2'},
+ 'F-PE-RISK':{s:'high',t:'Признаки постоянного учреждения у контрагента',
+   x:'Услуги через персонал свыше 183 дней в любом 12-месячном периоде, строительная площадка или зависимый агент образуют ПУ. Если ПУ образовалось, а нерезидент не зарегистрировался — 20 % без вычетов (ст. 691), и нерезидент обязан ретроспективно исчислить обязательства с даты начала деятельности. По конвенции порог для стройплощадки обычно 12 месяцев, и конвенция имеет приоритет. Рекомендуется отдельная оценка консультанта.',b:'ст. 226–231, 690, 691'},
+ 'F-MIXED':{s:'high',t:'Смешанный контракт без документального распределения',
+   x:'При отсутствии обоснованного распределения стоимости налогообложению подлежит СОВОКУПНАЯ сумма дохода. Получите от нерезидента документацию с распределением или подпишите допсоглашение с разбивкой до даты выплаты.',b:'ст. 683 п. 8'},
+ 'F-ROYALTY':{s:'medium',t:'Техподдержка не выделена из роялти',
+   x:'Суммы за сопровождение и техническую поддержку не облагаются как роялти, только если указаны отдельно от роялти. Одна строка в инвойсе — вся сумма облагается по ставке роялти 15 %.',b:'ст. 683 п. 5'},
+ 'F-ADVANCE':{s:'medium',t:'Контроль неотработанного аванса — 12 месяцев',
+   x:'Если нерезидент не исполнит обязательство в течение 12 месяцев со дня выплаты аванса, невозвращённая сумма признаётся доходом из источников в РК — вне зависимости от наличия конвенции. По старому кодексу срок был 2 года, с 2026 года — 12 месяцев. Поставьте напоминание на контрольную дату.',b:'ст. 679 п. 1 пп. 5)'},
+ 'F-CONDUIT':{s:'high',t:'Риск отказа в применении конвенции',
+   x:'Конвенция не применяется к резиденту, использующему её положения в интересах третьего лица (анти-conduit). Дополнительно действует тест основной цели (PPT) через многосторонний договор MLI/BEPS.',b:'ст. 698 п. 1, п. 2'},
+ 'F-DESIGN-SCOPE':{s:'medium',t:'Риск переквалификации услуги',
+   x:'Проверьте формулировку предмета договора. Слова «дизайн», «макеты», «UI/UX», «брендинг» в акте дают налоговому органу основание переквалифицировать услугу в дизайнерскую и потребовать КПН независимо от места оказания.',b:'ст. 679 п. 1 пп. 3)'},
+ 'F-TRANSPORT':{s:'info',t:'Перевозка: место реализации для НДС — по исполнителю',
+   x:'По ст. 459 п. 2 пп. 5) НК местом реализации перевозки признаётся РК только если исполнитель присутствует на территории РК на основе государственной (учётной) регистрации либо учёта как ИП — И при этом товары/пассажиры ввозятся в РК, вывозятся из РК или перевозятся по территории РК. Оба условия кумулятивны. У нерезидента без регистрации в РК первое условие не выполняется, поэтому место реализации — не РК и НДС за нерезидента не возникает. Для КПН при этом действует ставка 5 % как по международной перевозке (ст. 682 п. 1 пп. 4), если не применяется конвенция.',b:'ст. 459 п. 2 пп. 5), ст. 682 п. 1 пп. 4)'},
+ 'F-PERIOD-MISMATCH':{s:'info',t:'Периоды по НДС и КПН не совпадают',
+   x:'НДС определяется по дате совершения оборота (подписание акта), КПН и форма 101.04 — по дате выплаты. Попадание в разные кварталы — это нормально и не является ошибкой.',b:'ст. 460 п. 13, ст. 684, ст. 685'},
+ 'F-VAT-THRESHOLD':{s:'info',t:'Порог постановки на учёт по НДС',
+   x:'НДС за нерезидента у вас не возникает. Но следите за порогом: при обороте свыше 10 000 МРП (43 250 000 ₸ в 2026 г.) постановка на учёт по НДС обязательна, заявление подаётся в течение 5 рабочих дней. Санкция за неотражение — 15 % от неотражённого оборота плюс 50 МРП. С даты постановки на учёт НДС за нерезидента появится.',b:'ст. 99, ст. 454 п. 1'},
+ 'F-DISCLOSURE-50K':{s:'info',t:'Порог 50 000 USD — считается за отчётный квартал',
+   x:'Порог применяется ТОЛЬКО к необлагаемым доходам и суммам, не являющимся доходом из источников в РК (графы U/V/W/X приложения). Облагаемые доходы отражаются в 101.04 независимо от суммы. Не путать с порогом 50 000 USD для учётной регистрации валютного договора (УНК) — это валютное законодательство, на налоги не влияет. В редакции 2026 года Пояснение к форме говорит прямо: суммы «рассчитываются за отчётный квартал и в совокупности за отчётный квартал превышают 50 000 долларов США». Прежняя трактовка «нарастающим итогом за календарный год» относилась к редакции до 2026 года и больше не применяется. Дополнительное условие: графы U/V/W/X заполняются, если выплаты осуществлены в рамках валютного договора.',b:'Правила составления ФНО 101.04'},
+ 'F-FX-BASIS':{s:'info',t:'Курс валюты: расхождение источников',
+   x:'Помогайка применяет официальный курс НА дату выплаты / совершения оборота — по тексту нового НК. Часть консультационных источников по инерции указывает «на предшествующий рабочий день» — это норма старого кодекса (ст. 647 НК-2017).',b:'ст. 684 п. 1, ст. 463 п. 2'},
+ 'F-DIV-25':{s:'medium',t:'Дивиденды при доле ≥ 25 % — обратите внимание на ставку',
+   x:'Помогайка применила общую ставку 15 % (пп. 5) п. 1 ст. 682) — так же, как в официальном разборе построчного заполнения формы 101.04 для участника с долей 70 %. При этом текст пп. 6) п. 1 ст. 682 предусматривает для дивидендов лицу, прямо или косвенно владеющему не менее 25 % капитала, ставку 5 % в пределах 230 000 МРП (994 750 000 ₸), свыше — плюс 15 % с превышения; иных условий, включая срок владения, норма не содержит. Ситуация встречается редко, но если она ваша — разница существенная. Перед применением пониженной ставки рекомендуем письменный запрос в КГД либо заключение налогового консультанта.',b:'ст. 682 п. 1 пп. 5) и пп. 6)'},
+ 'F-CERT-MISSING':{s:'high',t:'Сертификат резидентства не получен',
+   x:'Освобождение на дату выплаты применить нельзя — налог удерживается по ставке НК. Это не потеряно: нерезидент вправе подать заявление на возврат подоходного налога из бюджета на основании международного договора. Срок — до истечения срока исковой давности (3 года, для крупного бизнеса 5 лет), рассмотрение 20 рабочих дней, возврат 30 рабочих дней после решения.',b:'ст. 699–701'}
+};
+
+
+/* ============ КУРСЫ НБ РК ============ */
+const RATES={};            // 'USD|2026-06-15' → {rate, sourceDate, carried}
+let RATES_META=null;       // {codes, from, to, count, demo}
+const NB_SEED={USD:464.02,EUR:536.18,RUB:5.54,CNY:68.83,GBP:625.41,TRY:11.4,AED:126.3,CHF:573.1,JPY:2.92,KZT:1};
+const NB_NAMES={USD:'ДОЛЛАР США',EUR:'ЕВРО',RUB:'РОССИЙСКИЙ РУБЛЬ',CNY:'КИТАЙСКИЙ ЮАНЬ',GBP:'ФУНТ СТЕРЛИНГОВ',TRY:'ТУРЕЦКАЯ ЛИРА',AED:'ДИРХАМ ОАЭ',CHF:'ШВЕЙЦАРСКИЙ ФРАНК',JPY:'ЯПОНСКАЯ ИЕНА'};
+
+/* период загрузки по умолчанию: квартал операции плюс месяц назад — на случай авансов */
+function defaultRatePeriod(){
+  const m=(A.period||'').match(/(I{1,3}|IV)\s+квартал\s+(\d{4})/);
+  const q={'I':1,'II':2,'III':3,'IV':4}[m?m[1]:'I']||1, y=m?+m[2]:2026;
+  const start=new Date(Date.UTC(y,(q-1)*3,1)); start.setUTCMonth(start.getUTCMonth()-1);
+  const end=new Date(Date.UTC(y,q*3,0));
+  const iso=d=>d.toISOString().slice(0,10);
+  return {from:iso(start), to:iso(end)};
+}
+function yearToDate(){
+  const m=(A.period||'').match(/(\d{4})/); const y=m?+m[1]:2026;
+  const end=new Date(Date.UTC(y,11,31)), today=new Date();
+  const iso=d=>d.toISOString().slice(0,10);
+  return {from:`${y}-01-01`, to: iso(today<end?today:end)};
+}
+
+/* В продакшене — GET /api/rates?codes=&from=&to=
+   Здесь демо-генератор с той же формой ответа. */
+async function loadRates(codes, from, to){
+  let rows=null;
+  try{
+    const r=await fetch(`/api/rates?codes=${codes.join(',')}&from=${from}&to=${to}`);
+    if(r.ok) rows=await r.json();
+  }catch(e){}
+  const demo=!rows;
+  if(demo) rows=demoRates(codes, from, to);
+  rows.forEach(r=>{RATES[r.code+'|'+r.date]={rate:r.rate,sourceDate:r.sourceDate,carried:r.carriedForward}});
+  RATES_META={codes,from,to,count:rows.length,demo,days:new Set(rows.map(r=>r.date)).size};
+  return RATES_META;
+}
+function demoRates(codes,from,to){
+  const out=[],last={},iso=d=>d.toISOString().slice(0,10);
+  for(let d=new Date(from);d<=new Date(to);d.setDate(d.getDate()+1)){
+    const cur=new Date(d),dow=cur.getDay(),day=iso(cur),work=dow!==0&&dow!==6;
+    codes.forEach(c=>{
+      const base=NB_SEED[c]||100;
+      if(work){const n=(cur.getDate()*7+cur.getMonth()*13+c.charCodeAt(0))%100;
+        last[c]={rate:+(base*(1+(n-50)/4000)).toFixed(base<1?6:2),src:day}}
+      if(last[c])out.push({date:day,code:c,name:NB_NAMES[c]||c,rate:last[c].rate,quant:1,
+        carriedForward:last[c].src!==day,sourceDate:last[c].src});
+    });
+  }
+  return out;
+}
+function rateOn(dateISO){
+  if(!dateISO||!A.currency||A.currency==='KZT')return null;
+  return RATES[A.currency+'|'+dateISO]||null;
+}
+async function doLoadRates(scope){
+  const per = scope==='year'?yearToDate():defaultRatePeriod();
+  const cur = A.currency&&A.currency!=='KZT'?A.currency:'USD';
+  const btn=document.getElementById('ldBtn'); if(btn){btn.disabled=true;btn.textContent='Загружаю…'}
+  await loadRates([cur], per.from, per.to);
+  render();
+}
+function fillFx(){
+  const d=A.payDate||A.actDate; const r=rateOn(d);
+  if(r){A.fx=String(r.rate); render()}
+}
+
+/* ============ СОСТОЯНИЕ ============ */
+let A={}, step=0;
+const fmt=n=>new Intl.NumberFormat('ru-RU',{maximumFractionDigits:0}).format(Math.round(n));
+const q=(k,v)=>{if(A[k]===v)return;A[k]=v;render()};
+const svc=()=>SERVICES.find(s=>s.id===A.service);
+const ctry=()=>COUNTRIES.find(c=>c.c===A.country)||{};
+
+
+/* код вида дохода для графы F (прил.5 к приказу №695, глава 3) */
+function incomeCode(){
+  const c=ctry(), s=svc();
+  if(c.offshore) return '1040';
+  if(A.income==='goods') return A.goodsServices==='yes' ? '1020' : '1011';
+  if(A.income==='royalty') return '1130';
+  if(A.income==='dividends') return '1100';
+  if(A.income==='interest') return '1120';
+  if(A.income==='rent') return '1140';
+  if(A.income==='transport_intl') return '1170';
+  if(A.income==='insurance') return '1161';
+  if(A.income==='capital_gain') return '1062';
+  if(A.income==='penalty') return '1090';
+  if(A.income==='services'){
+    if(A.place==='kz') return '1020';
+    const map={management:'1030',financial:'1032',consulting:'1033',engineering:'1034',
+               marketing:'1035',audit:'1036',legal:'1037',info_processing:'1038',
+               design:'1039',advertising:'1041'};
+    if(s&&map[s.id]) return map[s.id];
+    return '1031';
+  }
+  return '1340';
+}
+function countryCode(){const c=ctry();return c.offshore?String(c.no):c.c}
+
+/* ============ ОПРЕДЕЛЕНИЕ ШАГОВ ============ */
+function steps(){
+  const S=[];
+  S.push('S1'); // шапка
+  S.push('S2'); // событие и контрагент
+  S.push('S5'); // тип дохода + детализация
+  if(A.recipient==='branch'||A.income==='services') S.push('S3'); // ПУ
+  if(A.income==='services') S.push('S6'); // место оказания
+  if(!ctry().offshore && ctry().conv) S.push('S7'); // конвенция
+  if(A.useConv==='yes') S.push('S8'); // сертификат
+  S.push('S4'); // даты и суммы
+  if(A.vatPayer==='yes') S.push('S9'); // НДС
+  S.push('R');  // результат
+  return S;
+}
+
+/* ============ ДВИЖОК ПРАВИЛ ============ */
+function evaluate(){
+  const v={flags:[],basis:[],kpn:{},vat:{},rep:{}};
+  const c=ctry(), s=svc();
+  const amt=parseFloat(A.amount)||0, fx=parseFloat(A.fx)||1;
+  const base=Math.round(amt*fx);
+  v.base=base; v.amt=amt; v.fx=fx;
+
+  /* --- ранние выходы --- */
+  if(A.recipient==='individual'){v.exit='individual';return v}
+  if(A.pe1==='yes'&&A.pe2==='branch'&&A.pe3==='yes'){v.exit='pe';return v}
+
+  /* --- КПН: облагаемость --- */
+  let taxable=true, rate=0.20, why='ст. 682 п. 1 пп. 1)', why2='ст. 679 п. 1 пп. 2)';
+
+  if(c.offshore){
+    taxable=true; rate=0.20; why='ст. 682 п. 2'; why2='ст. 679 п. 1 пп. 4)';
+    v.flags.push('F-OFFSHORE');
+  } else if(A.income==='goods'){
+    if(A.goodsServices!=='yes'){taxable=false; why2='ст. 680 п. 1 пп. 4) — не доход из источников в РК'; v.notSource=true}
+    else {taxable=true; rate=0.20; why2='ст. 679 п. 1 пп. 2) — работы/услуги в РК в составе контракта';
+      if(A.goodsSplit==='no') v.flags.push('F-MIXED')}
+  } else if(A.income==='services'){
+    if(A.place==='kz'){taxable=true;rate=0.20;why2='ст. 679 п. 1 пп. 2)'}
+    else if(A.place==='outside'){
+      if(s&&s.g==='A'){taxable=true;rate=0.20;why2='ст. 679 п. 1 пп. 3) — услуги из закрытого перечня, облагаются независимо от места оказания'}
+      else {taxable=false;why2='ст. 681 п. 1 пп. 5) — работы/услуги за пределами РК';v.notTaxable=true}
+    } else { taxable=true;rate=0.20;why2='ст. 683 п. 8 — смешанный контракт';
+      if(A.mixedSplit==='no') v.flags.push('F-MIXED')}
+    if(s&&s.id==='software_dev') v.flags.push('F-DESIGN-SCOPE');
+  } else if(A.income==='royalty'){
+    taxable=true;rate=0.15;why='ст. 682 п. 1 пп. 5)';why2='ст. 679 п. 1 пп. 15)';
+    if(A.royaltySplit==='no') v.flags.push('F-ROYALTY');
+  } else if(A.income==='dividends'){
+    if(A.share==='yes'){rate=0.15;why='ст. 682 п. 1 пп. 5) — общая ставка (см. примечание о пп. 6)';v.flags.push('F-DIV-25')}
+    else {rate=0.15;why='ст. 682 п. 1 пп. 5)'}
+    why2='ст. 679 п. 1 пп. 12)';
+  } else if(A.income==='interest'){
+    rate=0.10;why='ст. 682 п. 1 пп. 7) — вознаграждения по кредитам (займам), долговым ЦБ (снижено с 15 %)';why2='ст. 679 п. 1 пп. 13)';
+  } else if(A.income==='rent'){rate=0.20;why2='ст. 679 п. 1 пп. 16)'}
+  else if(A.income==='transport_intl'){rate=0.05;why='ст. 682 п. 1 пп. 4)';why2='ст. 679 п. 1 пп. 20)'}
+  else if(A.income==='insurance'){rate=0.15;why='ст. 682 п. 1 пп. 2) — страхование рисков (перестрахование — 5 %)';why2='ст. 679 п. 1 пп. 18)'}
+  else if(A.income==='capital_gain'){rate=0.15;why='ст. 682 п. 1 пп. 5)';why2='ст. 679 п. 1 пп. 7), порядок — ст. 687'}
+  else if(A.income==='penalty'){rate=0.20;why2='ст. 679 п. 1 пп. 11)'}
+
+  /* --- конвенция --- */
+  let convApplied=false, finalRate=rate;
+  if(taxable && !c.offshore && c.conv && A.useConv==='yes'){
+    if(A.cert==='yes'&&A.pe_link!=='yes'&&A.conduit!=='yes'&&(A.income!=='dividends'&&A.income!=='royalty'&&A.income!=='interest'||A.bo==='yes')){
+      convApplied=true;
+      if(['dividends','royalty','interest'].includes(A.income)){
+        const tr=TREATY_RATES[c.c];
+        v.treatyRateHint=tr?(A.income==='dividends'?tr.d:A.income==='royalty'?tr.r:tr.i):null;
+        v.convType='reduced'; v.convBasis='ст. 706 + ст. 10/11/12 конвенции';
+        finalRate=rate; v.needManualTreatyRate=true;
+      } else {
+        finalRate=0; v.convType='full'; v.convBasis='ст. 705 + ст. 7 конвенции';
+      }
+    } else {
+      if(A.cert!=='yes') v.flags.push('F-CERT-MISSING');
+      if(A.conduit==='yes') v.flags.push('F-CONDUIT');
+    }
+  }
+  if(A.ownFunds==='yes'){convApplied=false;finalRate=rate;v.flags.push('F-OWN-FUNDS')}
+
+  v.kpn={taxable,rate,finalRate,convApplied,why,why2,
+    amount: taxable?Math.round(base*finalRate):0};
+
+  /* --- НДС --- */
+  if(A.vatPayer!=='yes'){
+    v.vat={applicable:false,reason:'Вы не состоите на регистрационном учёте по НДС. С 01.01.2026 оборот по приобретению работ и услуг от нерезидента возникает только у плательщика НДС.',basis:'ст. 454 п. 1'};
+    v.flags.push('F-VAT-THRESHOLD');
+  } else if(A.income==='goods'&&A.goodsServices!=='yes'){
+    v.vat={applicable:false,reason:'Поставка товаров — не оборот по приобретению работ/услуг от нерезидента. НДС уплачивается при импорте по таможенному законодательству либо по правилам ЕАЭС (ф. 328.00).',basis:'ст. 454'};
+  } else if(A.vatExempt&&A.vatExempt!=='none'){
+    v.vat={applicable:false,reason:'Применяется исключение по ст. 454 п. 3.',basis:'ст. 454 п. 3'};
+  } else {
+    const rule = c.eaeu ? (s?s.vatE:'performer') : (s?s.vat:'performer');
+    let place=null;
+    if(rule==='buyer') place='kz';
+    else if(rule==='performer') place='out';
+    else if(rule==='manual') place='manual';
+    else if(rule==='real_estate') place=A.vatRealEstate==='kz'?'kz':'out';
+    else if(rule==='place_movable'||rule==='place_event') place=A.vatActual==='kz'?'kz':'out';
+    else if(rule==='other') place='manual';
+
+    if(s&&s.flag) v.flags.push(s.flag);
+
+    if(place==='kz'){
+      v.vat={applicable:true,base,amount:Math.round(base*VAT),rate:VAT,
+        placeRule: c.eaeu?'ст. 515 + Приложение № 18 к Договору о ЕАЭС':'ст. 459 п. 2',
+        placeLabel:'Место реализации — Республика Казахстан',basis:'ст. 454, 463, 502, 503'};
+    } else if(place==='out'){
+      v.vat={applicable:false,reason:'Место реализации работ/услуг — не Республика Казахстан.',
+        basis: c.eaeu?'ст. 515 / п. 29 Протокола ЕАЭС':'ст. 459 п. 2 пп. 5)'};
+    } else {
+      v.vat={applicable:null,reason:'Определение места реализации требует ручной проверки для данного вида услуг.',basis:'ст. 459 п. 2, правило приоритета п. 5'};
+    }
+  }
+
+  /* --- периоды --- */
+  const qOf=d=>{if(!d)return null;const m=new Date(d).getMonth();return Math.floor(m/3)+1};
+  const yOf=d=>d?new Date(d).getFullYear():null;
+  v.qKpn=qOf(A.payDate)||qOf(A.actDate); v.yKpn=yOf(A.payDate)||yOf(A.actDate);
+  v.qVat=qOf(A.actDate); v.yVat=yOf(A.actDate);
+  if(v.qKpn&&v.qVat&&v.qKpn!==v.qVat) v.flags.push('F-PERIOD-MISMATCH');
+  if(A.event==='advance') v.flags.push('F-ADVANCE');
+  if(A.pe4&&A.pe4!=='no'&&A.pe4!=='na') v.flags.push('F-PE-RISK');
+  if(v.notTaxable||v.notSource) v.flags.push('F-DISCLOSURE-50K');
+  if(A.amount&&A.currency!=='KZT') v.flags.push('F-FX-BASIS');
+
+  /* --- отчётность --- */
+  const dl={1:'15 мая',2:'17 августа (перенос с 15.08)',3:'16 ноября (перенос с 15.11)',4:'31 марта следующего года'};
+  const dlVat={1:'25 мая',2:'25 августа',3:'25 ноября',4:'25 февраля следующего года'};
+  v.rep={
+    need: v.kpn.taxable || (v.notTaxable||v.notSource),
+    mandatory: v.kpn.taxable,
+    deadline: v.qKpn?dl[v.qKpn]:'—',
+    vatDeadline: v.qVat?dlVat[v.qVat]:'—'
+  };
+  return v;
+}
+
+/* ============ РЕНДЕР ============ */
+function opt(name,val,label,desc){
+  const sel=A[name]===val?' sel':'';
+  return `<label class="opt${sel}" onclick="q('${name}','${val}')">
+    <input type="radio" ${A[name]===val?'checked':''} readonly>
+    <span><span class="ol">${label}</span>${desc?`<span class="od">${desc}</span>`:''}</span></label>`;
+}
+function hint(t){return `<div class="hint">${t}</div>`}
+function flagHtml(id){const f=FLAGS[id];if(!f)return'';
+  return `<div class="flag f-${f.s}"><div class="ft">${f.s==='high'?'🔴':f.s==='medium'?'🟡':'ℹ️'} ${f.t}</div><div>${f.x}</div><div class="fb">${f.b}</div></div>`}
+
+function render(){
+  const S=steps(); if(step>=S.length)step=S.length-1;
+  const cur=S[step];
+  document.getElementById('bar').style.width=Math.round(step/(S.length-1)*100)+'%';
+  document.getElementById('steplbl').textContent=cur==='R'?'Результат':'Шаг '+(step+1);
+  document.getElementById('stepcnt').textContent=cur==='R'?'':(step+1)+' из '+S.length;
+  document.getElementById('app').innerHTML=view(cur)+nav(cur,S);
+}
+function nav(cur,S){
+  if(cur==='R')return `<div class="nav"><button onclick="back()">← Изменить ответы</button><button class="primary" onclick="reset()">Новая проверка</button></div>`;
+  return `<div class="nav"><button onclick="back()" ${step===0?'disabled':''}>← Назад</button>
+  <button class="primary" onclick="next()" ${canNext(cur)?'':'disabled'}>Далее →</button></div>`;
+}
+function syncNav(){const S=steps(),b=document.querySelector('button.primary');
+  if(b&&S[step]!=='R'){canNext(S[step])?b.removeAttribute('disabled'):b.setAttribute('disabled','')}}
+function back(){if(step>0)step--;render()}
+function next(){step++;render()}
+function reset(){A={};step=0;render()}
+function canNext(c){
+  if(c==='S1')return A.period&&A.size&&A.vatPayer;
+  if(c==='S2')return A.event&&A.recipient&&A.country;
+  if(c==='S3')return A.pe1&&A.pe4;
+  if(c==='S5'){
+    if(!A.income)return false;
+    if(A.income==='goods')return A.goodsServices&&(A.goodsServices==='no'||A.goodsSplit);
+    if(A.income==='services')return !!A.service;
+    if(A.income==='royalty')return !!A.royaltySplit;
+    if(A.income==='dividends')return !!A.share;
+    return true;
+  }
+  if(c==='S6')return A.place&&(A.place!=='mixed'||A.mixedSplit);
+  if(c==='S7')return A.useConv&&(A.useConv==='no'||(A.cert&&A.pe_link&&A.conduit&&(!['dividends','royalty','interest'].includes(A.income)||A.bo)));
+  if(c==='S8')return true;
+  if(c==='S4')return A.amount&&A.fx&&(A.payDate||A.actDate);
+  if(c==='S9')return true;
+  return true;
+}
+
+function view(c){
+if(c==='S1')return `<div class="card">
+  <div class="q">Контекст операции</div>
+  <div class="qh">Помогайка работает только с новым Налоговым кодексом — периоды с I квартала 2026 года.</div>
+  <label class="f">Налоговый период операции</label>
+  <select onchange="q('period',this.value)">
+    <option value="">— выберите —</option>
+    ${['I квартал 2026','II квартал 2026','III квартал 2026','IV квартал 2026','I квартал 2027'].map(p=>`<option ${A.period===p?'selected':''}>${p}</option>`).join('')}
+  </select>
+  <label class="f">Категория вашей компании</label>
+  <div class="opts">
+    ${opt('size','small','Субъект малого предпринимательства / НКО','Штраф по ст. 279 ч. 1 КоАП — 20 % от неудержанной суммы')}
+    ${opt('size','medium','Субъект среднего предпринимательства','Штраф — 30 %')}
+    ${opt('size','large','Субъект крупного предпринимательства','Штраф — 50 %; срок исковой давности 5 лет')}
+  </div>
+  <label class="f" style="margin-top:18px">Вы состоите на регистрационном учёте по НДС?</label>
+  <div class="opts">
+    ${opt('vatPayer','yes','Да, плательщик НДС','')}
+    ${opt('vatPayer','no','Нет','Оборот по приобретению от нерезидента не возникает')}
+    ${opt('vatPayer','unsure','Не уверен','Порог: 43 250 000 ₸ оборота (10 000 МРП)')}
+  </div>
+  <label class="f" style="margin-top:18px">Валюта расчётов по договору</label>
+  <select onchange="q('currency',this.value)">
+    <option value="">— выберите —</option>
+    ${['USD','EUR','RUB','CNY','GBP','TRY','AED','CHF','KZT'].map(x=>`<option ${A.currency===x?'selected':''}>${x}</option>`).join('')}
+  </select>
+  ${A.currency&&A.currency!=='KZT'?`
+    <div class="hint" style="border-left-color:var(--accent2)">
+      <b>Курсы ${A.currency} за период</b><br>
+      ${RATES_META?`Загружено: <b>${RATES_META.count}</b> строк за <b>${RATES_META.days}</b> дней, период ${RATES_META.from.split('-').reverse().join('.')} — ${RATES_META.to.split('-').reverse().join('.')}.
+         ${RATES_META.demo?'<span class="tag warn">демо-данные, эндпоинт /api/rates не поднят</span>':'<span class="tag">из НБ РК</span>'}<br>
+         <span style="font-size:12px;color:var(--muted)">Курс подставится автоматически на шаге дат. Ручной ввод останется доступен.</span>`
+        :`Период по умолчанию — квартал операции плюс месяц назад, чтобы покрыть авансы:
+          <b>${defaultRatePeriod().from.split('-').reverse().join('.')} — ${defaultRatePeriod().to.split('-').reverse().join('.')}</b>.`}
+      <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
+        <button id="ldBtn" onclick="doLoadRates('quarter')" style="padding:7px 14px;font-size:13px">
+          ${RATES_META?'Перезагрузить за квартал':'Загрузить курсы за квартал'}</button>
+        <button onclick="doLoadRates('year')" style="padding:7px 14px;font-size:13px">Расширить до начала года</button>
+      </div>
+    </div>`:''}
+  ${hint('<b>Ключевая новелла 2026 года.</b> НДС за нерезидента платит только покупатель, состоящий на регистрационном учёте по НДС (ст. 454 п. 1 НК РК). До 2026 года обязанность возникала у любого налогоплательщика РК — это изменилось. Именно поэтому вопрос стоит первым: он полностью отсекает НДС-ветку.')}
+</div>`;
+
+if(c==='S2')return `<div class="card">
+  <div class="q">Что произошло?</div>
+  <div class="qh">Выплата дохода — это не только банковский платёж.</div>
+  <div class="opts">
+    ${opt('event','payment','Перечислили деньги нерезиденту','')}
+    ${opt('event','act','Подписан акт / получен инвойс, оплаты ещё нет','КПН пока не возникает, но НДС может — дата оборота определяется по акту')}
+    ${opt('event','offset','Провели взаимозачёт встречных требований','Это выплата дохода — ст. 679 п. 2')}
+    ${opt('event','writeoff','Списали (простили) долг нерезидента','Это выплата дохода — ст. 679 п. 2')}
+    ${opt('event','barter','Передали товар / оказали встречную услугу','Это выплата дохода — ст. 679 п. 2')}
+    ${opt('event','advance','Выплатили аванс (предоплату)','Особый срок перечисления + контроль 12 месяцев')}
+    ${opt('event','accrued','Начислили, не выплатили, отнесли на вычеты','Период — IV квартал')}
+  </div>
+  <div class="q" style="margin-top:22px">Кто получатель?</div>
+  <div class="opts">
+    ${opt('recipient','legal','Юридическое лицо-нерезидент','')}
+    ${opt('recipient','individual','Физическое лицо-нерезидент','Это не 101.04 — маршрут ИПН и формы 200.00')}
+    ${opt('recipient','branch','Филиал / представительство иностранной компании в РК','')}
+  </div>
+  <label class="f" style="margin-top:18px">Страна резидентства контрагента</label>
+  <select onchange="q('country',this.value)">
+    <option value="">— выберите —</option>
+    ${COUNTRIES.map(x=>`<option value="${x.c}" ${A.country===x.c?'selected':''}>${x.n}${x.offshore?' ⚠️ льготное налогообложение':x.eaeu?' · ЕАЭС':''}</option>`).join('')}
+  </select>
+  ${A.country&&ctry().offshore?flagHtml('F-OFFSHORE'):''}
+  ${A.country&&ctry().eaeu?hint('<b>Контрагент из ЕАЭС.</b> Место реализации для НДС определяется по ст. 515 НК и Приложению № 18 к Договору о ЕАЭС, а не по ст. 459. Правила различаются: услуги связи, доступ к интернет-ресурсам, ТВ/радио в ЕАЭС определяются по месту исполнителя (НДС не возникает), а разработка ПО и НИОКР — по месту покупателя (НДС возникает).'):''}
+  ${hint('<b>Выплата дохода</b> — «передача денег в наличной и (или) безналичной формах, ценных бумаг, доли участия, товаров, имущества, выполнение работ, оказание услуг, <b>списание и (или) зачёт требования долга</b>…» (ст. 679 п. 2 НК РК). Взаимозачёт с нерезидентом порождает те же обязательства, что и платёж.')}
+</div>`;
+
+if(c==='S3')return `<div class="card">
+  <div class="q">Скрининг постоянного учреждения</div>
+  <div class="qh">Если у контрагента есть ПУ в РК и договор заключён с ним — КПН у источника не удерживается и в 101.04 операция не попадает.</div>
+  <label class="f">Есть ли у контрагента БИН РК / регистрационное свидетельство налогового органа?</label>
+  <div class="opts">${opt('pe1','yes','Да, БИН есть')}${opt('pe1','no','Нет, БИН отсутствует')}${opt('pe1','unknown','Не знаю')}</div>
+  ${A.pe1==='yes'?`
+  <label class="f" style="margin-top:16px">Контракт заключён с филиалом (ПУ) в РК или с головной компанией?</label>
+  <div class="opts">${opt('pe2','branch','С филиалом / ПУ в РК')}${opt('pe2','head','С головной компанией за рубежом')}</div>
+  <label class="f" style="margin-top:16px">Счёт-фактура выписана филиалом с казахстанским БИН?</label>
+  <div class="opts">${opt('pe3','yes','Да, счёт-фактура от филиала')}${opt('pe3','no','Нет, от головной компании')}</div>
+  ${A.pe2==='head'||A.pe3==='no'?hint('<b>Внимание — ст. 690.</b> Даже при зарегистрированном ПУ налоговый агент удерживает КПН <b>20 % без вычетов</b>, если одновременно: договор заключён не со структурным подразделением <b>и</b> счёт-фактура выписана не филиалом. Операция отражается в 101.04.'):''}
+  `:''}
+  <label class="f" style="margin-top:16px">Длительность деятельности нерезидента в РК по этому и связанным проектам</label>
+  <div class="opts">
+    ${opt('pe4','no','До 183 дней в любом 12-месячном периоде')}
+    ${opt('pe4','over183','Свыше 183 дней','Образует ПУ — ст. 228')}
+    ${opt('pe4','construction','Строительная площадка / СМР','По НК порога нет, ПУ с даты начала работ — ст. 227')}
+    ${opt('pe4','agent','Действует через зависимого агента','ПУ независимо от срока — ст. 229')}
+    ${opt('pe4','na','Не применимо (разовая услуга без присутствия в РК)')}
+  </div>
+  ${A.pe4&&A.pe4!=='no'&&A.pe4!=='na'?flagHtml('F-PE-RISK'):''}
+</div>`;
+
+if(c==='S5')return `<div class="card">
+  <div class="q">Что вы приобрели / за что платите?</div>
+  <div class="opts">
+    ${opt('income','goods','Товары (поставка)')}
+    ${opt('income','services','Работы или услуги')}
+    ${opt('income','royalty','Роялти / лицензия (ПО, товарный знак, ноу-хау)')}
+    ${opt('income','dividends','Дивиденды')}
+    ${opt('income','interest','Вознаграждение (проценты по займу, долговым ЦБ)')}
+    ${opt('income','rent','Аренда имущества в РК')}
+    ${opt('income','transport_intl','Международная перевозка')}
+    ${opt('income','insurance','Страховая премия')}
+    ${opt('income','capital_gain','Прирост стоимости (продажа акций, долей, имущества)')}
+    ${opt('income','penalty','Неустойка, штраф, пеня по договору')}
+  </div>
+
+  ${A.income==='goods'?`
+    <label class="f" style="margin-top:18px">Включает ли контракт работы или услуги на территории РК (шефмонтаж, пусконаладка, обучение)?</label>
+    <div class="opts">${opt('goodsServices','no','Нет, только поставка товара')}${opt('goodsServices','yes','Да, контракт включает работы или услуги')}</div>
+    ${A.goodsServices==='yes'?`
+      <label class="f" style="margin-top:16px">Стоимость этих работ/услуг выделена отдельно в контракте или акте?</label>
+      <div class="opts">${opt('goodsSplit','yes','Да, выделена')}${opt('goodsSplit','no','Нет, одной суммой')}</div>
+      ${A.goodsSplit==='no'?flagHtml('F-MIXED'):''}
+    `:hint('Выплаты, связанные с поставкой товаров на территорию РК в рамках внешнеторговой деятельности, <b>не являются доходом из источников в РК</b> — ст. 680 п. 1 пп. 4). Но эту сумму, возможно, придётся раскрыть в графах U/V приложения к 101.04.')}
+  `:''}
+
+  ${A.income==='services'?`
+    <label class="f" style="margin-top:18px">Конкретный вид услуги</label>
+    <select onchange="q('service',this.value)">
+      <option value="">— выберите —</option>
+      <optgroup label="Облагаются КПН независимо от места оказания (ст. 679 п. 1 пп. 3)">
+        ${SERVICES.filter(s=>s.g==='A').map(s=>`<option value="${s.id}" ${A.service===s.id?'selected':''}>${s.l}${s.n?' · '+s.n:''}</option>`).join('')}
+      </optgroup>
+      <optgroup label="Прочие работы и услуги">
+        ${SERVICES.filter(s=>s.g==='B').map(s=>`<option value="${s.id}" ${A.service===s.id?'selected':''}>${s.l}</option>`).join('')}
+      </optgroup>
+    </select>
+    ${A.service&&svc().g==='A'?hint('<b>Этот вид услуг облагается КПН у источника даже если услуги полностью оказаны за пределами Казахстана</b> — подпункт 3) пункта 1 статьи 679 НК РК. Освобождение по подпункту 5) пункта 1 статьи 681 (услуги за пределами РК) к нему <b>не применяется</b>. С 2026 года в перечень добавлены обработка информации, дизайнерские и рекламные услуги — раньше их там не было.'):''}
+    ${A.service&&svc().id==='software_dev'?flagHtml('F-DESIGN-SCOPE'):''}
+  `:''}
+
+  ${A.income==='royalty'?`
+    <label class="f" style="margin-top:18px">Выделены ли отдельной строкой услуги по сопровождению / технической поддержке?</label>
+    <div class="opts">${opt('royaltySplit','yes','Да, выделены отдельно')}${opt('royaltySplit','no','Нет, одной суммой / техподдержки нет')}</div>
+    ${A.royaltySplit==='no'?flagHtml('F-ROYALTY'):''}
+  `:''}
+
+  ${A.income==='dividends'?`
+    <label class="f" style="margin-top:18px">Получатель прямо или косвенно владеет не менее 25 % капитала?</label>
+    <div class="opts">${opt('share','yes','Да, ≥ 25 %','Помогайка применит 15 % и поставит звёздочку — см. пояснение ниже')}${opt('share','no','Нет, менее 25 %','Ставка 15 %')}</div>
+    ${A.share==='yes'?hint('<b>Позиция помогайки:</b> применяем общую ставку <b>15 %</b> (пп. 5) п. 1 ст. 682) — так же, как в официальном разборе построчного заполнения. Текст пп. 6) при владении ≥ 25 % допускает <b>5 %</b> в пределах 230 000 МРП. Кейс редкий, но разница существенная — в заключении будет звёздочка и рекомендация уточнить позицию письменным запросом в КГД.'):''}
+  `:''}
+
+  ${A.income==='insurance'?hint('Страховые премии по договорам <b>страхования</b> рисков — 15 %; по договорам <b>перестрахования</b> — 5 % (ст. 682 п. 1 пп. 2–3). Прототип считает по ставке страхования.'):''}
+</div>`;
+
+if(c==='S6')return `<div class="card">
+  <div class="q">Где фактически выполнялись работы / оказывались услуги?</div>
+  <div class="qh">Это вопрос для КПН. Место реализации для НДС определяется отдельно и по другим правилам.</div>
+  <div class="opts">
+    ${opt('place','kz','Полностью на территории РК')}
+    ${opt('place','outside','Полностью за пределами РК')}
+    ${opt('place','mixed','Частично там, частично здесь')}
+  </div>
+  ${A.place==='mixed'?`
+    <label class="f" style="margin-top:16px">Есть ли документально подтверждённое распределение стоимости?</label>
+    <div class="opts">${opt('mixedSplit','yes','Да, распределение подтверждено')}${opt('mixedSplit','no','Нет')}</div>
+    ${A.mixedSplit==='no'?flagHtml('F-MIXED'):''}
+  `:''}
+  ${A.place==='outside'&&svc()&&svc().g==='A'?hint('<b>Внимание.</b> Услуги оказаны за пределами РК, но выбранный вид входит в закрытый перечень ст. 679 п. 1 пп. 3) — доход всё равно облагается по ставке 20 %. Освобождение по ст. 681 п. 1 пп. 5) не применяется.'):''}
+  ${A.place==='outside'&&svc()&&svc().g==='B'?hint('Услуги за пределами РК из этой группы <b>не облагаются</b> КПН (ст. 681 п. 1 пп. 5). Но это <b>не освобождает от отражения в форме 101.04</b> — необлагаемые суммы раскрываются в графах W/X приложения при превышении порога 50 000 USD.'):''}
+  ${hint('<b>Место оказания услуг для КПН и место реализации для НДС — разные понятия.</b> Услуга может быть оказана за пределами РК (КПН не возникает), но местом реализации для НДС будет признан Казахстан по месту нахождения покупателя (ст. 459 п. 2 пп. 4). Помогайка считает их отдельно.')}
+</div>`;
+
+if(c==='S7'){const c2=ctry();const tr=TREATY_RATES[c2.c];
+return `<div class="card">
+  <div class="q">Конвенция об избежании двойного налогообложения</div>
+  <div class="qh">С ${c2.n} у РК есть действующая ратифицированная конвенция. Всего действует 55 конвенций.</div>
+  ${tr?`<div class="pill">Ориентировочные договорные ставки: дивиденды ${tr.d} % · вознаграждения ${tr.i} % · роялти ${tr.r} %</div>
+  <div style="font-size:12px;color:var(--muted);margin-top:6px">Данные PwC. Перед применением обязательно сверьте со ст. 10/11/12 текста самой конвенции.</div>`:''}
+  <label class="f" style="margin-top:16px">Применяем освобождение или пониженную ставку по конвенции?</label>
+  <div class="opts">${opt('useConv','yes','Да, применяем')}${opt('useConv','no','Нет, удерживаем по ставке НК')}</div>
+  ${A.useConv==='yes'?`
+    <label class="f" style="margin-top:16px">Получен ли документ, подтверждающий резидентство (сертификат)?</label>
+    <div class="opts">${opt('cert','yes','Да, сертификат получен')}${opt('cert','pending','Ожидаем получение')}${opt('cert','no','Нет, сертификата нет')}</div>
+    ${A.cert&&A.cert!=='yes'?flagHtml('F-CERT-MISSING'):''}
+    <label class="f" style="margin-top:16px">Связан ли доход с деятельностью постоянного учреждения нерезидента в РК?</label>
+    <div class="opts">${opt('pe_link','no','Нет, не связан')}${opt('pe_link','yes','Да, связан','Освобождение не применяется')}</div>
+    ${['dividends','royalty','interest'].includes(A.income)?`
+      <label class="f" style="margin-top:16px">Нерезидент — окончательный (фактический) получатель дохода, а не агент, номинальный держатель или посредник?</label>
+      <div class="opts">${opt('bo','yes','Да, окончательный получатель')}${opt('bo','no','Нет / через посредника','Условие ст. 706 не выполнено')}</div>
+      ${hint('Для дивидендов, вознаграждений и роялти действует <b>усиленный набор из 4 условий</b> (ст. 706), а не 2 как для остальных доходов (ст. 705). Окончательный получатель — «лицо (фактический владелец), которое имеет право владения, пользования, распоряжения доходами и не является посредником».')}
+    `:''}
+    <label class="f" style="margin-top:16px">Использует ли контрагент положения конвенции в интересах третьего лица — нерезидента этой страны?</label>
+    <div class="opts">${opt('conduit','no','Нет, признаков транзитной структуры нет')}${opt('conduit','yes','Да / есть признаки транзитной структуры')}</div>
+    ${A.conduit==='yes'?flagHtml('F-CONDUIT'):''}
+    <label class="f" style="margin-top:16px">Планируете уплатить налог за счёт собственных средств без удержания с нерезидента?</label>
+    <div class="opts">${opt('ownFunds','no','Нет, удерживаем из выплаты')}${opt('ownFunds','yes','Да, за счёт собственных средств')}</div>
+    ${A.ownFunds==='yes'?flagHtml('F-OWN-FUNDS'):''}
+  `:''}
+  ${A.useConv==='yes'&&!['dividends','royalty','interest'].includes(A.income)?hint('Для доходов от работ и услуг конвенции обычно предусматривают <b>полное освобождение</b>: прибыль от предпринимательской деятельности облагается только в стране резидентства при отсутствии постоянного учреждения (ст. 7 конвенции). Пониженные ставки применяются к дивидендам, процентам и роялти.'):''}
+</div>`}
+
+if(c==='S8')return `<div class="card">
+  <div class="q">Чек-лист сертификата резидентства</div>
+  <div class="qh">Отметьте выполненные пункты. Невыполненные попадут в предупреждения итогового заключения.</div>
+  ${[
+   ['c1','Форма документа корректна','Одно из: оригинал, заверенный компетентным органом иностранного государства; нотариально засвидетельствованная копия оригинала; бумажная копия электронного документа с интернет-ресурса компетентного органа. <b>Скан обычного письма от контрагента сертификатом не является.</b> Ст. 702 п. 1'],
+   ['c2','Проставлен апостиль или консульская легализация — либо применимо исключение','Легализация не требуется, если документ размещён на интернет-ресурсе компетентного органа, либо иной порядок установлен международным договором РК, процедурой взаимного согласования или решением органа ЕАЭС. Ст. 702 п. 2. ⚠️ Прямых упоминаний Гаагской конвенции об апостиле, Минской и Кишинёвской конвенций в тексте ст. 702 нет — норма отсылочная. Историческая позиция налоговых органов: Минская/Кишинёвская конвенции не освобождают налоговый сертификат от апостиля'],
+   ['c3','Есть перевод на казахский или русский язык','⚠️ В тексте ст. 702 требования нотариального свидетельствования перевода не обнаружено (аналогичное требование есть в ст. 708 для других документов). Рекомендуется как страховка — практика налоговых органов'],
+   ['c4','Период в документе охватывает год выплаты дохода','Если период не указан — документ действует за календарный год выдачи. Сертификат за 2025 год под выплату 2026 года не подойдёт. Ст. 702 п. 3'],
+   ['c5','Получен от нерезидента в срок','Не позднее более ранней из дат: <b>31 марта</b> года, следующего за налоговым периодом, <b>или</b> за <b>5 рабочих дней</b> до завершения налоговой проверки. Ст. 705 п. 3'],
+   ['c6','Запланирована сдача копии в налоговый орган','Не позднее <b>5 календарных дней</b> после срока сдачи 101.04 за IV квартал, то есть примерно <b>5 апреля</b>. Это <b>вторая, отдельная дата</b> — её часто путают с предыдущим пунктом. Ст. 705 п. 7, ст. 706 п. 3'],
+   ['c7','Если выплата через посредника — в контракте раскрыт окончательный получатель','Наименование посредника, суммы выплат, данные окончательного получателя, его номер налоговой регистрации и данные госрегистрации. Ст. 706 п. 2']
+  ].map(([k,t,d])=>`<label class="chk"><input type="checkbox" ${A[k]?'checked':''} onclick="q('${k}',this.checked)"><span><b>${t}</b><span class="cd">${d}</span></span></label>`).join('')}
+  ${hint('<b>Ответственность.</b> При неправомерном применении освобождения ответственность за неуплаченный налог несёт <b>налоговый агент</b>, а не нерезидент.')}
+</div>`;
+
+if(c==='S4')return `<div class="card">
+  <div class="q">Даты, суммы, курс</div>
+  <div class="qh">Периоды по КПН и по НДС определяются по разным датам и могут не совпадать.</div>
+  <div class="grid2">
+    <div><label class="f">Дата подписания акта / инвойса обеими сторонами</label>
+      <input type="date" value="${A.actDate||''}" onchange="q('actDate',this.value)">
+      <div style="font-size:11.5px;color:var(--muted);margin-top:4px">→ дата совершения оборота для НДС, ст. 460 п. 13</div></div>
+    <div><label class="f">Дата выплаты (платёж, зачёт, передача)</label>
+      <input type="date" value="${A.payDate||''}" onchange="q('payDate',this.value)">
+      <div style="font-size:11.5px;color:var(--muted);margin-top:4px">→ период 101.04 и срок уплаты КПН, ст. 684</div></div>
+  </div>
+  <div class="grid2" style="margin-top:6px">
+    <div><label class="f">Сумма по акту / инвойсу</label><input type="number" step="0.01" value="${A.amount||''}" oninput="A.amount=this.value;syncNav()" onchange="q('amount',this.value)" placeholder="10000"></div>
+    <div><label class="f">Валюта</label>
+      <select onchange="q('currency',this.value)">${['USD','EUR','RUB','CNY','GBP','TRY','AED','CHF','KZT'].map(x=>`<option ${A.currency===x?'selected':''}>${x}</option>`).join('')}</select></div>
+  </div>
+  <label class="f">Официальный курс НБ РК на дату ${(A.payDate||A.actDate)?('<b style="color:var(--txt)">'+(A.payDate||A.actDate).split('-').reverse().join('.')+'</b>'):''}</label>
+  <div style="display:flex;gap:8px">
+    <input type="number" step="0.000001" value="${A.fx||''}" oninput="A.fx=this.value;syncNav()" onchange="q('fx',this.value)" placeholder="520.00">
+    <button onclick="fillFx()" style="white-space:nowrap;padding:9px 14px;font-size:13.5px" ${(A.currency&&A.currency!=='KZT'&&(A.payDate||A.actDate))?'':'disabled'}>Подтянуть с НБ РК</button>
+  </div>
+  ${(()=>{const d=A.payDate||A.actDate,r=rateOn(d);
+    if(!A.currency||A.currency==='KZT')return '';
+    if(!RATES_META)return '<div style="font-size:12px;color:var(--muted);margin-top:6px">Курсы не загружены. Вернитесь на первый шаг и нажмите «Загрузить курсы за квартал», либо введите курс вручную.</div>';
+    if(!d)return '';
+    if(!r)return '<div style="font-size:12px;color:var(--warn);margin-top:6px">На эту дату курс в загруженном периоде отсутствует — расширьте период или введите вручную.</div>';
+    return r.carried
+      ? `<div style="font-size:12.5px;color:var(--warn);margin-top:6px">⚠️ Официальный курс на ${d.split('-').reverse().join('.')} не публиковался (выходной или праздник). Действующим считается курс от <b>${r.sourceDate.split('-').reverse().join('.')}</b> — ${r.rate}.</div>`
+      : `<div style="font-size:12.5px;color:var(--ok);margin-top:6px">Официальный курс НБ РК на ${d.split('-').reverse().join('.')} — <b>${r.rate}</b>.</div>`;
+  })()}
+  ${hint('<b>Какой курс.</b> По тексту нового НК применяется официальный курс <b>на дату</b> выплаты (для КПН по выплаченным доходам) и <b>на дату совершения оборота</b> (для НДС). Старый кодекс использовал курс на предшествующий рабочий день — часть консультационных статей до сих пор пишет так по инерции. Ст. 684 п. 1, ст. 463 п. 2.')}
+  ${A.event==='advance'?flagHtml('F-ADVANCE'):''}
+</div>`;
+
+if(c==='S9'){const s=svc();const c2=ctry();
+return `<div class="card">
+  <div class="q">НДС за нерезидента</div>
+  <div class="qh">Определяем место реализации и проверяем исключения.</div>
+  ${s&&(s.vat==='real_estate')?`<label class="f">Где находится недвижимость?</label>
+    <div class="opts">${opt('vatRealEstate','kz','В Республике Казахстан')}${opt('vatRealEstate','out','За пределами РК')}</div>`:''}
+  ${s&&(s.vat==='place_movable'||s.vat==='place_event')?`<label class="f">Где фактически выполнялись работы / оказывались услуги?</label>
+    <div class="opts">${opt('vatActual','kz','На территории РК')}${opt('vatActual','out','За пределами РК')}</div>`:''}
+  <label class="f" style="margin-top:14px">Применимо ли одно из исключений (ст. 454 п. 3)?</label>
+  <div class="opts">
+    ${opt('vatExempt','none','Нет, исключения не применяются')}
+    ${opt('vatExempt','art474','Услуга освобождена от НДС по ст. 474','Финансовые услуги, вознаграждение по кредитам, культура/наука/образование, медицина, ритуальные, религиозные, соцуслуги, почтовый оператор, въездной туризм')}
+    ${opt('vatExempt','customs','Стоимость включена в таможенную стоимость импортируемых товаров с уплаченным НДС')}
+    ${opt('vatExempt','ict','Оказаны юрлицу по ст. 17 НК по приоритетным видам деятельности в сфере ИКТ','До 01.01.2029')}
+    ${opt('vatExempt','eaeu','Стоимость включена в облагаемый импорт по ст. 518 (ЕАЭС)')}
+    ${opt('vatExempt','branch','Оборот структурного подразделения нерезидента')}
+    ${opt('vatExempt','digital','В стоимость уже включён НДС, уплаченный иностранной компанией по разделу 21','«Налог на Google» — нужен документ с выделенной суммой')}
+  </div>
+  ${s&&s.flag?flagHtml(s.flag):''}
+  ${c2.eaeu?hint('<b>Контрагент из ЕАЭС</b> — применяются правила ст. 515 НК и Приложения № 18 к Договору о ЕАЭС, которые имеют приоритет над ст. 459. Форма 328.00 и заявление о ввозе к работам и услугам <b>не применяются</b> — только к товарам.'):
+   hint('<b>Правило приоритета (ст. 459 п. 5).</b> Если работы или услуги подпадают под несколько подпунктов пункта 2, применяется <b>первый по порядку</b> из этих подпунктов. Например, ремонт оборудования за рубежом попадает под пп. 2 (по месту фактического выполнения) раньше, чем под пп. 4 (по месту покупателя).')}
+</div>`}
+
+if(c==='R')return result();
+return '';
+}
+
+/* ============ РЕЗУЛЬТАТ ============ */
+function result(){
+  const v=evaluate(), c=ctry(), s=svc();
+
+  if(v.exit==='individual') return `<div class="card">
+    <div class="q">Это не форма 101.04</div>
+    <div class="qh">Выплаты физическим лицам-нерезидентам отражаются в другой форме.</div>
+    <div class="res"><div class="ic">📄</div><div class="rt"><div class="rl">Форма отчётности</div><div class="rv">200.00, приложение 200.02</div></div><div class="rd">до 15 числа<br>2-го месяца после квартала</div></div>
+    <h3>Что применяется</h3>
+    <table><tr><th>Вид отношений</th><th>Ставка ИПН</th><th>Норма</th></tr>
+    <tr><td>Договор ГПХ с физлицом-нерезидентом</td><td><b>20 %</b> без вычетов</td><td class="g">ст. 682 п. 1 пп. 1)</td></tr>
+    <tr><td>Трудовой договор (доход работника-нерезидента)</td><td><b>10 %</b> до 8 500 МРП за год, свыше — +15 %</td><td class="g">ст. 682 п. 1 пп. 8)</td></tr>
+    <tr><td>Дивиденды, роялти, прирост стоимости</td><td>15 % (5 % при владении ≥ 25 %)</td><td class="g">ст. 682 п. 1 пп. 5), 6)</td></tr></table>
+    <h3>Обязательные платежи по договору ГПХ</h3>
+    <table><tr><th>Платёж</th><th>Третья страна</th><th>Гражданин ЕАЭС</th></tr>
+    <tr><td>ИПН 20 %</td><td>Да</td><td>Да</td></tr>
+    <tr><td>ОПВ 10 %</td><td>Нет</td><td><b>Да</b></td></tr>
+    <tr><td>ВОСМС 2 %</td><td>Нет</td><td><b>Да</b></td></tr>
+    <tr><td>Соцотчисления 5 %</td><td>Нет</td><td><b>Да</b></td></tr>
+    <tr><td>Соцналог, ОПВР</td><td>Нет</td><td>Нет по ГПХ</td></tr></table>
+    ${hint('<b>Практический блокер.</b> Для перечисления ОПВ и ВОСМС за нерезидента из ЕАЭС обязателен казахстанский <b>ИИН</b> — распределение платежей ведётся по ИИН. ИПН можно удержать и без ИИН.')}
+    ${hint('<b>Срок перечисления ИПН отличается от КПН:</b> не позднее <b>25 числа месяца, следующего за месяцем удержания</b> (ст. 692 п. 6), а не 25 числа второго месяца после квартала.')}
+    ${disclaimer()}</div>`;
+
+  if(v.exit==='pe') return `<div class="card">
+    <div class="q">КПН у источника не удерживается</div>
+    <div class="qh">Договор заключён с постоянным учреждением, счёт-фактура выписана филиалом.</div>
+    <div class="res"><div class="ic">✅</div><div class="rt"><div class="rl">КПН за нерезидента</div><div class="rv">Не удерживается</div></div><div class="rd">ст. 683 п. 1</div></div>
+    <div class="res"><div class="ic">📄</div><div class="rt"><div class="rl">Форма 101.04</div><div class="rv">Операция не отражается</div></div><div class="rd">—</div></div>
+    <h3>Что делает нерезидент</h3>
+    <ul style="font-size:13.5px;color:#c3cbd8">
+      <li>Декларация по КПН, форма <b>100.00</b> — не позднее <b>31 марта</b> (ст. 359)</li>
+      <li>КПН по ставке <b>20 %</b> (ст. 357)</li>
+      <li><b>Налог на чистый доход ПУ — 15 %</b> (ст. 689), уплата в течение 10 календарных дней после срока сдачи 100.00. Может быть понижен конвенцией</li>
+      <li>Не подлежат вычету у ПУ: роялти, вознаграждения за услуги и по займам головной компании, управленческие расходы головной компании</li>
+    </ul>
+    ${hint('<b>Проверьте ещё раз три условия.</b> Снятие удержания работает только при одновременном выполнении: (1) у контрагента есть регистрационное свидетельство и БИН, (2) договор заключён со структурным подразделением, (3) счёт-фактура выписана филиалом с казахстанским БИН. Нарушение любого из них → 20 % без вычетов по ст. 690.')}
+    ${disclaimer()}</div>`;
+
+  const kpnRateTxt = v.kpn.convApplied&&v.kpn.finalRate===0 ? '0 % (освобождение по конвенции)' :
+                     (v.kpn.finalRate*100).toFixed(0)+' %';
+  return `<div class="card">
+  <div class="q">Заключение</div>
+  <div class="qh">${[c.n, (A.income==='services'&&s)?s.l:({goods:'Товары',royalty:'Роялти / лицензия',dividends:'Дивиденды',interest:'Вознаграждение',rent:'Аренда имущества в РК',transport_intl:'Международная перевозка',insurance:'Страховая премия',capital_gain:'Прирост стоимости',penalty:'Неустойка, штраф, пеня'}[A.income]||''), A.period||''].filter(Boolean).join(' · ')}</div>
+
+  <div class="res"><div class="ic">${v.kpn.taxable?(v.kpn.amount>0?'💰':'✅'):'✅'}</div><div class="rt">
+    <div class="rl">КПН за нерезидента${v.kpn.convApplied?' · применена конвенция':''}</div>
+    <div class="rv">${v.kpn.taxable?(v.kpn.amount>0?fmt(v.kpn.amount)+' ₸ · ставка '+kpnRateTxt:'0 ₸ — полное освобождение по конвенции'):'Не облагается'}</div>
+  </div><div class="rd">${v.kpn.taxable&&v.kpn.amount>0?'уплата: 25 к.д. после<br>месяца выплаты':''}</div></div>
+
+  <div class="res"><div class="ic">${v.vat.applicable===true?'💰':v.vat.applicable===null?'⚠️':'✅'}</div><div class="rt">
+    <div class="rl">НДС за нерезидента</div>
+    <div class="rv">${v.vat.applicable===true?fmt(v.vat.amount)+' ₸ · 16 %':v.vat.applicable===null?'Требуется ручная проверка':'Не возникает'}</div>
+    ${v.vat.reason?`<div class="rl" style="margin-top:4px">${v.vat.reason}</div>`:''}
+  </div><div class="rd">${v.vat.applicable===true?'уплата до<br>'+v.rep.vatDeadline:''}</div></div>
+
+  <div class="res"><div class="ic">📄</div><div class="rt">
+    <div class="rl">Форма 101.04</div>
+    <div class="rv">${v.rep.need?(v.rep.mandatory?'Сдаётся обязательно':'Сдаётся при превышении порога 50 000 USD'):'Не требуется'}</div>
+    ${v.rep.need?`<div class="rl" style="margin-top:4px">За ${['I','II','III','IV'][(v.qKpn||1)-1]} квартал ${v.yKpn||''}</div>`:''}
+  </div><div class="rd">${v.rep.need?'срок: '+v.rep.deadline:''}</div></div>
+
+  ${v.vat.applicable===true?`<div class="res"><div class="ic">📄</div><div class="rt">
+    <div class="rl">Форма 300.00, приложение 300.04</div>
+    <div class="rv">За ${['I','II','III','IV'][(v.qVat||1)-1]} квартал ${v.yVat||''}</div>
+    <div class="rl" style="margin-top:4px">Строки 300.00.014 A (оборот) и 300.00.014 B (уплаченный НДС)</div>
+  </div><div class="rd">срок: 15 число<br>2-го месяца</div></div>`:''}
+
+  <h3>Расчёт</h3>
+  <div class="calcrow"><span class="cl">Сумма по акту</span><span class="mono">${fmt(v.amt)} ${A.currency||''}</span></div>
+  <div class="calcrow"><span class="cl">Курс НБ РК${(()=>{const r=rateOn(A.payDate||A.actDate);return r?(r.carried?` · перенос с ${r.sourceDate.split('-').reverse().join('.')}`:' · официальный на дату'):' · введён вручную'})()}</span><span class="mono">${v.fx}</span></div>
+  <div class="calcrow"><span class="cl">База в тенге</span><span class="mono">${fmt(v.base)} ₸</span></div>
+  ${v.kpn.taxable?`<div class="calcrow"><span class="cl">Ставка КПН · ${v.kpn.convApplied?v.convBasis:v.kpn.why}${v.flags.includes('F-DIV-25')?' <b style="color:var(--warn)">*</b>':''}</span><span class="mono">${kpnRateTxt}</span></div>
+  <div class="calcrow total"><span>КПН к перечислению</span><span class="mono">${fmt(v.kpn.amount)} ₸</span></div>`:
+  `<div class="calcrow total"><span>КПН не начисляется</span><span class="mono">${v.kpn.why2}</span></div>`}
+  ${v.vat.applicable===true?`
+  <div class="calcrow" style="margin-top:14px"><span class="cl">База НДС — стоимость по акту <b>включая удерживаемый КПН</b>, ст. 463 п. 1</span><span class="mono">${fmt(v.base)} ₸</span></div>
+  <div class="calcrow"><span class="cl">Ставка НДС · ст. 503 п. 1</span><span class="mono">16 %</span></div>
+  <div class="calcrow total"><span>НДС за нерезидента</span><span class="mono">${fmt(v.vat.amount)} ₸</span></div>
+  ${v.kpn.amount>0?`<div class="calcrow" style="margin-top:10px"><span class="cl">К перечислению нерезиденту (после удержания КПН)</span><span class="mono">${fmt(v.base-v.kpn.amount)} ₸</span></div>`:''}
+  `:''}
+
+  ${v.rep.need?`<h3>Заготовка приложения к форме 101.04</h3>
+  <table>
+    <tr><th>Графа</th><th>Значение</th><th>Основание</th></tr>
+    <tr><td class="g">B</td><td>Месяц квартала выплаты${A.payDate?': '+String(new Date(A.payDate).getMonth()+1).padStart(2,'0'):''}</td><td>дата выплаты</td></tr>
+    <tr><td class="g">C</td><td>Наименование нерезидента</td><td>из договора</td></tr>
+    <tr><td class="g">D</td><td><b>${countryCode()}</b> — ${c.n}</td><td>${c.offshore?'для государств с льготным налогообложением указывается <b>порядковый номер</b> из перечня № 492, а не ISO-код':'ISO alpha-2, приложение 22 к решению КТС № 378'}</td></tr>
+    <tr><td class="g">E</td><td>Налоговый номер нерезидента в стране резидентства</td><td>из сертификата / договора</td></tr>
+    <tr><td class="g">F</td><td><b>${incomeCode()}</b> — ${INCOME_CODES[incomeCode()]||''}</td><td>приложение 5 к приказу № 695, глава 3, п. 19</td></tr>
+    <tr><td class="g">G</td><td>№ и дата контракта · предмет · место оказания услуг · общая сумма · код валюты · Ф.И.О. руководителя и учредителя нерезидента</td><td>расширена с 2024 г.</td></tr>
+    <tr><td class="g">H</td><td>${fmt(v.base)} ₸</td><td>сумма начисленного и выплаченного дохода</td></tr>
+    <tr><td class="g">I</td><td>${v.kpn.taxable?kpnRateTxt:'—'}${v.flags.includes('F-DIV-25')?' <b style="color:var(--warn)">*</b>':''}</td><td>ставка${v.flags.includes('F-DIV-25')?' — <b>* см. предупреждение о пп. 6) п. 1 ст. 682</b>':''}</td></tr>
+    <tr><td class="g">J</td><td>${fmt(v.kpn.amount)} ₸</td><td>сумма налога к перечислению</td></tr>
+    ${v.kpn.convApplied?`<tr><td class="g">Q · R · S · T</td><td>${fmt(v.base)} ₸ · код <b>01</b> · Конвенция об избежании двойного налогообложения · ${c.c}</td><td>освобождение по международному договору. В графу Q попадают и суммы с <b>пониженной</b> договорной ставкой, не только с полным освобождением</td></tr>`:''}
+    ${v.notSource?`<tr><td class="g">U · V</td><td>${fmt(v.base)} ₸ · наименование выплаты, не являющейся доходом из источников в РК</td><td>ст. 680 п. 1 пп. 4)</td></tr>`:''}
+    ${v.notTaxable?`<tr><td class="g">W · X</td><td>${fmt(v.base)} ₸ · доход, не подлежащий налогообложению</td><td>ст. 681 п. 1 пп. 5)</td></tr>`:''}
+    <tr><td class="g">Y</td><td>Учётный номер валютного договора (УНК), если присвоен</td><td>валютный контроль, свыше 50 000 USD</td></tr>
+  </table>
+
+  <h3>Строки основного расчёта 101.04</h3>
+  <table>
+    <tr><th>Строка</th><th>Значение</th><th>Источник</th></tr>
+    <tr><td class="g">101.04.001 ${['I','II','III'][((v.qKpn?new Date(A.payDate||A.actDate).getMonth():0)%3)]}</td><td>${fmt(v.base)} ₸</td><td>итог графы H за месяц квартала</td></tr>
+    <tr><td class="g">101.04.001 IV</td><td>${fmt(v.base)} ₸</td><td>сумма строк I + II + III</td></tr>
+    <tr><td class="g">101.04.002 ${['I','II','III'][((v.qKpn?new Date(A.payDate||A.actDate).getMonth():0)%3)]}</td><td>${fmt(v.kpn.amount)} ₸</td><td>итог графы J за месяц квартала</td></tr>
+    <tr><td class="g">101.04.002 IV</td><td>${fmt(v.kpn.amount)} ₸</td><td>сумма строк I + II + III</td></tr>
+    <tr><td class="g">101.04.003 / 004</td><td>${A.event==='accrued'?fmt(v.base)+' ₸ / '+fmt(v.kpn.amount)+' ₸':'—'}</td><td>начисленные, но невыплаченные доходы на вычетах — только IV квартал, дата отнесения 31 декабря</td></tr>
+    <tr><td class="g">101.04.005 / 006</td><td>—</td><td>доходы по пп. 5) и 6) п. 1 ст. 679 (неотработанный аванс свыше 12 мес.), графы N и P</td></tr>
+  </table>
+
+  <div class="hint" style="margin-top:12px">КБК для уплаты КПН у источника: <b>101 111</b> — юрлица, кроме крупного предпринимательства и нефтяного сектора; <b>101 110</b> — субъекты крупного предпринимательства; <b>101 105</b> — организации нефтяного сектора.</div>`:''}
+
+  <h3>Что сделать и когда</h3>
+  <table id="todo">
+    ${v.kpn.taxable&&v.kpn.amount>0?`<tr><td class="g todo-n"></td><td>Удержать КПН не позднее <b>дня выплаты</b> дохода</td><td class="g">ст. 683 п. 1</td></tr>
+    <tr><td class="g todo-n"></td><td>Перечислить ${fmt(v.kpn.amount)} ₸ — не позднее <b>25 календарных дней</b> после окончания месяца выплаты${A.event==='advance'?' начисления дохода (аванс)':''}</td><td class="g">ст. 684 п. 1</td></tr>`:''}
+    ${v.vat.applicable===true?`<tr><td class="g todo-n"></td><td>Уплатить НДС ${fmt(v.vat.amount)} ₸ — до <b>${v.rep.vatDeadline}</b></td><td class="g">ст. 506</td></tr>
+    <tr><td class="g todo-n"></td><td>Выписать ЭСФ самому себе — <b>не ранее уплаты НДС и не позднее 5 календарных дней</b> после уплаты</td><td class="g">ст. 454 п. 2, 493 п. 9</td></tr>
+    <tr><td class="g todo-n"></td><td>Отнести НДС в зачёт — в периоде <b>даты выписки ЭСФ</b>, при наличии платёжного документа. Обычно это следующий квартал</td><td class="g">ст. 480 п. 7, 481 п. 3</td></tr>`:''}
+    ${v.rep.need?`<tr><td class="g todo-n"></td><td>Сдать форму <b>101.04</b> за ${['I','II','III','IV'][(v.qKpn||1)-1]} квартал — до <b>${v.rep.deadline}</b></td><td class="g">ст. 685</td></tr>`:''}
+    ${v.vat.applicable===true?`<tr><td class="g todo-n"></td><td>Сдать форму <b>300.00</b> с приложением 300.04</td><td class="g">ст. 505</td></tr>`:''}
+    ${v.kpn.convApplied?`<tr><td class="g todo-n"></td><td>Сдать <b>копию сертификата резидентства</b> в налоговый орган — не позднее <b>5 календарных дней</b> после срока сдачи 101.04 за IV квартал (≈ 5 апреля)</td><td class="g">ст. 705 п. 7</td></tr>`:''}
+    ${A.event==='advance'&&A.payDate?`<tr><td class="g todo-n"></td><td>Контрольная дата по авансу: <b>${new Date(new Date(A.payDate).setFullYear(new Date(A.payDate).getFullYear()+1)).toLocaleDateString('ru-RU')}</b> — если нерезидент не исполнит обязательство, сумма станет доходом из источников в РК</td><td class="g">ст. 679 п. 1 пп. 5)</td></tr>`:''}
+  </table>
+
+  ${v.flags.length?`<h3>Предупреждения</h3>${[...new Set(v.flags)].map(flagHtml).join('')}`:''}
+
+  <details><summary>Нормативное обоснование</summary><ul>
+    <li><b>Квалификация дохода:</b> ${v.kpn.why2}</li>
+    <li><b>Ставка:</b> ${v.kpn.convApplied?v.convBasis:v.kpn.why}</li>
+    <li><b>Выплата дохода:</b> ст. 679 п. 2 — включает передачу денег, ценных бумаг, товаров, имущества, выполнение работ, оказание услуг, списание и зачёт требования долга</li>
+    <li><b>Сроки перечисления КПН:</b> ст. 684 п. 1 — 25 календарных дней после окончания месяца выплаты; по начисленным невыплаченным на вычетах — 10 календарных дней после срока сдачи 100.00</li>
+    <li><b>Курс валюты:</b> ст. 684 п. 1 (КПН), ст. 463 п. 2 (НДС) — официальный курс на дату выплаты / совершения оборота</li>
+    <li><b>Форма 101.04:</b> ст. 685; форма утверждена приказом МФ РК от 12.11.2025 № 695, приложение 5</li>
+    ${v.vat.applicable!==false?`<li><b>Оборот по приобретению от нерезидента:</b> ст. 454 п. 1 — только у плательщика НДС</li>
+    <li><b>Место реализации:</b> ${v.vat.placeRule||'ст. 459 п. 2 / ст. 515'}, правило приоритета — ст. 459 п. 5</li>
+    <li><b>База НДС:</b> ст. 463 п. 1 — стоимость по акту, включая КПН, подлежащий удержанию у источника</li>
+    <li><b>Дата совершения оборота:</b> ст. 460 п. 13 — дата подписания акта обеими сторонами; дата признания затрат в бухучёте применяется только при отсутствии акта</li>`:''}
+    ${v.kpn.convApplied?`<li><b>Применение конвенции:</b> ${v.convBasis}; условия — ст. 705 (2 условия) или ст. 706 (4 условия, включая окончательного получателя); антиуклонение — ст. 698 п. 1, п. 2 (MLI/PPT)</li>
+    <li><b>Требования к сертификату:</b> ст. 702</li>`:''}
+    <li><b>Ответственность:</b> КоАП ст. 279 ч. 1 — ${A.size==='large'?'50':A.size==='medium'?'30':'20'} % от неудержанной суммы; ст. 272 ч. 2 — ${A.size==='large'?'70':A.size==='medium'?'45':'30'} МРП при повторном непредставлении отчётности. Освобождение при самокорректировке: дополнительная ФНО + уплата в течение 3 рабочих дней</li>
+  </ul></details>
+
+  ${disclaimer()}
+  </div>`;
+}
+
+function disclaimer(){return `<div class="disc"><b>Дисклеймер.</b> Помогайка формирует расчёт по введённым данным на основании Налогового кодекса РК от 18.07.2025 № 214-VIII в редакции справочника от 17.08.2026. Это <b>не налоговая консультация</b>. Окончательное решение и ответственность за корректность отчётности остаются за налоговым агентом. Позиции со значком ⚠️ требуют сверки с официальным текстом на adilet.zan.kz или обращения к налоговому консультанту.<br><br>
+<b>Известные пробелы прототипа:</b> справочник кодов видов доходов редакции 2026 года не выгружен (графа F выдаётся как кандидат); поимённый список 56 офшорных юрисдикций неполон; спецправило по транспортным услугам в ст. 459 п. 2 пп. 5) подтверждено одним источником; трактовка порога 50 000 USD («налоговый период» или календарный год) спорна.<br><br>
+<span class="mono">rules_version 1.0.0 · internal beta · роли admin / employee</span></div>`}
+
+function renumber(){const t=document.getElementById('todo');if(!t)return;
+  [...t.querySelectorAll('.todo-n')].forEach((td,i)=>td.textContent=i+1)}
+const _render=render; render=function(){_render();renumber()};
+render();
+</script>
+</body>
+</html>
