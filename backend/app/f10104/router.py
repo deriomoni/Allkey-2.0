@@ -36,6 +36,11 @@ SERVICE_CODE = "f10104"
 # Даты приходят из JSON строками — движок ждёт объекты date.
 DATE_ANSWERS = ("S4.1", "S4.2", "S4.3")
 
+# Даты, лежащие ВНУТРИ ответа-объекта. Их легко забыть: верхний уровень
+# разбирается циклом, а вложенная дата тихо доезжает до движка строкой
+# и падает уже там. Пара — ключ ответа и ключ внутри него.
+NESTED_DATE_ANSWERS = (("S4.2a", "rest_payment_date"),)
+
 # Один клиент на процесс: кэш курсов общий для всех пользователей. Курс за
 # прошедшую дату не меняется никогда, поэтому первый запросивший квартал
 # оплачивает загрузку за всех. Кэш пока в памяти — постоянный кэш в PostgreSQL
@@ -187,15 +192,28 @@ def _prepare(answers: dict[str, Any]) -> dict[str, Any]:
     """
     prepared = dict(answers)
     for key in DATE_ANSWERS:
-        value = prepared.get(key)
-        if isinstance(value, str) and value:
-            try:
-                prepared[key] = date.fromisoformat(value)
-            except ValueError as e:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Ответ {key}: ожидается дата в формате ГГГГ-ММ-ДД") from e
+        prepared[key] = _as_date(prepared.get(key), key)
+
+    for key, inner in NESTED_DATE_ANSWERS:
+        block = prepared.get(key)
+        if isinstance(block, dict) and block.get(inner) is not None:
+            block = dict(block)                      # не трогаем вход
+            block[inner] = _as_date(block[inner], f"{key}.{inner}")
+            prepared[key] = block
+
     return prepared
+
+
+def _as_date(value: Any, key: str):
+    """ISO-строка в дату. Не строка — возвращаем как есть."""
+    if not isinstance(value, str) or not value:
+        return value
+    try:
+        return date.fromisoformat(value)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Ответ {key}: ожидается дата в формате ГГГГ-ММ-ДД") from e
 
 
 def _run(answers: dict, as_of: Optional[date], usd_rate: Optional[float]) -> Verdict:

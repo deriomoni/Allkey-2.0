@@ -253,3 +253,49 @@ def test_evaluate_returns_the_explanation_block(make_client):
     # Последняя строка расчёта совпадает с суммой вердикта.
     kpn_line = [c for c in explanation["calc"] if c["label"].startswith("КПН")]
     assert kpn_line and kpn_line[0]["value_kzt"] == 1_050_000
+
+
+def test_partial_advance_survives_the_http_layer(make_client):
+    """Дата внутри ответа-объекта приходит строкой и должна быть разобрана.
+
+    Юнит-тесты движка передают date напрямую и этого не видят: дефект живёт
+    ровно между HTTP и движком. Найден живым прогоном частичного аванса,
+    который до этого падал пятисоткой.
+    """
+    response = make_client("admin").post("/f10104/evaluate", json={
+        "answers": {
+            "S1.1": {"quarter": 2, "year": 2026}, "S1.4": "yes", "S1.5": "EUR",
+            "S2.1": "money", "S2.2": "legal_entity", "S2.3": "DE",
+            "S3.1": "no", "S3.4": "none",
+            "S5.1": "services", "S5.5": "consulting", "S6.1": "outside",
+            "S7.2": "no",
+            "S4.1": "2026-04-15", "S4.2": "2026-03-30", "S4.4": 10000,
+            "S4.5": 500,
+            "S4.2a": {"mode": "partial", "advance_amount": 4000,
+                      "rest_payment_date": "2026-05-20"},
+        },
+        "as_of_date": "2026-06-30",
+    })
+
+    assert response.status_code == 200
+    rule = response.json()["date_rule"]
+    assert rule["rule_id"] == "R-DATE-04"
+    advance, rest = rule["parts"]
+    assert (advance["fx_date"], advance["deadline"]) == ("2026-04-15", "2026-05-25")
+    assert (rest["fx_date"], rest["deadline"]) == ("2026-05-20", "2026-06-25")
+
+
+def test_a_broken_nested_date_is_reported_not_swallowed(make_client):
+    response = make_client("admin").post("/f10104/evaluate", json={
+        "answers": {
+            "S1.1": {"quarter": 2, "year": 2026}, "S1.4": "yes", "S1.5": "KZT",
+            "S2.1": "money", "S2.2": "legal_entity", "S2.3": "DE",
+            "S3.1": "no", "S3.4": "none", "S5.1": "services",
+            "S5.5": "consulting", "S6.1": "outside", "S7.2": "no",
+            "S4.1": "2026-04-15", "S4.2": "2026-03-30", "S4.4": 10000, "S4.5": 1,
+            "S4.2a": {"mode": "partial", "rest_payment_date": "20 мая"},
+        },
+    })
+
+    assert response.status_code == 400
+    assert "S4.2a.rest_payment_date" in response.json()["detail"]
