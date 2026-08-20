@@ -755,15 +755,30 @@ def _apply_convention(answers, refbooks, country, income, nk_rate, v, flag) -> f
     # R-CONV-01.
     if not country.has_convention:
         return nk_rate
-    if answers.get("S7.2") != "yes":
-        # Сертификата нет вовсе — это тот же исход R-CONV-05, что и
-        # несоответствие ст. 702, и именно здесь пользователю важнее всего
-        # увидеть, во что обошлось его отсутствие.
+    document = _residency_document(answers)
+    if document != "ok":
+        # Документа нет, он под вопросом, его ждут — либо он есть, но
+        # пользователь сознательно считает по кодексу. Все четыре случая
+        # дают один исход R-CONV-05, и именно здесь важнее всего показать,
+        # во что обошлось отсутствие документа.
         v.decide("R-CONV-05", False)
+        if document == "declined":
+            v.kpn.basis.append("ст. 682 п. 1 — конвенция не применяется "
+                               "по решению налогового агента, расчёт по ставкам "
+                               "Налогового кодекса")
+            return nk_rate
+        if document == "doubtful":
+            flag("F-CERT-DOUBTFUL")
+        v.kpn.basis.append("ст. 705 п. 3 — документ, подтверждающий резидентство, "
+                           "не получен либо не отвечает требованиям ст. 702, "
+                           "удержание по ставке НК")
+        v.kpn.basis.append("ст. 699–701 — нерезидент вправе подать заявление "
+                           "на возврат налога из бюджета")
+        flag("F-CERT-DEADLINE")
         return nk_rate
 
-    # R-CONV-05. Нет сертификата на дату выплаты — удерживаем по НК.
-    if not v.decide("R-CONV-05", answers.get("S7.3") == "yes"):
+    # R-CONV-05. Документ есть и соответствует ст. 702 — конвенция работает.
+    if not v.decide("R-CONV-05", True):
         v.kpn.basis.append("ст. 705 п. 3 — сертификат резидентства не получен, "
                            "удержание по ставке НК")
         v.kpn.basis.append("ст. 699–701 — нерезидент вправе подать заявление "
@@ -868,6 +883,28 @@ def _treaty_rate(answers, refbooks, country, income, nk_rate, v, flag):
         f"ст. 706 + ст. 10/11/12 конвенции с {country.iso} — предельная ставка "
         f"{pct:g} % (справочная таблица, {block.get('raw', '')})".rstrip(", )") + ")")
     return treaty_rate
+
+
+def _residency_document(answers) -> str:
+    """Состояние документа о резидентстве нерезидента (ст. 702).
+
+    Один вопрос вместо двух. Прежде спрашивалось и «хотите применить
+    конвенцию», и «получен ли документ» — первое не вопрос желания
+    (ст. 682 даёт право, но право обусловлено документом), а второе
+    дублировало первое. Отдельная галочка S7.2a оставлена для редкого,
+    но существующего случая: документ есть, а считать решили по кодексу.
+    """
+    answer = answers.get("S7.2")
+    if answer == "yes" and answers.get("S7.2a") is True:
+        return "declined"
+    if answer == "yes":
+        # Совместимость со старыми черновиками, где соответствие ст. 702
+        # спрашивалось отдельным вопросом S7.3.
+        legacy = answers.get("S7.3")
+        return "ok" if legacy in (None, "", "yes") else "no"
+    if answer in ("doubtful", "pending", "no", None, ""):
+        return answer or "no"
+    return "no"
 
 
 def _treaty_pct(answers, block, income, v=None):

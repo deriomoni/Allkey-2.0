@@ -88,15 +88,19 @@ const VAT_REGISTERED: [string, string][] = [
   ['unsure', 'Не уверен'],
 ]
 
+// ОДНА ОСЬ: чем рассчитались. Стадия — аванс это или обычная выплата —
+// здесь НЕ спрашивается: её выводят даты акта и оплаты (правила R-DATE,
+// backend/app/f10104/dates.py). Прежний список смешивал две оси, и
+// «перечислили деньги» стояло рядом с «выплатили аванс», хотя первое про
+// способ расчёта, а второе про стадию. Вариант «начислили и отнесли
+// на вычеты» тоже убран — это вывод движка, а не ответ пользователя.
 const EVENTS: [string, string][] = [
-  ['payment', 'Перечислили деньги нерезиденту'],
-  ['act_no_payment', 'Подписан акт или получен инвойс, оплаты ещё нет'],
-  ['offset', 'Провели взаимозачёт встречных требований'],
-  ['debt_forgiven', 'Списали (простили) долг нерезидента'],
-  ['property_transfer', 'Передали товар или имущество в счёт обязательства'],
-  ['barter', 'Оказали встречную услугу (бартер)'],
-  ['advance', 'Выплатили аванс (предоплату)'],
-  ['accrued_deducted', 'Начислили доход, не выплатили, но отнесли на вычеты'],
+  ['money', 'Деньгами — перечислением'],
+  ['offset', 'Зачётом встречных требований'],
+  ['property_transfer', 'Передачей товара или иного имущества'],
+  ['counter_supply', 'Встречной поставкой товаров, работ или услуг резидента'],
+  ['debt_forgiven', 'Прощением долга нерезидента'],
+  ['none', 'Расчёта ещё не было'],
 ]
 
 const RECIPIENTS: [string, string][] = [
@@ -144,6 +148,17 @@ const PE_DURATION: [string, string][] = [
   ['construction', 'Строительная площадка'],
   ['dependent_agent', 'Через зависимого агента'],
   ['na', 'Не применимо'],
+]
+
+// Варианты документа о резидентстве — ст. 702. Формулировки перечисляют
+// именно те формы, которые норма признаёт, а не «да / нет»: бухгалтер
+// обязан увидеть, что бумажная копия с сайта компетентного органа годится,
+// а простая ксерокопия без легализации — нет.
+const CERT_DOCUMENT: [string, string][] = [
+  ['yes', 'Да — оригинал или нотариально засвидетельствованная копия с легализацией либо апостилем, или бумажная копия с сайта компетентного органа'],
+  ['doubtful', 'Есть, но соответствие требованиям ст. 702 под вопросом'],
+  ['no', 'Нет'],
+  ['pending', 'Ожидаем от нерезидента'],
 ]
 
 const CERT_STATUS: [string, string][] = [
@@ -343,6 +358,37 @@ function RateField(props: {
 }) {
   const [status, setStatus] = useState<string>('')
   const [busy, setBusy] = useState(false)
+  const [failedFor, setFailedFor] = useState<string>('')
+
+  // Автоподстановка: дата известна, валюта не тенге, значение ещё не задано —
+  // тянем сами. Просить пользователя нажать кнопку, когда курс доступен,
+  // значит переложить на него работу, которую помогайка умеет сделать.
+  // Повторно за той же датой не ходим, если она уже не далась.
+  useEffect(() => {
+    if (!props.day || props.currency === 'KZT' || !props.currency) return
+    if (props.value != null) return
+    if (failedFor === props.day) return
+    let cancelled = false
+    setBusy(true)
+    ratesApi.getOfficial(props.currency, props.day)
+      .then((official) => {
+        if (cancelled) return
+        props.onChange(official.rate)
+        setStatus(official.carriedForward
+          ? `Курс на ${props.day} не публиковался, применён курс от ${official.actualDate} — ${official.rate}`
+          : `Подставлен официальный курс НБ РК на ${props.day} — ${official.rate}`)
+      })
+      .catch(() => {
+        if (cancelled) return
+        // Только здесь предупреждение уместно: подстановка не удалась.
+        setFailedFor(props.day || '')
+        setStatus('Курс за эту дату получить не удалось — она вне загруженного '
+          + 'периода либо НБ РК недоступен. Введите вручную с обоснованием.')
+      })
+      .finally(() => { if (!cancelled) setBusy(false) })
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.day, props.currency])
 
   // Каждый курс тянется на СВОЮ дату отдельно. Переиспользовать один вызов
   // на всю операцию нельзя — это и есть ошибка, от которой поле защищает.
@@ -352,11 +398,14 @@ function RateField(props: {
     try {
       const official = await ratesApi.getOfficial(props.currency, props.day)
       props.onChange(official.rate)
+      setFailedFor('')
       setStatus(official.carriedForward
         ? `Курс на ${props.day} не публиковался, применён курс от ${official.actualDate} — ${official.rate}`
         : `Официальный курс НБ РК на ${props.day} — ${official.rate}`)
     } catch {
-      setStatus('Курс получить не удалось. Введите вручную с обоснованием.')
+      setFailedFor(props.day || '')
+      setStatus('Курс за эту дату получить не удалось — она вне загруженного '
+        + 'периода либо НБ РК недоступен. Введите вручную с обоснованием.')
     } finally {
       setBusy(false)
     }
@@ -1242,6 +1291,37 @@ function ResultScreen({ answers, refbooks, onBack }: {
       )}
 
       {/* ── Блок 6. Нормативное обоснование ── */}
+      {/* Обязательный вывод обратно (ТЗ §4, блок S4-А): движок определил
+          норму — и обязан объяснить её словами, а не оставить пользователя
+          гадать, откуда взялись дата курса и срок. */}
+      {verdict.date_rule?.explanation && (
+        <div style={{
+          marginBottom: 16, padding: '12px 14px', borderRadius: 8,
+          border: '1px solid #bfdbfe', background: '#eff6ff', fontSize: 13.5,
+          lineHeight: 1.6, color: '#1e3a8a',
+        }}>
+          {verdict.date_rule.explanation}
+          {verdict.date_rule.parts?.length > 1 && (
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, marginTop: 9 }}>
+              <tbody>
+                {verdict.date_rule.parts.map((part: any, i: number) => (
+                  <tr key={i}>
+                    <td style={cellL}>{part.label}</td>
+                    <td style={cellR}>{part.subparagraph}</td>
+                    <td style={cellR}>курс на {part.fx_date || '—'}</td>
+                    <td style={cellN}>срок до {part.deadline || '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+          {verdict.date_rule.control_reason && (
+            <div style={{ fontSize: 12.5, color: '#1d4ed8', marginTop: 6 }}>
+              {verdict.date_rule.control_reason}.
+            </div>
+          )}
+        </div>
+      )}
       {kpn.position_chosen && (
         <div style={{
           marginBottom: 16, padding: '12px 14px', borderRadius: 8,
@@ -1559,11 +1639,11 @@ export default function F10104Page() {
             <h3 style={{ marginTop: 0, fontSize: 17 }}>Событие и контрагент</h3>
 
             <Radio
-              question="Что произошло?"
+              question="Чем рассчитались с нерезидентом?"
               options={EVENTS}
               value={answers['S2.1']}
               onChange={(v) => set('S2.1', v)}
-              hint="Взаимозачёт, прощение долга, передача имущества и бартер — это тоже выплата дохода (ст. 679 п. 2)."
+              hint="Зачёт встречных требований, прощение долга и передача имущества — это тоже выплата дохода (ст. 679 п. 2). Аванс это или обычная выплата, помогайка определит сама по датам акта и оплаты — отдельно указывать не нужно."
             />
 
             <Radio
@@ -1804,35 +1884,6 @@ export default function F10104Page() {
               />
             )}
 
-            {answers['S2.1'] === 'advance' && (
-              <>
-                <Radio
-                  question="Доход по этому авансу уже начислен?"
-                  options={YES_NO}
-                  value={answers['S5.9']?.accrued === true ? 'yes'
-                    : answers['S5.9']?.accrued === false ? 'no' : ''}
-                  onChange={(v) => set('S5.9', { ...(answers['S5.9'] || {}), accrued: v === 'yes' })}
-                  hint="Аванс без начисления дохода в форму 101.04 не попадает вовсе."
-                />
-                {answers['S5.9']?.accrued === true && (
-                  <div style={{ marginBottom: 22 }}>
-                    <span style={label}>
-                      Начисленная часть, {answers['S1.5'] || 'валюта договора'} — если начислен не весь аванс
-                    </span>
-                    <input
-                      style={{ ...inputS, maxWidth: 260 }} type="number" min="0"
-                      placeholder="Оставьте пустым, если начислен весь аванс"
-                      value={answers['S5.9']?.accrued_amount ?? ''}
-                      onChange={(e) => set('S5.9', {
-                        ...(answers['S5.9'] || {}),
-                        accrued_amount: e.target.value === '' ? null : Number(e.target.value),
-                      })}
-                    />
-                    <div style={hintS}>Налог считается только с начисленной суммы.</div>
-                  </div>
-                )}
-              </>
-            )}
           </>
         )}
 
@@ -1911,23 +1962,34 @@ export default function F10104Page() {
               применяются не автоматически: условия проверяются ниже.
             </div>
 
+            {/* Применение конвенции — не вопрос желания. Ст. 682 говорит
+                «вправе применить», но право обусловлено документом, и
+                практическая развилка проходит именно по нему (ст. 702). */}
             <Radio
-              question="Хотите применить освобождение или пониженную ставку по конвенции?"
-              options={YES_NO}
+              question="Есть ли у вас документ, подтверждающий резидентство нерезидента, за год выплаты дохода?"
+              options={CERT_DOCUMENT}
               value={answers['S7.2']}
               onChange={(v) => set('S7.2', v)}
-              hint="Ответ «нет» — расчёт по ставкам Налогового кодекса."
+              hint="Основание — ст. 702 НК РК."
             />
 
             {answers['S7.2'] === 'yes' && (
-              <>
-                <Radio
-                  question="Получен ли документ, подтверждающий резидентство?"
-                  options={CERT_STATUS}
-                  value={answers['S7.3']}
-                  onChange={(v) => set('S7.3', v)}
-                  hint="Без сертификата на дату выплаты налог удерживается по ставке НК. Это не потеряно: нерезидент вправе подать заявление на возврат из бюджета (ст. 699–701)."
+              <label style={{
+                display: 'block', marginTop: -14, marginBottom: 20,
+                fontSize: 12.5, color: '#64748b', cursor: 'pointer',
+              }}>
+                <input
+                  type="checkbox" style={{ marginRight: 7 }}
+                  checked={answers['S7.2a'] === true}
+                  onChange={(e) => set('S7.2a', e.target.checked ? true : null)}
                 />
+                Документ есть, но конвенцию не применяем — считать по ставкам
+                Налогового кодекса
+              </label>
+            )}
+
+            {answers['S7.2'] === 'yes' && (
+              <>
                 <Radio
                   question="Связан ли доход с деятельностью постоянного учреждения нерезидента в РК?"
                   options={YES_NO}
@@ -2030,6 +2092,90 @@ export default function F10104Page() {
                 <div style={hintS}>Определяет период формы 101.04 и срок уплаты КПН (ст. 684).</div>
               </div>
             </div>
+
+            {/* Блок S4-А. Спрашиваем только факты. Норму статьи 684, дату
+                курса и срок выводит движок и объясняет словами ниже.
+                Вопроса «это аванс или обычная выплата» здесь нет намеренно:
+                термины «начислено» и «выплачено» — источник самой частой
+                ошибки, и снять этот выбор и есть смысл помогайки. */}
+            <label style={{ display: 'block', marginBottom: 12, fontSize: 13, cursor: 'pointer' }}>
+              <input
+                type="checkbox" style={{ marginRight: 7 }}
+                checked={answers['_noAct'] === true}
+                onChange={(e) => { set('_noAct', e.target.checked ? true : null); if (e.target.checked) set('S4.1', null) }}
+              />
+              Акта ещё нет
+            </label>
+
+            <label style={{ display: 'block', marginBottom: 16, fontSize: 13, cursor: 'pointer' }}>
+              <input
+                type="checkbox" style={{ marginRight: 7 }}
+                checked={answers['_noPayment'] === true}
+                onChange={(e) => { set('_noPayment', e.target.checked ? true : null); if (e.target.checked) set('S4.2', null) }}
+              />
+              Оплаты ещё не было
+            </label>
+
+            {answers['S4.1'] && answers['S4.2'] && answers['S4.2'] < answers['S4.1'] && (
+              <div style={{ marginBottom: 18, padding: '11px 13px', borderRadius: 8,
+                            border: '1px solid #bfdbfe', background: '#eff6ff' }}>
+                <Radio
+                  question="Оплачено полностью или частично?"
+                  options={[['full', 'Полностью'], ['partial', 'Частично, остаток позже']]}
+                  value={answers['S4.2a']?.mode || ''}
+                  onChange={(v) => set('S4.2a', { ...(answers['S4.2a'] || {}), mode: v })}
+                  hint="При частичной предоплате одна операция идёт по двум нормам: аванс по подпункту 3), остаток по подпункту 1). Сроки считаются отдельно."
+                />
+                {answers['S4.2a']?.mode === 'partial' && (
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                    <div>
+                      <span style={label}>Сумма аванса, {answers['S1.5'] || 'валюта'}</span>
+                      <input
+                        style={inputS} type="number" min="0"
+                        value={answers['S4.2a']?.advance_amount ?? ''}
+                        onChange={(e) => set('S4.2a', { ...(answers['S4.2a'] || {}),
+                          advance_amount: e.target.value === '' ? null : Number(e.target.value) })}
+                      />
+                      <div style={hintS}>Остаток посчитается сам.</div>
+                    </div>
+                    <div>
+                      <span style={label}>Дата выплаты остатка</span>
+                      <input
+                        type="date" style={inputS}
+                        value={answers['S4.2a']?.rest_payment_date || ''}
+                        onChange={(e) => set('S4.2a', { ...(answers['S4.2a'] || {}),
+                          rest_payment_date: e.target.value || null })}
+                      />
+                      <div style={hintS}>Пусто — остаток ещё не выплачен.</div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {answers['_noPayment'] === true && answers['S4.1'] && (
+              <div style={{ marginBottom: 18 }}>
+                <Radio
+                  question="Отнесена ли сумма на вычеты в декларации по КПН?"
+                  options={YES_NO}
+                  value={answers['S4.6']?.deducted === true ? 'yes'
+                    : answers['S4.6']?.deducted === false ? 'no' : ''}
+                  onChange={(v) => set('S4.6', { ...(answers['S4.6'] || {}), deducted: v === 'yes' })}
+                  hint="От этого зависит, наступила ли обязанность перечислить налог без выплаты (ст. 684 п. 1 пп. 2))."
+                />
+                {answers['S4.6']?.deducted === true && (
+                  <div>
+                    <span style={label}>Год декларации</span>
+                    <input
+                      style={{ ...inputS, maxWidth: 140 }} type="number" min="2026" max="2030"
+                      value={answers['S4.6']?.year ?? ''}
+                      onChange={(e) => set('S4.6', { ...(answers['S4.6'] || {}),
+                        year: e.target.value === '' ? null : Number(e.target.value) })}
+                    />
+                  </div>
+                )}
+              </div>
+            )}
 
             <div style={{ marginBottom: 18 }}>
               <span style={label}>Сумма по акту или инвойсу, {answers['S1.5'] || 'валюта договора'}</span>
