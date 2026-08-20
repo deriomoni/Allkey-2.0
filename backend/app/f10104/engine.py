@@ -19,6 +19,7 @@ from datetime import date
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Any, Optional
 
+from app.f10104.dates import resolve as resolve_date_rule
 from app.f10104.rules import mrp_to_kzt
 
 # ── Значения ответов, на которые опирается движок ──────────────────────────
@@ -180,6 +181,10 @@ class Verdict:
     flags: list[str] = field(default_factory=list)
     basis: list[str] = field(default_factory=list)
     advance_control_date: Optional[date] = None
+    # Какая норма ст. 684 п. 1 применилась, на какую дату курс и когда платить.
+    # Выводится из фактов (две даты, вычеты, способ расчёта), а не из ответа
+    # пользователя «аванс или нет» — см. app/f10104/dates.py.
+    date_rule: Optional[Any] = None
     fx_used: dict[str, float] = field(default_factory=dict)
     # True, когда даты оборота и выплаты разные, а курс задан один: база НДС
     # посчитана по курсу выплаты, хотя ст. 463 п. 2 требует курс на дату
@@ -445,14 +450,24 @@ def evaluate(answers: dict, refbooks: dict, as_of_date: date,
     accrual_fx = Decimal(str(answers.get("S4.5a") or answers.get("S4.5") or 1))
     turnover_fx = Decimal(str(answers.get("S4.5b") or answers.get("S4.5") or 1))
 
-    # Обязанность удержать возникает от ЛЮБОГО события выплаты, а не только
-    # от аванса: зачёт встречных требований и передача имущества — такая же
-    # выплата, как перечисление денег.
+    # Обязанность удержать возникает от ЛЮБОГО способа расчёта: зачёт
+    # встречных требований и передача имущества — такая же выплата, как
+    # перечисление денег.
     v.decide("payment-event", bool(answers.get("S2.1")))
-    is_advance = answers.get("S2.1") == "advance"
-    if is_advance:
-        v.decide("advance-accrual", bool(answers.get("S5.9")))
-    kpn_fx = accrual_fx if is_advance else payment_fx
+
+    # ── R-DATE. Норму, дату курса и срок выводит движок по фактам.
+    # Вопроса «это аванс или обычная выплата?» пользователю не задаётся:
+    # термины «начислено» и «выплачено» — источник самой частой ошибки
+    # начинающего бухгалтера, и помогайка существует затем, чтобы снять
+    # этот выбор, а не переложить его в других словах.
+    v.date_rule = date_rule = resolve_date_rule(answers)
+    v.decide(date_rule.rule_id, date_rule.obligation_arisen)
+
+    # Курс базы КПН берётся на ту дату, которую назвала норма. Прежнее
+    # «аванс → курс начисления, иначе курс выплаты» было тем же правилом,
+    # но выведенным из ответа пользователя вместо фактов.
+    on_accrual = date_rule.subparagraph in ("пп. 3)", "пп. 4)", "пп. 3) + пп. 1)")
+    kpn_fx = accrual_fx if on_accrual else payment_fx
     base_kzt = _money(amount_fx * kpn_fx)
     vat_base_kzt = _money(amount_fx * turnover_fx)
     if answers.get("S1.5") not in (None, "KZT"):
@@ -509,12 +524,20 @@ def evaluate(answers: dict, refbooks: dict, as_of_date: date,
     # ── Периоды и сроки
     _apply_periods_and_deadlines(answers, refbooks, payment_date, act_date, v, flag)
 
-    # ── Аванс
-    if answers.get("S2.1") == "advance":
+    # ── Норма даты: обоснование и контрольная дата из правила R-DATE
+    v.kpn.basis.extend(date_rule.norms)
+    v.kpn.basis.append(date_rule.explanation)
+    if date_rule.rule_id in ("R-DATE-02", "R-DATE-03", "R-DATE-04"):
         flag("F-ADVANCE")
-        v.kpn.basis.append("ст. 684 п. 1 пп. 3) — срок по дате начисления дохода")
-        if payment_date:
-            v.advance_control_date = _plus_months(payment_date, ADVANCE_CONTROL_MONTHS)
+    # advance_control_date — это НЕ «вернуться, когда подпишут акт».
+    # Это дата из F-ADVANCE: через 12 месяцев неотработанный аванс становится
+    # доходом нерезидента (ст. 679 п. 1 пп. 5) независимо от конвенции.
+    # Контрольная дата самого правила R-DATE живёт в date_rule.control_date
+    # и означает другое — их нельзя сливать в одно поле.
+    if date_rule.rule_id in ("R-DATE-02", "R-DATE-04") and payment_date:
+        v.advance_control_date = _plus_months(payment_date, ADVANCE_CONTROL_MONTHS)
+    if date_rule.deadline:
+        v.deadlines.kpn_payment = date_rule.deadline
 
     # ── R-REP. Отчётность
     _apply_reporting(answers, refbooks, v, flag, usd_rate)
@@ -1154,8 +1177,10 @@ def _fill_graphs(answers, refbooks, country, kind, v) -> None:
     income = answers.get("S5.1")
 
     graphs: dict[str, Any] = {}
-    if payment_date and answers.get("S2.1") != "accrued_deducted":
-        # R-FORM-03: графа B не заполняется для начисленных, но невыплаченных.
+    if payment_date and (v.date_rule is None
+                         or v.date_rule.rule_id not in ("R-DATE-06", "R-DATE-07")):
+        # R-FORM-03: графа B не заполняется для начисленных, но невыплаченных —
+        # а это теперь вывод правила R-DATE, а не отдельный вариант ответа.
         graphs["B"] = f"{payment_date.month:02d}"
     graphs["C"] = counterparty.get("name")
     graphs["D"] = country.graph_d

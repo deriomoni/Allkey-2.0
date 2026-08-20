@@ -149,11 +149,18 @@ def test_T7_china_equipment_plus_supervision_not_split():
 def test_T8_advance_to_india():
     """Срок — 25 к.д. после месяца начисления (ст. 684 п. 1 пп. 3).
     F-ADVANCE, контрольная дата — выплата + 12 месяцев."""
-    v = run(base(**{"S2.3": "IN", "S2.1": ADVANCE, "S5.1": SERVICES,
+    # «Услуги не оказаны» теперь выражается фактом, а не ярлыком: акта нет.
+    # Прежняя редакция кейса ставила S2.1 = advance при заполненном S4.1 из
+    # фикстуры, то есть говорила «это аванс» и тут же противоречила себе
+    # датами. С правилами R-DATE стадию выводят даты, и кейс должен их дать.
+    v = run(base(**{"S2.3": "IN", "S5.1": SERVICES,
                     "S5.5": "consulting", "S6.1": OUTSIDE_KZ, "S7.2": "no",
-                    "S1.5": "USD", "S4.2": date(2026, 3, 20), "S4.4": 30000.0,
-                    "S4.5": 500.0}),
+                    "S1.5": "USD", "S4.1": None, "S4.2": date(2026, 3, 20),
+                    "S4.4": 30000.0, "S4.5": 500.0}),
             on=date(2026, 3, 31))
+
+    assert v.date_rule.rule_id == "R-DATE-02"     # аванс, акта ещё нет
+    assert v.date_rule.fx_date is None            # курс на дату аванса не берём
 
     assert "F-ADVANCE" in v.flags
     assert v.advance_control_date == date(2027, 3, 20)

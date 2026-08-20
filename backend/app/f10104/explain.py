@@ -199,6 +199,20 @@ def explain(answers: dict, refbooks: dict, verdict, as_of_date: date,
 
     for rule_id, applied in verdict.decisions.items():
         record = records.get(rule_id)
+        if record is None and rule_id.startswith("R-DATE-"):
+            # Правила R-DATE объясняют себя сами: движок собирает предложение
+            # с подставленными датами (см. dates.py), и статической записью
+            # в справочнике его не заменить — там нет ни дат, ни выведенной
+            # нормы. Берём готовый текст, а не пишем второй.
+            rule = verdict.date_rule
+            record = {
+                "subject": f"Норма и дата курса ({rule.subparagraph or 'не определена'})",
+                "applied": rule.explanation,
+                "not_applied": rule.explanation,
+                "norms": list(rule.norms),
+                "fork": ["S4.1", "S4.2"],
+                "note": rule.control_reason,
+            }
         if record is None:
             # Развилка есть в коде, а текста для неё нет. Молчать нельзя:
             # пользователь увидит дыру в трассировке и не поймёт, чего не
