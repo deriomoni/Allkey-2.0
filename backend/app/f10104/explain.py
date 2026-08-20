@@ -145,7 +145,8 @@ def _display(key: str, value: Any, refbooks: dict) -> str:
     if isinstance(value, str) and value in labels:
         return labels[value]
     if key == "S1.1" and isinstance(value, dict) and value.get("quarter"):
-        return f"{ROMAN.get(value['quarter'], value['quarter'])} квартал "                f"{value.get('year', '')} года".strip()
+        quarter = ROMAN.get(value["quarter"], value["quarter"])
+        return f"{quarter} квартал {value.get('year', '')} года".strip()
     if isinstance(value, dict):
         parts = [f"{name}: {_display(name, item, refbooks)}"
                  for name, item in value.items() if item not in (None, "")]
