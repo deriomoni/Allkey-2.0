@@ -94,6 +94,24 @@ class Decision:
     counterfactual: Optional[Counterfactual] = None
 
 
+# Короткие подписи видов дохода — РЯДОМ с официальным наименованием из
+# приложения 5, никогда вместо него. Полный текст должен совпадать с тем,
+# что бухгалтер увидит в СОНО; короткий нужен, чтобы строку можно было
+# прочесть глазом, не разбирая полторы строки про паевые фонды.
+INCOME_SHORT_LABELS: dict[str, str] = {
+    "goods": "товары",
+    "services": "работы и услуги",
+    "royalty": "роялти",
+    "dividends": "дивиденды",
+    "interest": "вознаграждение",
+    "rent": "аренда",
+    "transport_intl": "международная перевозка",
+    "insurance": "страховая премия",
+    "capital_gain": "прирост стоимости",
+    "penalty": "неустойка",
+}
+
+
 @dataclass
 class CalcLine:
     """Строка расчёта: как из ответов получилось число."""
@@ -108,6 +126,9 @@ class Explanation:
     applied: list[Decision] = field(default_factory=list)
     not_applied: list[Decision] = field(default_factory=list)
     calc: list[CalcLine] = field(default_factory=list)
+    # Короткое название вида дохода для заголовка блока. Официальное
+    # наименование остаётся внутри текста развилки и не подменяется.
+    income_short: Optional[str] = None
 
     @property
     def decisions(self) -> list[Decision]:
@@ -172,7 +193,8 @@ def explain(answers: dict, refbooks: dict, verdict, as_of_date: date,
             usd_rate: Optional[float] = None) -> Explanation:
     """Объяснение вердикта. Чистая функция, как и сам движок."""
     records = refbooks.get("decisions") or {}
-    result = Explanation(calc=_calc_lines(answers, verdict))
+    result = Explanation(calc=_calc_lines(answers, verdict),
+                         income_short=INCOME_SHORT_LABELS.get(answers.get("S5.1")))
     values = _placeholder_values(answers, refbooks, verdict)
 
     for rule_id, applied in verdict.decisions.items():
@@ -206,10 +228,37 @@ def explain(answers: dict, refbooks: dict, verdict, as_of_date: date,
     return result
 
 
+VOWELS = "аеёиоуыэюя"
+
+
 def _fill(text: str, values: dict[str, str]) -> str:
     for name, value in values.items():
+        if name == "country":
+            text = _fill_country(text, value)
+            continue
         text = text.replace("{" + name + "}", value)
     return text
+
+
+def _fill_country(text: str, country: str) -> str:
+    """Подставить страну и, если нужно, поправить предлог на «со».
+
+    Тексты справочника написаны с предлогом «с»: «Конвенция с {country}».
+    Перед «Словенией», «Швейцарией», «Швецией», «Словакией» нормативная форма —
+    «со»: сочетание с/з/ш/ж плюс согласная. Это исправление грамматики, а не
+    правка формулировки владельца, и делать его в самом справочнике нельзя:
+    предлог там один на все 55 стран. Аббревиатуры исключены — «с США», а не
+    «со США».
+    """
+    needs_so = (
+        len(country) > 1
+        and country[0].lower() in "сзшж"
+        and country[1].lower() not in VOWELS
+        and not country.isupper()
+    )
+    if needs_so:
+        text = text.replace("с {country}", "со {country}")
+    return text.replace("{country}", country)
 
 
 def _placeholder_values(answers: dict, refbooks: dict, verdict) -> dict[str, str]:

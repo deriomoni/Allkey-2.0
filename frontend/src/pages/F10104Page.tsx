@@ -693,6 +693,16 @@ function DisputedPosition({ spec, value, hasBasis, onChange, onHasBasis }: {
 // вариантов, которыми визард рисует вопросы, — второй редакции подписей не
 // заводим. Сервер подписывает только два значения, которые попадают внутрь
 // текстов справочника ({event} и {recipient_type}); остальное здесь.
+//
+// ВОСЕМЬ СТРОК ДУБЛИРОВАНИЯ ЗДЕСЬ — ОСОЗНАННОЕ РЕШЕНИЕ, НЕ НЕДОСМОТР.
+// Значения S2.1 и S2.2 подписаны и тут, и в explain.py (ANSWER_VALUE_LABELS):
+// серверу они нужны для подстановки внутрь текстов справочника. Правильный
+// конец — перенести все четырнадцать списков вариантов на сервер и читать их
+// обеими сторонами. Работа не механическая, и делать её решено ПОСЛЕ проверки
+// первой версии владельцем, отдельным заходом с прогоном: рефакторить
+// проверенный насквозь визард перед самой выкаткой — способ сломать то, что
+// работает, за день до первого живого использования. Решение владельца
+// от 20.08.2026.
 const VALUE_LABELS: Record<string, Record<string, string>> = {
   'S1.4': Object.fromEntries(VAT_REGISTERED),
   'S2.1': Object.fromEntries(EVENTS),
@@ -918,7 +928,11 @@ function ExplanationBlock({ explanation, answerLabels }: {
   }
 
   return (
-    <Collapsible title="Подробнее: почему вывод именно такой">
+    <Collapsible
+      title={explanation.income_short
+        ? `Подробнее: почему вывод именно такой (${explanation.income_short})`
+        : 'Подробнее: почему вывод именно такой'}
+    >
       <div className="f10104-noprint" style={{ marginBottom: 10 }}>
         <button
           className="btn btn-secondary"

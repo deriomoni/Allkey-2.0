@@ -205,3 +205,54 @@ def test_decision_dataclass_shape_is_stable():
     for attribute in ("rule_id", "subject", "applied", "text", "norms",
                       "inputs", "note", "counterfactual"):
         assert hasattr(decision, attribute), attribute
+
+
+# ── Названия стран ─────────────────────────────────────────────────────────
+
+def test_every_convention_country_has_an_instrumental_form():
+    """Страна без падежной формы даст «Конвенция с Албания» — и это уйдёт
+    в документ, который бухгалтер подошьёт в регистр."""
+    from app.f10104.rules import get_country_names  # noqa: PLC0415
+
+    data = get_country_names()
+    for iso in get_rules()["conventions"]["countries"]:
+        assert data["instrumental"].get(iso), iso
+
+
+def test_instrumental_declines_the_name_that_is_shown():
+    """Форма обязана склонять то имя, которое пользователь видит в списке.
+
+    Иначе одна страна в одном документе выглядит как две разные: в анкете
+    «Северная Македония», в объяснении «с Македонией». Проверяем на общем
+    корне — падеж меняет окончание, а не начало слова.
+    """
+    from app.f10104.rules import get_country_names  # noqa: PLC0415
+
+    data = get_country_names()
+    for iso, form in data["instrumental"].items():
+        name = data["names"].get(iso)
+        if not name or name.isupper():          # США и подобные не склоняются
+            continue
+        head = name.split()[-1][:4].lower()     # хвостовое слово, его начало
+        assert head in form.lower(), f"{iso}: «{name}» → «{form}»"
+
+
+def test_preposition_becomes_so_where_grammar_requires_it():
+    """«с Словенией» — не текст для налогового регистра. Аббревиатуры при
+    этом не трогаем: «с США», а не «со США»."""
+    from app.f10104.explain import _fill_country  # noqa: PLC0415
+
+    assert _fill_country("Конвенция с {country}", "Словенией") == "Конвенция со Словенией"
+    assert _fill_country("Конвенция с {country}", "Швейцарией") == "Конвенция со Швейцарией"
+    assert _fill_country("Конвенция с {country}", "США") == "Конвенция с США"
+    assert _fill_country("Конвенция с {country}", "Германией") == "Конвенция с Германией"
+
+
+def test_short_income_label_does_not_replace_the_official_name():
+    """Короткая подпись идёт РЯДОМ: полный текст приложения 5 должен совпадать
+    с тем, что бухгалтер увидит в СОНО, и подменять его нельзя."""
+    _, _, e = dividends()
+    income = next(d for d in e.decisions if d.rule_id == "income-type")
+
+    assert e.income_short == "дивиденды"
+    assert "паевых инвестиционных фондов" in income.text
