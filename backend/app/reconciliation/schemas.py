@@ -69,3 +69,47 @@ class UploadResponse(BaseModel):
     session_id: str
     files: Dict[str, str]
     message: str
+
+
+# --- Currency / Bank reconciliations (auto-detect, без маппинга колонок) ---
+
+class CurrencySettings(BaseModel):
+    session_id: str
+
+
+class BankSettings(BaseModel):
+    session_id: str
+
+
+class CurrencyResult(BaseModel):
+    rows: List[Dict[str, Any]]
+    matched: int
+    off_rate: int
+    no_nb: int
+    no_rate: int = 0
+    no_val: int = 0
+    total_rows: int = 0
+    total_usd: float
+    total_kzt: float
+    threshold: float
+    balance_check: Optional[Dict[str, Any]] = None
+
+
+class BankResult(BaseModel):
+    rows: List[Dict[str, Any]]
+    matched: int
+    only_bank: int
+    only_1c: int
+    bank_in: float
+    bank_out: float
+    c1_in: float
+    c1_out: float
+    open_bank: Optional[float] = None
+    open_c1: Optional[float] = None
+    close_bank: Optional[float] = None
+    close_c1: Optional[float] = None
+    balance_diff: Optional[float] = None
+    gaps: List[Dict[str, Any]] = []
+    split_docs: List[str] = []
+    currency: bool = False
+    cp_mismatch: int = 0

@@ -104,6 +104,11 @@ export default function Layout() {
                 {s.status === 'beta' && <span className="nav-beta-badge">beta</span>}
               </NavLink>
             ))}
+            {isAuthenticated && user?.role !== 'client' && (
+              <NavLink to="/changelog" className={({ isActive }) => isActive ? 'active' : ''} onClick={() => setMobileMenuOpen(false)}>
+                Обновления
+              </NavLink>
+            )}
             {isAuthenticated && user?.role === 'admin' && (
               <>
                 <NavLink to="/users" className={({ isActive }) => isActive ? 'active' : ''} onClick={() => setMobileMenuOpen(false)}>

@@ -245,6 +245,107 @@ export interface ReconciliationResult {
   period_mismatch?: boolean
 }
 
+// ---- Currency reconciliation (USD 1С ↔ Нацбанк) ----
+export interface CurrencyRow {
+  date: string
+  description: string
+  usd: number | null
+  kzt: number | null
+  rate1c: number | null
+  rate_nb: number | null
+  diff: number | null
+  expected_kzt: number | null   // для no_rate: сколько должно было быть по курсу НБ
+  delta_kzt: number | null      // для no_rate: expected_kzt − kzt
+  status: 'ok' | 'off' | 'no_nb' | 'no_rate' | 'no_val'
+}
+
+export interface BalanceCheck {
+  date: string | null
+  saldo_val: number | null
+  saldo_kzt: number | null
+  rate_nb: number | null
+  implied_rate: number | null
+  expected_kzt: number | null
+  diff: number | null
+  mismatch: boolean
+}
+
+export interface CurrencyResult {
+  rows: CurrencyRow[]
+  matched: number
+  off_rate: number
+  no_nb: number
+  no_rate: number
+  no_val: number
+  total_rows: number
+  total_usd: number
+  total_kzt: number
+  threshold: number
+  balance_check: BalanceCheck | null
+}
+
+// ---- Bank statement reconciliation (1С ↔ банк) ----
+export interface BalanceGap {
+  from_date: string
+  to_date: string
+  amount: number
+}
+
+export interface BankRow {
+  date: string
+  date_c1?: string
+  dir: 'in' | 'out'
+  amount: number
+  bank_no: string
+  bank_party: string
+  bank_purpose: string
+  c1_no: string
+  c1_party: string
+  c1_purpose: string
+  parts: number[]
+  status: 'ok' | 'date_diff' | 'only_bank' | 'only_1c'
+}
+
+export interface BankResult {
+  rows: BankRow[]
+  matched: number
+  only_bank: number
+  only_1c: number
+  bank_in: number
+  bank_out: number
+  c1_in: number
+  c1_out: number
+  open_bank: number | null
+  open_c1: number | null
+  close_bank: number | null
+  close_c1: number | null
+  balance_diff: number | null
+  gaps: BalanceGap[]
+  split_docs: string[]
+  currency: boolean
+  cp_mismatch: number
+}
+
+// ---- Changelog (раздел «Обновления», только admin/employee) ----
+export interface ChangelogEntry {
+  id: number
+  date: string                 // ISO "2026-07-27"
+  category: 'fix' | 'feature' | 'improvement'
+  service_code: string | null
+  title: string
+  body: string
+  created_by: number | null
+  created_at: string | null
+}
+
+export interface ChangelogInput {
+  date: string
+  category: 'fix' | 'feature' | 'improvement'
+  service_code?: string | null
+  title: string
+  body?: string
+}
+
 // Auth API
 export const authApi = {
   login: async (data: LoginData) => {
@@ -415,6 +516,46 @@ export const reconciliationApi = {
   downloadCase3: (sessionId: string) => {
     return `${API_URL}/reconciliation/case3/download/${sessionId}`
   },
+
+  // Currency: USD 1С vs Нацбанк
+  uploadCurrency: async (card1c: File, nbRates: File): Promise<UploadResponse> => {
+    const formData = new FormData()
+    formData.append('card_1c', card1c)
+    formData.append('nb_rates', nbRates)
+    const response = await api.post('/reconciliation/currency/upload', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+    return response.data
+  },
+
+  processCurrency: async (sessionId: string): Promise<CurrencyResult> => {
+    const response = await api.post('/reconciliation/currency/process', { session_id: sessionId })
+    return response.data
+  },
+
+  downloadCurrency: (sessionId: string) => {
+    return `${API_URL}/reconciliation/currency/download/${sessionId}`
+  },
+
+  // Bank: карточка 1С vs выписка
+  uploadBank: async (card1c: File, bankStatement: File): Promise<UploadResponse> => {
+    const formData = new FormData()
+    formData.append('card_1c', card1c)
+    formData.append('bank_statement', bankStatement)
+    const response = await api.post('/reconciliation/bank/upload', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+    return response.data
+  },
+
+  processBank: async (sessionId: string): Promise<BankResult> => {
+    const response = await api.post('/reconciliation/bank/process', { session_id: sessionId })
+    return response.data
+  },
+
+  downloadBank: (sessionId: string) => {
+    return `${API_URL}/reconciliation/bank/download/${sessionId}`
+  },
 }
 
 // Licenses API
@@ -482,6 +623,29 @@ export const servicesApi = {
 
   deleteOverride: async (code: string, userId: number) => {
     const response = await api.delete(`/services/${code}/override/${userId}`)
+    return response.data
+  },
+}
+
+// Changelog API
+export const changelogApi = {
+  getAll: async (): Promise<ChangelogEntry[]> => {
+    const response = await api.get('/changelog')
+    return response.data
+  },
+
+  create: async (data: ChangelogInput): Promise<ChangelogEntry> => {
+    const response = await api.post('/changelog', data)
+    return response.data
+  },
+
+  update: async (id: number, data: Partial<ChangelogInput>): Promise<ChangelogEntry> => {
+    const response = await api.patch(`/changelog/${id}`, data)
+    return response.data
+  },
+
+  delete: async (id: number) => {
+    const response = await api.delete(`/changelog/${id}`)
     return response.data
   },
 }

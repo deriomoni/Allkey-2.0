@@ -15,12 +15,14 @@ from app.personnel.crud import crud_router as personnel_crud_router
 from app.personnel.schema_sync import ensure_personnel_schema
 from app.f10104.router import router as f10104_router
 from app.rates.router import router as rates_router
+from app.changelog.router import router as changelog_router, seed_changelog
 from app.database import SessionLocal
 # Import models so they are registered with Base.metadata
 import app.licenses.models  # noqa: F401
 import app.settings.models  # noqa: F401
 import app.services.models  # noqa: F401
 import app.personnel.models  # noqa: F401
+import app.changelog.models  # noqa: F401
 
 # Create database tables
 Base.metadata.create_all(bind=engine)
@@ -35,6 +37,7 @@ async def lifespan(app: FastAPI):
     db = SessionLocal()
     try:
         seed_services(db)
+        seed_changelog(db)
     finally:
         db.close()
     # Startup: launch background cleanup
@@ -79,6 +82,7 @@ app.include_router(personnel_crud_router)
 app.include_router(f10104_router)
 # Курсы НБ РК — общий сервис, доступен любому аутентифицированному пользователю.
 app.include_router(rates_router)
+app.include_router(changelog_router)
 
 
 @app.get("/")

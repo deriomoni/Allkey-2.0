@@ -8,12 +8,15 @@ import Case2Page from './pages/Case2Page'
 import Case3Page from './pages/Case3Page'
 import HrPage from './pages/HrPage'
 import F10104Page from './pages/F10104Page'
+import CurrencyPage from './pages/CurrencyPage'
+import BankPage from './pages/BankPage'
 import UsersPage from './pages/UsersPage'
 import SettingsPage from './pages/SettingsPage'
 import AccessPage from './pages/AccessPage'
+import ChangelogPage from './pages/ChangelogPage'
 
-function ProtectedRoute({ children, service }: { children: React.ReactNode; service?: string }) {
-  const { isAuthenticated, loading, services } = useAuth()
+function ProtectedRoute({ children, service, staffOnly }: { children: React.ReactNode; service?: string; staffOnly?: boolean }) {
+  const { isAuthenticated, loading, services, user } = useAuth()
 
   if (loading) {
     return <div className="loading">Загрузка...</div>
@@ -25,6 +28,11 @@ function ProtectedRoute({ children, service }: { children: React.ReactNode; serv
 
   // UX-only guard; the backend (require_service) is the real gate.
   if (service && !services.some((s) => s.code === service)) {
+    return <Navigate to="/" replace />
+  }
+
+  // UX-only guard; the backend (require_staff) is the real gate.
+  if (staffOnly && user?.role === 'client') {
     return <Navigate to="/" replace />
   }
 
@@ -43,6 +51,9 @@ function App() {
           <Route path="case3" element={<ProtectedRoute service="case3"><div className="container"><Case3Page /></div></ProtectedRoute>} />
           <Route path="hr" element={<ProtectedRoute service="hr"><div className="container"><HrPage /></div></ProtectedRoute>} />
           <Route path="f10104" element={<ProtectedRoute service="f10104"><div className="container"><F10104Page /></div></ProtectedRoute>} />
+          <Route path="case_currency" element={<ProtectedRoute service="case_currency"><div className="container"><CurrencyPage /></div></ProtectedRoute>} />
+          <Route path="case_bank" element={<ProtectedRoute service="case_bank"><div className="container"><BankPage /></div></ProtectedRoute>} />
+          <Route path="changelog" element={<ProtectedRoute staffOnly><div className="container"><ChangelogPage /></div></ProtectedRoute>} />
           <Route path="users" element={<ProtectedRoute><UsersPage /></ProtectedRoute>} />
           <Route path="access" element={<ProtectedRoute><AccessPage /></ProtectedRoute>} />
           <Route path="settings" element={<ProtectedRoute><div className="container"><SettingsPage /></div></ProtectedRoute>} />
