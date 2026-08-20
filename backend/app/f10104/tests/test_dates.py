@@ -210,3 +210,48 @@ def test_later_date_hint_is_marked_as_a_self_check_not_a_norm():
     норму нельзя — под каждый случай там своё правило."""
     assert "не норма" in LATER_DATE_HINT
     assert "проверить себя" in LATER_DATE_HINT
+
+
+# ── Две контрольные даты, которые нельзя сливать ───────────────────────────
+
+def test_the_two_control_dates_coexist_and_differ():
+    """У открытого аванса контрольных дат ДВЕ, и они про разное.
+
+    R-DATE ставит «вернуться, когда подпишут акт» — это про срок уплаты:
+    пока акта нет, дата курса неизвестна и обязанность не наступила.
+    F-ADVANCE ставит «через 12 месяцев» — это про ст. 679 п. 1 пп. 5):
+    неотработанный аванс сам становится доходом нерезидента, независимо
+    от конвенции.
+
+    Слить их в одно поле — значит показать бухгалтеру одну дату вместо двух,
+    и пропущенной окажется вторая: та, о которой никто не помнит, потому что
+    она наступает через год и не связана ни с каким документом.
+    """
+    from datetime import date as d  # noqa: PLC0415
+
+    from app.f10104.engine import evaluate  # noqa: PLC0415
+    from app.f10104.rules import get_rules  # noqa: PLC0415
+
+    from .answers import base  # noqa: PLC0415
+
+    answers = base(**{
+        "S2.3": "IN", "S5.1": "services", "S5.5": "consulting",
+        "S6.1": "outside", "S7.2": "no", "S1.5": "USD",
+        "S4.1": None, "S4.2": d(2026, 3, 20), "S4.4": 30000.0, "S4.5": 500.0,
+    })
+    v = evaluate(answers, refbooks=get_rules(), as_of_date=d(2026, 3, 31))
+
+    assert v.date_rule.rule_id == "R-DATE-02"
+
+    near = v.date_rule.control_date          # вернуться после акта
+    far = v.advance_control_date             # аванс станет доходом
+
+    assert near is not None, "потеряна контрольная дата правила R-DATE"
+    assert far is not None, "потеряна контрольная дата F-ADVANCE"
+    assert near != far, "две контрольные даты слились в одну"
+    assert near < far, "порядок дат перепутан: ближняя должна быть раньше"
+
+    assert near == d(2026, 3, 31)            # конец месяца аванса
+    assert far == d(2027, 3, 20)             # выплата плюс 12 месяцев
+    assert "F-ADVANCE" in v.flags
+    assert v.date_rule.control_reason        # у ближней есть своё объяснение

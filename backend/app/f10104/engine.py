@@ -341,7 +341,7 @@ def _income_code(answers: dict, country: Country, kind: Optional[dict]) -> str:
 
 # ── База по КПН ────────────────────────────────────────────────────────────
 
-def _taxable_amount_fx(answers: dict) -> Decimal:
+def _taxable_amount_fx(answers: dict, date_rule=None) -> Decimal:
     """Сумма в валюте договора, попадающая в базу.
 
     Три случая, все из ТЗ:
@@ -349,9 +349,23 @@ def _taxable_amount_fx(answers: dict) -> Decimal:
     * аванс с частичным начислением → только начисленная часть (R-KPN-19);
     * иначе — вся сумма по акту (S4.4).
     """
+    # Аванс без акта (R-DATE-02): доход ещё не начислен, базы нет.
+    # Прежде это приходило ярлыком S5.9.accrued = False, теперь выводится
+    # из фактов — ярлык принимается только из старых черновиков.
+    if date_rule is not None and date_rule.rule_id == "R-DATE-02":
+        return Decimal("0")                       # R-KPN-19: дохода нет
+
     accrual = answers.get("S5.9") or {}
     if accrual and accrual.get("accrued") is False:
         return Decimal("0")                       # R-KPN-19: дохода нет
+    # ВНИМАНИЕ. Частичное начисление (`accrued_amount`) движок читает, но
+    # с 21.08.2026 ни один экран его не задаёт: блок S5.9 убран вместе
+    # с вопросом «доход по авансу уже начислен?», а в фактах S4-А места
+    # под «начислена часть суммы» нет. Путь жив и покрыт контрольным
+    # набором (строка PPP_ME, начислено 4 000 из 4 500), но из интерфейса
+    # недостижим. Нужно решение владельца: либо факт возвращается в S4-А,
+    # либо путь удаляется. Молча оставлять нельзя — это скрытая половина
+    # поведения.
     if accrual.get("accrued_amount") is not None:
         return Decimal(str(accrual["accrued_amount"]))
 
@@ -445,7 +459,12 @@ def evaluate(answers: dict, refbooks: dict, as_of_date: date,
     #   S4.5b — курс на дату оборота      → база НДС (ст. 463 п. 2).
     # Если отдельный курс не указан, берётся курс выплаты — поведение по
     # умолчанию не меняется.
-    amount_fx = _taxable_amount_fx(answers)
+    # ── R-DATE. Норму, дату курса и срок выводит движок по фактам.
+    # Считается ДО базы: от правила зависит, начислен ли доход вообще.
+    v.date_rule = date_rule = resolve_date_rule(answers)
+    v.decide(date_rule.rule_id, date_rule.obligation_arisen)
+
+    amount_fx = _taxable_amount_fx(answers, date_rule)
     payment_fx = Decimal(str(answers.get("S4.5") or 1))
     accrual_fx = Decimal(str(answers.get("S4.5a") or answers.get("S4.5") or 1))
     turnover_fx = Decimal(str(answers.get("S4.5b") or answers.get("S4.5") or 1))
@@ -454,14 +473,6 @@ def evaluate(answers: dict, refbooks: dict, as_of_date: date,
     # встречных требований и передача имущества — такая же выплата, как
     # перечисление денег.
     v.decide("payment-event", bool(answers.get("S2.1")))
-
-    # ── R-DATE. Норму, дату курса и срок выводит движок по фактам.
-    # Вопроса «это аванс или обычная выплата?» пользователю не задаётся:
-    # термины «начислено» и «выплачено» — источник самой частой ошибки
-    # начинающего бухгалтера, и помогайка существует затем, чтобы снять
-    # этот выбор, а не переложить его в других словах.
-    v.date_rule = date_rule = resolve_date_rule(answers)
-    v.decide(date_rule.rule_id, date_rule.obligation_arisen)
 
     # Курс базы КПН берётся на ту дату, которую назвала норма. Прежнее
     # «аванс → курс начисления, иначе курс выплаты» было тем же правилом,
@@ -1096,7 +1107,12 @@ def _apply_reporting(answers, refbooks, v, flag, usd_rate=None) -> None:
         if quarter else None
 
     accrual = answers.get("S5.9") or {}
-    if accrual.get("accrued") is False:
+    # Аванс без начисления дохода — это R-DATE-02: оплата есть, акта нет.
+    # Прежде состояние приходило ярлыком S5.9.accrued, теперь выводится
+    # из фактов; ярлык принимается только из старых черновиков.
+    open_advance = (v.date_rule is not None
+                    and v.date_rule.rule_id == "R-DATE-02")
+    if open_advance or accrual.get("accrued") is False:
         # R-KPN-19. Аванс без начисления дохода в форму не попадает вовсе.
         v.reporting.reported_in_form = False
         v.reporting.form_101_04_required = False

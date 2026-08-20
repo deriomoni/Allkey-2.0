@@ -13,7 +13,7 @@ import pytest
 from app.f10104.rules import get_rules
 
 from .answers import (
-    base, ADVANCE, BRANCH_KZ, GOODS, INDIVIDUAL,
+    base, BRANCH_KZ, GOODS, INDIVIDUAL,
     IN_KZ, OFFSET, OUTSIDE_KZ, ROYALTY, SERVICES, TRANSPORT_INTL,
 )
 
@@ -449,13 +449,19 @@ def test_vat_base_uses_turnover_date_rate_not_payment_date():
 def test_advance_uses_accrual_date_rate_for_kpn():
     """При авансе КПН считается по курсу на дату начисления дохода
     (ст. 684 п. 1 пп. 3), а не на дату перечисления денег."""
+    # Аванс выражается фактами: деньги ушли 20.03, акт подписан позже, 15.04.
+    # Прежде стадия задавалась ярлыком S2.1 = advance, а даты из фикстуры
+    # говорили обратное — оплата стояла ПОСЛЕ акта, то есть кейс проверял
+    # разметку, а не поведение движка.
     v = run(base(**{
-        "S2.3": "IN", "S2.1": ADVANCE, "S5.1": SERVICES, "S5.5": "consulting",
+        "S2.3": "IN", "S5.1": SERVICES, "S5.5": "consulting",
         "S6.1": OUTSIDE_KZ, "S7.2": "no", "S1.5": "USD",
-        "S4.2": date(2026, 3, 20), "S4.4": 30000.0,
+        "S4.1": date(2026, 4, 15), "S4.2": date(2026, 3, 20), "S4.4": 30000.0,
         "S4.5": 500.0,      # курс на дату выплаты аванса
         "S4.5a": 520.0,     # курс на дату начисления
-    }), on=date(2026, 3, 31))
+    }), on=date(2026, 5, 31))
+
+    assert v.date_rule.rule_id == "R-DATE-03"   # аванс закрыт актом
 
     assert v.kpn.base_kzt == 15_600_000       # 30 000 × 520, не × 500
     assert v.fx_used["kpn"] == 520.0

@@ -14,7 +14,7 @@ from datetime import date
 from app.f10104.rules import get_rules
 
 from .answers import (
-    base, ADVANCE, DIVIDENDS, IN_KZ, OUTSIDE_KZ, PENALTY, RENT, ROYALTY,
+    base, DIVIDENDS, IN_KZ, OUTSIDE_KZ, PENALTY, RENT, ROYALTY,
     SERVICES, TRANSPORT_INTL,
 )
 
@@ -55,8 +55,10 @@ AAA_TH = row(**{
     "S2.3": "TH", "S5.1": PENALTY, "S7.2": "no",
     "S1.5": "THB", "S4.4": 5740.0, "S4.5": 16.33, "S4.1": M1, "S4.2": M1,
 })
+# Ярлык «аванс» здесь был рудиментом: в публикации это обычная выплата,
+# и даты акта и оплаты всегда это и говорили. Убран, ожидания не менялись.
 BBB_NL = row(**{
-    "S2.3": "NL", "S2.1": ADVANCE, "S5.1": TRANSPORT_INTL,
+    "S2.3": "NL", "S5.1": TRANSPORT_INTL,
     "S7.2": "yes", "S7.3": "no",                    # сертификата нет
     "S1.5": "EUR", "S4.4": 7000.0, "S4.5": 591.00, "S4.1": M2, "S4.2": M2,
 })
@@ -238,11 +240,17 @@ def test_control_proba_ru_dividends_share_30():
 def test_control_brain_au_advance_only_is_not_in_the_form():
     """Австралия, роялти, только предоплата. Доход не начислен → движок не
     должен создавать строку в форме вовсе (R-KPN-19)."""
+    # «Только предоплата, доход не начислен» выражается фактами: деньги
+    # ушли, акта нет. Прежде состояние задавалось ярлыком S2.1 = advance
+    # и ответом S5.9, причём даты фикстуры говорили обратное — акт и оплата
+    # стояли одним днём. Кейс проверял собственную разметку.
     v = run(row(**{
-        "S2.3": "AU", "S2.1": ADVANCE, "S5.1": ROYALTY, "S7.2": "no",
+        "S2.3": "AU", "S5.1": ROYALTY, "S7.2": "no",
         "S1.5": "USD", "S4.4": 12000.0, "S4.5": 500.0,
-        "S5.9": {"accrued": False},
+        "S4.1": None, "S4.2": M1,
     }))
+
+    assert v.date_rule.rule_id == "R-DATE-02"
 
     assert v.reporting.reported_in_form is False
     assert v.kpn.base_kzt == 0
