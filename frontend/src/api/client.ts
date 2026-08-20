@@ -884,6 +884,31 @@ export interface F10104Refbooks {
   flags: Record<string, F10104Flag>
   vat_exemptions: { id: string; label: string }[]
   disclaimer: { text: string; print_footer: string; manual_review_banner: string }
+  // Спорная ставка по дивидендам: обе позиции и условия выбора. Тексты
+  // приходят с сервера — своей редакции спорной нормы у интерфейса нет.
+  disputed_dividends: F10104DisputedDividends
+}
+
+export interface F10104DisputedPosition {
+  id: string
+  rate: number
+  basis: string
+  argument?: string
+  progressive?: { threshold_mrp: number; rate_above: number }
+}
+
+export interface F10104DisputedDividends {
+  label: string
+  positions: F10104DisputedPosition[]
+  what_to_check: string | null
+  money_at_stake: string | null
+  user_resolution: {
+    answer_key: string
+    basis_answer_key: string
+    requires_basis: boolean
+    values: string[]
+    rules: string[]
+  }
 }
 
 // Ответы визарда: ключ — идентификатор вопроса из ТЗ §4 («S1.1», «S4.2»).
@@ -897,6 +922,19 @@ export const f10104Api = {
   // Расчёт целиком на сервере: налоговой логики на фронтенде нет.
   evaluate: async (answers: F10104Answers): Promise<Record<string, any>> =>
     (await api.post('/f10104/evaluate', { answers })).data,
+
+  // Текст статьи по ссылке вида «ст. 682 п. 1 пп. 5)». Тянется по клику,
+  // а не заранее: файл статей — 417 КБ, грузить его ради двух ссылок незачем.
+  getArticle: async (ref: string): Promise<F10104Article> =>
+    (await api.get('/f10104/article', { params: { ref } })).data,
+}
+
+export interface F10104Article {
+  kind: 'nk' | 'treaty' | 'other_code' | 'missing' | 'unparsed'
+  ref: string
+  title?: string | null
+  text?: string | null
+  note?: string | null
 }
 
 // ─── Курсы валют НБ РК ─────────────────────────────────────────────────────

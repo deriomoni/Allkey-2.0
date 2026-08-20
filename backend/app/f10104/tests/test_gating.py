@@ -204,3 +204,35 @@ def test_refbooks_carry_flag_texts_for_live_warnings(make_client):
     assert "KZT" in body["currencies"]
     # Исключения ст. 454 п. 3 — чек-лист шага S9, формулировки из справочника.
     assert any(e["id"] == "art474" for e in body["vat_exemptions"])
+
+
+def test_evaluate_returns_the_explanation_block(make_client):
+    """Блок 2 приходит вместе с вердиктом: отдельного запроса за объяснением
+    нет — иначе экран мог бы показать расчёт без причин или причины от другого
+    набора ответов."""
+    response = make_client("employee").post("/f10104/evaluate", json={
+        "answers": {
+            "S1.1": {"quarter": 1, "year": 2026}, "S1.4": "yes", "S1.5": "KZT",
+            "S2.1": "payment", "S2.2": "legal_entity", "S2.3": "RU",
+            "S3.1": "no", "S3.4": "none",
+            "S5.1": "dividends", "S5.8": {"share_pct": 70,
+                                          "position": "pp5_15pct",
+                                          "position_basis": "письмо КГД № 1"},
+            "S7.2": "no",
+            "S4.1": "2026-03-10", "S4.2": "2026-03-20",
+            "S4.4": 7000000, "S4.5": 1,
+        },
+        "as_of_date": "2026-03-31",
+    })
+
+    assert response.status_code == 200
+    payload = response.json()
+    explanation = payload["explanation"]
+
+    assert explanation["applied"] and explanation["not_applied"]
+    assert payload["kpn"]["amount_kzt"] == 1_050_000
+    # Сырой журнал развилок фронту не отдаётся: он уже разобран в explanation.
+    assert "decisions" not in payload
+    # Последняя строка расчёта совпадает с суммой вердикта.
+    kpn_line = [c for c in explanation["calc"] if c["label"].startswith("КПН")]
+    assert kpn_line and kpn_line[0]["value_kzt"] == 1_050_000

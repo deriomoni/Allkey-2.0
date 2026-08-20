@@ -21,8 +21,11 @@ from typing import Any, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.f10104.engine import EngineError, Verdict, aggregate_form, evaluate
+from app.f10104.explain import explain
 from app.rates.nbrk_rates import NbrkRates
-from app.f10104.rules import country_options, get_country_names, get_rules, mrp_to_kzt
+from app.f10104.rules import (
+    country_options, get_country_names, get_rules, mrp_to_kzt, resolve_article,
+)
 from app.f10104.schemas import AggregateRequest, EvaluateRequest, FlagInfo
 from app.personnel.rates import get_rates
 from app.services.dependencies import require_service
@@ -104,11 +107,32 @@ async def refbooks(_: User = Depends(require_service(SERVICE_CODE))) -> dict:
         # Исключения ст. 454 п. 3 — чек-лист на шаге S9. Формулировки из
         # справочника: интерфейс их не сочиняет.
         "vat_exemptions": rules["vat_exemptions_454_3"],
+        # Спорная ставка по дивидендам: обе позиции, тексты и правила выбора.
+        # Визард показывает их дословно — своей редакции спорной нормы у него
+        # быть не может, иначе на экране окажется третья версия текста.
+        "disputed_dividends": _disputed_dividends(),
         # Дисклеймер и правило manual_review — целиком из справочника.
         # Версия, дата справочника и дата формирования подставляются здесь:
         # в интерфейсе не должно остаться константы, которую забудут поправить.
         "disclaimer": _disclaimer(),
     }
+
+
+@router.get("/article")
+async def article(
+    ref: str,
+    _: User = Depends(require_service(SERVICE_CODE)),
+) -> dict:
+    """Текст статьи Налогового кодекса по ссылке вида «ст. 682 п. 1 пп. 5)».
+
+    Ленивая загрузка по клику: файл статей 417 КБ, отдавать его вместе со
+    справочниками нельзя. Кэшируется навсегда — текст кодекса в пределах
+    редакции не меняется.
+
+    Ссылки на конвенции сюда не ведут: «ст. 10 конвенции» и «ст. 10 НК» —
+    разные нормы, и резолвер их различает.
+    """
+    return resolve_article(ref)
 
 
 @router.post("/evaluate")
@@ -120,7 +144,14 @@ async def evaluate_operation(
     answers = _prepare(payload.answers)
     usd_rate = await _usd_rate_if_needed(answers)
     verdict = _run(answers, payload.as_of_date, usd_rate)
-    return _serialize(verdict)
+    result = _serialize(verdict)
+    # Блок 2 экрана результата (ТЗ §6). Собирается здесь, а не на фронте:
+    # формулировки живут в справочнике, и переносить их в TypeScript значило бы
+    # завести вторую редакцию налоговых текстов.
+    result["explanation"] = asdict(
+        explain(answers, get_rules(), verdict,
+                payload.as_of_date or date.today(), usd_rate))
+    return result
 
 
 @router.post("/aggregate")
@@ -205,10 +236,25 @@ def _serialize(verdict: Verdict) -> dict:
     """Вердикт в JSON плюс тексты сработавших флагов из справочника."""
     payload = asdict(verdict)
     payload.pop("_flag_severity", None)
+    payload.pop("decisions", None)   # журнал развилок отдаётся разобранным
+                                     # в explanation, сырой он фронту не нужен
     payload["flags_detail"] = [
         _flag_info(code).model_dump() for code in verdict.flags
     ]
     return payload
+
+
+def _disputed_dividends() -> dict:
+    """Позиции по спорной ставке дивидендов и условия выбора (R-KPN-08)."""
+    record = next(r for r in get_rules()["kpn_rates"]
+                  if r["code"] == "dividends_25")
+    return {
+        "label": record.get("label"),
+        "positions": record.get("positions") or [],
+        "what_to_check": record.get("what_to_check"),
+        "money_at_stake": record.get("money_at_stake"),
+        "user_resolution": record.get("user_resolution") or {},
+    }
 
 
 def _disclaimer() -> dict:

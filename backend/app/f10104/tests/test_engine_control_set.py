@@ -10,6 +10,7 @@
 from datetime import date
 
 
+
 from app.f10104.rules import get_rules
 
 from .answers import (
@@ -79,13 +80,22 @@ RRR_CA = exempt_by_convention(**{
     "S1.5": "CAD", "S4.4": 20000.0, "S4.5": 363.00, "S4.1": M3, "S4.2": M3,
 })
 SORT_RU = row(**{
-    "S2.3": "RU", "S5.1": DIVIDENDS, "S5.8": {"share_pct": 70}, "S7.2": "no",
+    "S2.3": "RU", "S5.1": DIVIDENDS, "S5.8": {"share_pct": 70, "position": "pp5_15pct",
+              "position_basis": "построчный разбор С. Зуевой и Г. Умрихиной"}, "S7.2": "no",
     "S1.5": "KZT", "S4.4": 7_000_000.0, "S4.5": 1.0, "S4.1": M3, "S4.2": M3,
 })
 PROBA_RU = row(**{
-    "S2.3": "RU", "S5.1": DIVIDENDS, "S5.8": {"share_pct": 30}, "S7.2": "no",
+    "S2.3": "RU", "S5.1": DIVIDENDS, "S5.8": {"share_pct": 30, "position": "pp5_15pct",
+              "position_basis": "построчный разбор С. Зуевой и Г. Умрихиной"}, "S7.2": "no",
     "S1.5": "KZT", "S4.4": 3_000_000.0, "S4.5": 1.0, "S4.1": M3, "S4.2": M3,
 })
+
+# ДВЕ СТРОКИ С ДИВИДЕНДАМИ ПИНЯТ ПОЗИЦИЮ пп. 5). С редакции справочника 1.5.0
+# ставка при доле 25 % и выше спорна, и по умолчанию движок числа не даёт.
+# Публикация применила 15 % — это позиция пп. 5). Чтобы регрессия против
+# публикации продолжала работать, набор выбирает её явно, с обоснованием
+# «построчный разбор С. Зуевой и Г. Умрихиной». Так тест по-прежнему ловит
+# расхождения с источником, а поведение по умолчанию остаётся нетронутым.
 
 ALL_ROWS = [ABC_GB, MBA_DE, AAA_TH, BBB_NL, GLOBAL_US,
             PPP_ME, CCC_RU, RRR_CA, SORT_RU, PROBA_RU]
@@ -196,8 +206,10 @@ def test_control_rrr_ca_audit_exempt():
 
 
 def test_control_sort_ru_dividends_share_70():
-    """7 000 000 ₸ × 15 % = 1 050 000 ₸ · код 1100 · флаг F-DIV-25.
-    Графа G не заполняется (R-FORM-04) — основание протокол общего собрания."""
+    """7 000 000 ₸ × 15 % = 1 050 000 ₸ при явно выбранной позиции пп. 5).
+
+Позиция выбрана набором явно — по умолчанию движок числа не даёт.
+    """
     v = run(SORT_RU)
 
     assert v.kpn.base_kzt == 7_000_000
@@ -205,18 +217,20 @@ def test_control_sort_ru_dividends_share_70():
     assert v.kpn.amount_kzt == 1_050_000
     assert v.graphs["F"] == "1100"
     assert not v.graphs.get("G")
-    assert "F-DIV-25" in v.flags
+    assert v.kpn.position_chosen == "pp5_15pct"
+    assert v.kpn.position_basis                      # без обоснования выбора нет
+    assert "F-DIV-25-RESOLVED" in v.flags
 
 
 def test_control_proba_ru_dividends_share_30():
-    """3 000 000 ₸ × 15 % = 450 000 ₸. Доля 30 % — тоже ≥ 25 %, поведение то же."""
+    """3 000 000 ₸ × 15 % = 450 000 ₸ при той же явно выбранной позиции."""
     v = run(PROBA_RU)
 
     assert v.kpn.base_kzt == 3_000_000
     assert v.kpn.rate == 0.15
     assert v.kpn.amount_kzt == 450_000
     assert v.graphs["F"] == "1100"
-    assert "F-DIV-25" in v.flags
+    assert "F-DIV-25-RESOLVED" in v.flags
 
 
 # ── «Brain»: предоплата без начисления в форму не попадает ─────────────────

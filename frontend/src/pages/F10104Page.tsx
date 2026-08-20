@@ -460,8 +460,8 @@ function RatesPanel({ currency, quarter, year }: {
               строку только тогда, когда перенос действительно был. */}
           {carried > 0 && (
             <div style={{ ...hintS, marginBottom: 0 }}>
-              Перенесено с прошлых дат: <b>{carried}</b> — в эти дни курс не
-              публиковался, действует последний определённый (п. 5 ст. 190).
+              Перенесено с прошлых дат: <b>{carried}</b> — в эти дни фид НБ РК
+              курса не отдал, подставлен последний доступный.
             </div>
           )}
         </div>
@@ -538,6 +538,387 @@ function Collapsible({ title, children }: { title: string; children: ReactNode }
   )
 }
 
+/**
+ * Выбор позиции по спорной ставке дивидендов (ст. 682 п. 1, пп. 5) против пп. 6)).
+ *
+ * Это НЕ переопределение ставки: механизм узкий и действует только на эту
+ * развилку. Помогайка сама позицию не выбирает — по умолчанию не выбрано ни
+ * одно значение, и движок числа не даёт. Предвыбор превратил бы спорный
+ * вопрос обратно в позицию помогайки, только неявную.
+ *
+ * Формулировки позиций, «что проверить» и «цена вопроса» приходят из
+ * справочника: своей редакции спорной нормы у интерфейса быть не может.
+ */
+function DisputedPosition({ spec, value, onChange }: {
+  spec: any
+  value: Record<string, any>
+  onChange: (patch: Record<string, any>) => void
+}) {
+  const basis = String(value.position_basis || '')
+  const chosen = value.position || ''
+  const basisMissing = !!chosen && !basis.trim()
+
+  return (
+    <div style={{
+      marginBottom: 22, padding: '14px 16px', borderRadius: 8,
+      border: '1px solid #fbbf24', background: '#fffbeb',
+    }}>
+      <div style={{ fontWeight: 600, fontSize: 13.5, marginBottom: 6 }}>
+        {spec.label}
+      </div>
+      {spec.money_at_stake && (
+        <div style={{ ...hintS, marginTop: 0, marginBottom: 10 }}>{spec.money_at_stake}</div>
+      )}
+
+      <div style={{ fontSize: 13, color: '#78350f', marginBottom: 10 }}>
+        Помогайка ставку не выбирает. Если вы получили заключение по этому
+        вопросу — укажите позицию и её основание, и расчёт будет сделан по ней.
+      </div>
+
+      {(spec.positions || []).map((position: any) => (
+        <label
+          key={position.id}
+          style={{
+            display: 'block', marginBottom: 8, padding: '9px 11px',
+            borderRadius: 6, cursor: 'pointer', background: '#fff',
+            border: `1px solid ${chosen === position.id ? '#b45309' : '#e5e7eb'}`,
+          }}
+        >
+          <input
+            type="radio" name="s58-position" value={position.id}
+            checked={chosen === position.id}
+            onChange={() => onChange({ position: position.id })}
+            style={{ marginRight: 8 }}
+          />
+          <b>{Math.round(position.rate * 100)} %</b>
+          <span style={{ color: '#64748b' }}> · {position.basis}</span>
+          {position.argument && (
+            <div style={{ fontSize: 12.5, color: '#475569', marginTop: 5, paddingLeft: 22 }}>
+              {position.argument}
+            </div>
+          )}
+        </label>
+      ))}
+
+      {chosen && (
+        <div style={{ marginTop: 12 }}>
+          <span style={label}>Основание выбора</span>
+          <textarea
+            style={{
+              ...inputS, minHeight: 58, resize: 'vertical',
+              borderColor: basisMissing ? '#dc2626' : undefined,
+            }}
+            value={basis}
+            placeholder="Номер письма КГД, реквизиты заключения консультанта или ссылка на разъяснение"
+            onChange={(e) => onChange({ position_basis: e.target.value })}
+          />
+          <div style={{ ...hintS, color: basisMissing ? '#dc2626' : undefined }}>
+            {basisMissing
+              ? 'Без основания выбор не принимается — движок оставит вопрос вместо суммы.'
+              : 'Позиция, основание и дата попадут на экран результата и в печать отдельной строкой.'}
+          </div>
+          <button
+            className="btn btn-secondary"
+            style={{ marginTop: 8, padding: '4px 10px', fontSize: 12.5 }}
+            onClick={() => onChange({ position: null, position_basis: null })}
+          >
+            Снять выбор
+          </button>
+        </div>
+      )}
+
+      {!chosen && spec.what_to_check && (
+        <div style={{ ...hintS, marginTop: 10 }}>{spec.what_to_check}</div>
+      )}
+    </div>
+  )
+}
+
+/** Одна норма: по клику подтягивает свой текст. */
+// Короткие подписи вопросов для трассировки в блоке 2. Это НЕ вторая редакция
+// анкеты: полные формулировки вопросов остаются на своих шагах, здесь их
+// сокращённые названия, чтобы строка «из ответов: …» читалась в одну строку.
+// Налоговых утверждений тут нет — только имена вопросов.
+// Подписи ЗНАЧЕНИЙ ответов для трассировки. Собираются из тех же списков
+// вариантов, которыми визард рисует вопросы, — второй редакции подписей не
+// заводим. Сервер подписывает только два значения, которые попадают внутрь
+// текстов справочника ({event} и {recipient_type}); остальное здесь.
+const VALUE_LABELS: Record<string, Record<string, string>> = {
+  'S1.4': Object.fromEntries(VAT_REGISTERED),
+  'S2.1': Object.fromEntries(EVENTS),
+  'S2.2': Object.fromEntries(RECIPIENTS),
+  'S3.1': Object.fromEntries(RESIDENCY),
+  'S3.2': Object.fromEntries(PE_CONTRACT_WITH),
+  'S3.3': Object.fromEntries(PE_HAS_BIN),
+  'S3.4': Object.fromEntries(PE_DURATION),
+  'S5.1': Object.fromEntries(INCOME_TYPES),
+  'S5.4': Object.fromEntries(YES_NO),
+  'S5.6': Object.fromEntries(YES_NO),
+  'S5.7': Object.fromEntries(YES_NO),
+  'S6.1': Object.fromEntries(PLACE_OF_SUPPLY),
+  'S7.3': Object.fromEntries(CERT_STATUS),
+  'S7.4': Object.fromEntries(YES_NO),
+  'S7.5': Object.fromEntries(YES_NO),
+  'S7.6': Object.fromEntries(YES_NO),
+  'S7.7': Object.fromEntries(YES_NO),
+  'S9.3': Object.fromEntries(PLACE_OF_SUPPLY),
+}
+
+/** Подпись значения ответа. Нет своего списка — берём то, что дал сервер. */
+function valueLabel(input: { key: string; value: unknown; display: string }): string {
+  const raw = input.value
+  if (typeof raw === 'string') {
+    const label = VALUE_LABELS[input.key]?.[raw]
+    if (label) return label
+  }
+  return input.display
+}
+
+const ANSWER_LABELS: Record<string, string> = {
+  'S1.1': 'отчётный период',
+  'S1.4': 'плательщик НДС',
+  'S1.5': 'валюта договора',
+  'S2.1': 'событие выплаты',
+  'S2.2': 'кто получатель',
+  'S2.3': 'страна резидентства',
+  'S2.5': 'учётный номер валютного договора',
+  'S3.1': 'присутствие в РК',
+  'S3.2': 'форма присутствия',
+  'S3.3': 'регистрация ПУ',
+  'S3.4': 'признаки ПУ',
+  'S4.2': 'дата выплаты',
+  'S5.1': 'вид дохода',
+  'S5.4': 'стоимость услуг выделена',
+  'S5.4a': 'сумма выделенных услуг',
+  'S5.5': 'вид услуг',
+  'S5.6': 'есть техподдержка',
+  'S5.7': 'техподдержка выделена',
+  'S5.8': 'доля участия',
+  'S5.9': 'доход по авансу начислен',
+  'S6.1': 'место оказания услуг',
+  'S7.3': 'сертификат резидентства',
+  'S7.4': 'доход связан с ПУ',
+  'S7.5': 'окончательный получатель',
+  'S7.6': 'транзитная структура',
+  'S7.7': 'уплата за свой счёт',
+  'S9.3': 'фактическое место выполнения',
+  'S10': 'исключение по ст. 454 п. 3',
+}
+
+function NormLink({ norm }: { norm: string }) {
+  const [text, setText] = useState<string | null>(null)
+  const [open, setOpen] = useState(false)
+  const [busy, setBusy] = useState(false)
+
+  const toggle = async () => {
+    if (open) { setOpen(false); return }
+    setOpen(true)
+    if (text !== null) return
+    setBusy(true)
+    try {
+      const article = await f10104Api.getArticle(norm)
+      setText(article.text || article.note || 'Текст нормы в справочнике отсутствует.')
+    } catch {
+      setText('Не удалось загрузить текст нормы.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <>
+      <button
+        onClick={toggle}
+        style={{
+          border: 'none', background: 'none', padding: 0, cursor: 'pointer',
+          color: '#2563eb', fontSize: 12.5, textDecoration: 'underline dotted',
+          marginRight: 10,
+        }}
+      >
+        {norm}
+      </button>
+      {open && (
+        <div style={{
+          margin: '6px 0 10px', padding: '9px 11px', borderRadius: 6,
+          background: '#f8fafc', border: '1px solid #e2e8f0',
+          fontSize: 12.5, lineHeight: 1.6, color: '#334155',
+          whiteSpace: 'pre-wrap',
+        }}>
+          {busy ? 'Загрузка…' : text}
+        </div>
+      )}
+    </>
+  )
+}
+
+/** Одна развилка: что решено, из каких ответов и что было бы иначе. */
+function DecisionRow({ decision, answerLabels }: {
+  decision: any
+  answerLabels: Record<string, string>
+}) {
+  const applied = decision.applied
+  return (
+    <div style={{
+      padding: '10px 0', borderTop: '1px solid #f1f5f9', fontSize: 13.5,
+    }}>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'baseline' }}>
+        <span style={{ color: applied ? '#16a34a' : '#94a3b8' }}>
+          {applied ? '✓' : '·'}
+        </span>
+        <div style={{ flex: 1 }}>
+          <b>{decision.subject}</b>
+          <div style={{ color: '#334155', marginTop: 3, lineHeight: 1.55 }}>
+            {decision.text}
+          </div>
+
+          {(decision.inputs || []).length > 0 && (
+            <div style={{ fontSize: 12.5, color: '#64748b', marginTop: 5 }}>
+              из ответов:{' '}
+              {decision.inputs.map((input: any, i: number) => (
+                <span key={input.key}>
+                  {i > 0 && '; '}
+                  <span title={input.key}>
+                    {answerLabels[input.key] || input.key}
+                  </span>
+                  {' — '}
+                  <b style={{ color: '#334155' }}>{valueLabel(input)}</b>
+                </span>
+              ))}
+            </div>
+          )}
+
+          {decision.counterfactual && (
+            <div style={{
+              marginTop: 7, padding: '7px 10px', borderRadius: 6,
+              background: '#eff6ff', border: '1px solid #bfdbfe',
+              fontSize: 12.5, color: '#1e40af',
+            }}>
+              {decision.counterfactual.condition} налог составил бы{' '}
+              {decision.counterfactual.display}
+            </div>
+          )}
+
+          {decision.note && (
+            <div style={{ fontSize: 12.5, color: '#78350f', marginTop: 6 }}>
+              {decision.note}
+            </div>
+          )}
+
+          {(decision.norms || []).length > 0 && (
+            <div style={{ marginTop: 6 }}>
+              {decision.norms.map((norm: string) => (
+                <NormLink key={norm} norm={norm} />
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * Блок 2 «Подробнее» (ТЗ §6): почему вывод именно такой.
+ *
+ * Всё содержимое приходит с сервера: тексты развилок — из справочника,
+ * исходы — из журнала, который движок пишет в точках принятия решений.
+ * Интерфейс их только раскладывает и умеет показать текст нормы по клику.
+ */
+function ExplanationBlock({ explanation, answerLabels }: {
+  explanation: any
+  answerLabels: Record<string, string>
+}) {
+  const [copied, setCopied] = useState(false)
+  if (!explanation) return null
+
+  const asText = () => {
+    const line = (d: any) => {
+      const inputs = (d.inputs || [])
+        .map((i: any) => `${answerLabels[i.key] || i.key}: ${valueLabel(i)}`)
+        .join('; ')
+      const alt = d.counterfactual
+        ? `\n    ${d.counterfactual.condition} налог составил бы ${d.counterfactual.display}`
+        : ''
+      return `  ${d.applied ? '+' : '-'} ${d.subject} — ${d.text}`
+        + (inputs ? `\n    из ответов: ${inputs}` : '')
+        + (d.norms?.length ? `\n    нормы: ${d.norms.join(', ')}` : '')
+        + alt
+    }
+    return [
+      'ЧТО ПРИМЕНИЛОСЬ',
+      ...explanation.applied.map(line),
+      '',
+      'ЧТО НЕ ПРИМЕНИЛОСЬ',
+      ...explanation.not_applied.map(line),
+      '',
+      'РАСЧЁТ',
+      ...explanation.calc.map((c: any) =>
+        `  ${c.label}${c.formula ? ` (${c.formula})` : ''}: ${c.value}`),
+    ].join('\n')
+  }
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(asText())
+      setCopied(true)
+      window.setTimeout(() => setCopied(false), 2000)
+    } catch {
+      setCopied(false)
+    }
+  }
+
+  return (
+    <Collapsible title="Подробнее: почему вывод именно такой">
+      <div className="f10104-noprint" style={{ marginBottom: 10 }}>
+        <button
+          className="btn btn-secondary"
+          style={{ padding: '4px 10px', fontSize: 12.5 }}
+          onClick={copy}
+        >
+          {copied ? 'Скопировано' : 'Скопировать блок'}
+        </button>
+      </div>
+
+      <div style={{ fontWeight: 600, fontSize: 13, color: '#16a34a' }}>
+        Что применилось
+      </div>
+      {explanation.applied.map((d: any) => (
+        <DecisionRow key={d.rule_id} decision={d} answerLabels={answerLabels} />
+      ))}
+
+      <div style={{ fontWeight: 600, fontSize: 13, color: '#64748b', marginTop: 16 }}>
+        Что не применилось и почему
+      </div>
+      {explanation.not_applied.length === 0 ? (
+        <div style={{ fontSize: 13, color: '#94a3b8', padding: '10px 0' }}>
+          Все пройденные развилки сработали.
+        </div>
+      ) : explanation.not_applied.map((d: any) => (
+        <DecisionRow key={d.rule_id} decision={d} answerLabels={answerLabels} />
+      ))}
+
+      {explanation.calc?.length > 0 && (
+        <>
+          <div style={{ fontWeight: 600, fontSize: 13, marginTop: 16 }}>
+            Откуда взялись числа
+          </div>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13.5, marginTop: 6 }}>
+            <tbody>
+              {explanation.calc.map((c: any, i: number) => (
+                <tr key={i}>
+                  <td style={cellL}>{c.label}</td>
+                  <td style={cellR}>{c.formula || '—'}</td>
+                  <td style={cellN}>{c.value}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
+      )}
+    </Collapsible>
+  )
+}
+
 function ResultScreen({ answers, refbooks, onBack }: {
   answers: Answers; refbooks: F10104Refbooks; onBack: () => void
 }) {
@@ -583,11 +964,14 @@ function ResultScreen({ answers, refbooks, onBack }: {
   // прятать посчитанное число неправильно. Про уровень уверенности документа
   // говорит отдельная плашка вверху, её не пропустить.
   const vatUnknown = vat.applicable === null
+  // Ставка по конвенции не определена: в справочной таблице запись
+  // неоднозначна. Уровень обязательства — цифры нет ни в каком виде.
+  const kpnUnknown = kpn.applicable === null || kpn.rate === null || kpn.rate_undetermined === true
   const needsReview = verdict.confidence === 'manual_review'
 
   // Чек-лист действий: каждый пункт с контрольной датой, посчитанной от ответов.
   const checklist: [string, string][] = []
-  if (kpn.taxable && kpn.amount_kzt > 0) {
+  if (kpn.taxable && !kpnUnknown && kpn.amount_kzt > 0) {
     checklist.push([asDate(dl.kpn_payment), `Перечислить КПН у источника — ${money(kpn.amount_kzt)}`])
   }
   if (vat.applicable === true) {
@@ -626,7 +1010,10 @@ function ResultScreen({ answers, refbooks, onBack }: {
       <div style={card}>
         <h3 style={{ marginTop: 0, fontSize: 17 }}>Что вы должны</h3>
 
-        {kpn.taxable ? (
+        {kpn.taxable && kpnUnknown ? (
+          <SummaryRow mark="⚠" title="КПН за нерезидента"
+            value="требует решения — см. ниже" tone="#9a3412" />
+        ) : kpn.taxable ? (
           <SummaryRow
             mark="✅" title="КПН за нерезидента"
             value={`${money(kpn.amount_kzt)} · срок до ${asDate(dl.kpn_payment)}`}
@@ -668,6 +1055,26 @@ function ResultScreen({ answers, refbooks, onBack }: {
       </div>
 
       {/* ── manual_review: вопрос вместо числа ── */}
+      {kpnUnknown && kpn.taxable && (
+        <div style={{ marginBottom: 16 }}>
+          <ManualReview
+            question={kpn.positions?.length
+              ? 'Ставка по этой выплате спорна: норма допускает два прочтения.'
+              : 'Ставку по конвенции определить нельзя: в справочной таблице запись неоднозначна.'}
+            positions={
+              // Позиции по спорной норме приходят из справочника целиком:
+              // формулировки не сочиняются в интерфейсе.
+              (kpn.positions || []).length
+                ? kpn.positions.map((p: any) =>
+                    `${p.basis} — ${Math.round(p.rate * 100)} %. ${p.argument}`)
+                : [kpn.treaty_note || 'Запись о ставке в справочной таблице неоднозначна.']
+            }
+            whatToCheck={kpn.what_to_check
+              || 'Сверьте статью 10, 11 или 12 текста конвенции на adilet.zan.kz либо обратитесь к налоговому консультанту.'}
+          />
+        </div>
+      )}
+
       {vatUnknown && (
         <div style={{ marginBottom: 16 }}>
           <ManualReview
@@ -688,8 +1095,16 @@ function ResultScreen({ answers, refbooks, onBack }: {
             <tr><td style={cellL}>Сумма по акту</td><td style={cellR}>{answers['S4.4']} {answers['S1.5']}</td><td style={cellN}>—</td></tr>
             <tr><td style={cellL}>Курс для КПН</td><td style={cellR}>{verdict.fx_used?.kpn}</td><td style={cellN}>ст. 684 п. 1</td></tr>
             <tr><td style={cellL}>База КПН</td><td style={cellR}>{money(kpn.base_kzt)}</td><td style={cellN}>ст. 683</td></tr>
-            <tr><td style={cellL}>Ставка КПН</td><td style={cellR}>{Math.round(kpn.rate * 100)} %</td><td style={cellN}>{kpn.basis?.[0] || 'ст. 682'}</td></tr>
-            <tr><td style={cellL}><b>КПН к уплате</b></td><td style={cellR}><b>{money(kpn.amount_kzt)}</b></td><td style={cellN}>—</td></tr>
+            {kpnUnknown ? (
+              <tr><td style={cellL}>Ставка КПН</td>
+                <td style={cellR}>не определена — см. выше</td>
+                <td style={cellN}>ст. 706</td></tr>
+            ) : (
+              <>
+                <tr><td style={cellL}>Ставка КПН</td><td style={cellR}>{Math.round((kpn.rate ?? 0) * 100)} %</td><td style={cellN}>{kpn.basis?.[0] || 'ст. 682'}</td></tr>
+                <tr><td style={cellL}><b>КПН к уплате</b></td><td style={cellR}><b>{money(kpn.amount_kzt)}</b></td><td style={cellN}>—</td></tr>
+              </>
+            )}
             {vat.applicable === true && (
               <>
                 <tr><td style={cellL}>Курс для НДС</td><td style={cellR}>{verdict.fx_used?.vat}</td><td style={cellN}>ст. 463 п. 2</td></tr>
@@ -752,6 +1167,11 @@ function ResultScreen({ answers, refbooks, onBack }: {
       )}
 
       {/* ── Блок 6. Нормативное обоснование ── */}
+      <ExplanationBlock
+        explanation={verdict.explanation}
+        answerLabels={ANSWER_LABELS}
+      />
+
       <Collapsible title="Нормативное обоснование">
         <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13.5, lineHeight: 1.7 }}>
           {[...(kpn.basis || []), ...(verdict.basis || []), vat.basis]
@@ -759,6 +1179,22 @@ function ResultScreen({ answers, refbooks, onBack }: {
             .map((b: string, i: number) => <li key={i}>{b}</li>)}
         </ul>
       </Collapsible>
+
+      {kpn.position_chosen && (
+        <div style={{
+          marginTop: 16, padding: '12px 14px', borderRadius: 8,
+          border: '1px solid #cbd5e1', background: '#fff', fontSize: 13,
+          lineHeight: 1.6, color: '#334155',
+        }}>
+          <b>Позицию по спорной норме выбрал пользователь.</b>{' '}
+          Ставка {Math.round((kpn.position_rate ?? 0) * 100)} %.
+          {' '}Основание: {kpn.position_basis}.
+          {' '}Дата выбора: {new Date().toLocaleDateString('ru-RU')}.
+          <div style={{ fontSize: 12.5, color: '#64748b', marginTop: 5 }}>
+            Вопрос остаётся спорным: помогайка этот вывод себе не присваивает.
+          </div>
+        </div>
+      )}
 
       {/* ── Блок 7. Дисклеймер — обязателен, не сворачивается ── */}
       <div className="f10104-disclaimer" style={{
@@ -905,6 +1341,13 @@ export default function F10104Page() {
       if (!answers['S5.1']) return false
       if (answers['S5.1'] === 'services' && !answers['S5.5']) return false
       if (answers['S5.1'] === 'goods' && !answers['S5.2']) return false
+      // Позиция по спорной норме без обоснования не принимается. Проверка
+      // дублирует движок намеренно: пользователь должен узнать об этом на
+      // шаге, а не увидеть на экране результата вопрос вместо суммы.
+      const dividends = answers['S5.8'] || {}
+      if (dividends.position && !String(dividends.position_basis || '').trim()) {
+        return false
+      }
       return true
     }
     if (step?.id === 'S3') return !!answers['S3.1'] && !!answers['S3.4']
@@ -1239,11 +1682,22 @@ export default function F10104Page() {
                   style={{ ...inputS, maxWidth: 160 }} type="number" min="0" max="100"
                   value={answers['S5.8']?.share_pct ?? ''}
                   onChange={(e) => set('S5.8', {
+                    ...(answers['S5.8'] || {}),
                     share_pct: e.target.value === '' ? null : Number(e.target.value),
                   })}
                 />
                 <div style={hintS}>Влияет на выбор ставки и на предупреждение о спорной норме.</div>
               </div>
+            )}
+
+            {answers['S5.1'] === 'dividends'
+              && Number(answers['S5.8']?.share_pct) >= 25
+              && refbooks?.disputed_dividends && (
+              <DisputedPosition
+                spec={refbooks.disputed_dividends}
+                value={answers['S5.8'] || {}}
+                onChange={(patch) => set('S5.8', { ...(answers['S5.8'] || {}), ...patch })}
+              />
             )}
 
             {answers['S5.1'] === 'insurance' && (

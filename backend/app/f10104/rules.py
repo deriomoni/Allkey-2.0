@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import json
+import re
 from datetime import date
 from functools import lru_cache
 from pathlib import Path
@@ -139,3 +140,75 @@ def country_options() -> list[dict[str, Any]]:
         for entry in rules["offshore_list"]["list"]
     ]
     return options
+
+
+# ── Тексты статей Налогового кодекса ───────────────────────────────────────
+
+ARTICLES_FILE = Path(__file__).with_name("data") / "articles_nk.json"
+
+# Статья хранится целиком, а не по пунктам: резать текст нормы по подпунктам
+# скриптом — верный способ получить обрезанную на полфразы норму в документе,
+# который пойдёт в налоговый регистр. Ссылка «ст. 682 п. 1 пп. 5)» разрешается
+# в статью 682 полностью, нужный пункт подсвечивает интерфейс.
+_ARTICLE_REF = re.compile(r"ст\.?\s*(\d+)")
+
+# Признак того, что ссылка ведёт не в Налоговый кодекс, а в международный
+# договор. «Ст. 10 конвенции» и «ст. 10 НК» — разные нормы, и путать их нельзя.
+_TREATY_REF = re.compile(r"конвенц|договор|протокол|MLI", re.IGNORECASE)
+
+# Ссылки на другие кодексы и на утративший силу НК-2017. Ответ «текст не
+# загружен» тут был бы неверным по существу: этих норм в файле и не должно быть.
+_OTHER_CODE = re.compile(r"социальн\w* кодекс|НК-2017|кодекс\w* 2017", re.IGNORECASE)
+
+
+@lru_cache(maxsize=1)
+def get_articles() -> dict[str, Any]:
+    """Тексты статей. Файл отдельный: 417 КБ на фронт целиком не отдаются."""
+    try:
+        return json.loads(ARTICLES_FILE.read_text(encoding="utf-8"))
+    except OSError as e:
+        raise RulesError(f"Не найден файл статей {ARTICLES_FILE}: {e}") from e
+    except json.JSONDecodeError as e:
+        raise RulesError(f"Файл статей повреждён: {e}") from e
+
+
+def resolve_article(ref: str) -> dict[str, Any]:
+    """Разрешить ссылку вида «ст. 682 п. 1 пп. 5)» в текст статьи.
+
+    Возвращает всегда, даже когда текста нет: молча притворяться, что нормы
+    не существует, нельзя — пользователь должен видеть, что именно не загружено.
+    """
+    ref = (ref or "").strip()
+
+    if _TREATY_REF.search(ref):
+        return {
+            "ref": ref, "found": False, "kind": "treaty",
+            "message": "Это ссылка на международный договор, а не на Налоговый "
+                       "кодекс. Текст конвенции здесь не хранится — сверьте его "
+                       "с официальной публикацией договора.",
+        }
+
+    if _OTHER_CODE.search(ref):
+        return {
+            "ref": ref, "found": False, "kind": "other_code",
+            "message": "Ссылка ведёт не в действующий Налоговый кодекс "
+                       "(другой кодекс либо утративший силу НК-2017). "
+                       "Текст здесь не хранится.",
+        }
+
+    match = _ARTICLE_REF.search(ref)
+    if not match:
+        return {"ref": ref, "found": False, "kind": "unparsed",
+                "message": "Не удалось разобрать ссылку на статью."}
+
+    key = f"ст. {match.group(1)}"
+    article = get_articles()["articles"].get(key)
+    if article is None:
+        return {"ref": ref, "found": False, "kind": "missing", "article": key,
+                "message": f"Текст {key} не загружен."}
+
+    return {
+        "ref": ref, "found": True, "kind": "nk", "article": key,
+        "number": article["number"], "title": article["title"],
+        "text": article["text"],
+    }

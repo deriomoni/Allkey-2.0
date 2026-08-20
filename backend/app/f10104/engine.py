@@ -19,6 +19,8 @@ from datetime import date
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Any, Optional
 
+from app.f10104.rules import mrp_to_kzt
+
 # ── Значения ответов, на которые опирается движок ──────────────────────────
 # Словарь совпадает с `tests/answers.py`; он же документирован там.
 
@@ -76,7 +78,25 @@ class EngineError(RuntimeError):
 @dataclass
 class KpnObligation:
     taxable: bool = False
-    rate: float = 0.0
+    # None — ставка не определена по существу (уровень обязательства из
+    # disclaimer.manual_review_policy). Цифры быть не должно: ни суммы, ни ставки.
+    rate: Optional[float] = 0.0
+    # None — вывода по существу нет (уровень обязательства из
+    # disclaimer.manual_review_policy). Цифры не показываются ни в каком виде.
+    applicable: Optional[bool] = True
+    rate_undetermined: bool = False
+    treaty_note: Optional[str] = None
+    # Позиции по спорной норме: показываются вместо ставки.
+    positions: list[dict] = field(default_factory=list)
+    what_to_check: Optional[str] = None
+    money_at_stake: Optional[str] = None
+    # Позиция по спорной норме, выбранная ПОЛЬЗОВАТЕЛЕМ под его обоснование.
+    # Помогайка этот вывод себе не присваивает — в результате и в печати идёт
+    # отдельная строка о том, кто принял решение.
+    position_chosen: Optional[str] = None
+    position_basis: Optional[str] = None
+    position_rate: Optional[float] = None
+    progressive: Optional[dict] = None
     base_kzt: int = 0
     amount_kzt: int = 0
     convention_applied: bool = False
@@ -165,7 +185,21 @@ class Verdict:
     # посчитана по курсу выплаты, хотя ст. 463 п. 2 требует курс на дату
     # оборота. Умолчание оставлено ради совместимости, но молчать о нём нельзя.
     fx_single_rate_reused: bool = False
+    # Развилки, пройденные движком: номер правила → применилось ли.
+    # Порядок вставки = порядок принятия решений, он же порядок в объяснении.
+    decisions: dict[str, bool] = field(default_factory=dict)
     _flag_severity: dict[str, str] = field(default_factory=dict, repr=False)
+
+    def decide(self, rule_id: str, applied: bool) -> bool:
+        """Зафиксировать пройденную развилку и вернуть её исход.
+
+        Пишет сам движок в той точке, где решение принято. Объяснение потом
+        строится по этому журналу, а не по предикатам, вычисленным заново:
+        пересчитанный предикат может разойтись с кодом и объяснить не то,
+        что посчитано.
+        """
+        self.decisions[rule_id] = applied
+        return applied
 
     def flag_severity(self, code: str) -> Optional[str]:
         """Важность флага из справочника: info / medium / high."""
@@ -362,11 +396,24 @@ def evaluate(answers: dict, refbooks: dict, as_of_date: date,
         v.basis.append("Помогайка работает с НК РК от 18.07.2025 № 214-VIII, с 01.01.2026")
         return v
 
+    # Развилки, которые на вывод не влияют, но объясняют, откуда взялись
+    # период и курс. Пользователь спрашивает про них чаще, чем про ставку.
+    v.decide("period", True)
+    v.decide("currency", answers.get("S1.5") not in (None, "KZT"))
+
     country = _resolve_country(answers.get("S2.3"), refbooks)
+    v.decide("offshore", country.is_offshore)
     kind = _service_kind(answers.get("S5.5"), refbooks)
     income = answers.get("S5.1")
+    v.decide("income-type", income is not None)
+    if income == SERVICES:
+        v.decide("service-group-a",
+                 bool(kind and kind.get("taxable_regardless_of_place")))
 
     # ── R-ROUTE-02. Физлицо — это 200.00, а не 101.04
+    # Развилка «тип получателя» описывает, ЧЕЙ порядок применён, а не
+    # «получатель — физлицо». Она пройдена, как только получатель назван.
+    v.decide("recipient-type", bool(answers.get("S2.2")))
     if answers.get("S2.2") == "individual":
         return _individual_route(answers, refbooks, country, v, payment_date)
 
@@ -380,7 +427,9 @@ def evaluate(answers: dict, refbooks: dict, as_of_date: date,
 
     pe_via_head_office = answers.get("S3.1") == "yes" and (
         answers.get("S3.2") == "head_office" or answers.get("S3.3") == "no")
-    if answers.get("S3.4") in {"over_183", "construction", "dependent_agent"}:
+    if v.decide("pe-risk",
+                answers.get("S3.4") in {"over_183", "construction",
+                                        "dependent_agent"}):
         flag("F-PE-RISK")
 
     # ── Сумма и курсы
@@ -396,7 +445,14 @@ def evaluate(answers: dict, refbooks: dict, as_of_date: date,
     accrual_fx = Decimal(str(answers.get("S4.5a") or answers.get("S4.5") or 1))
     turnover_fx = Decimal(str(answers.get("S4.5b") or answers.get("S4.5") or 1))
 
-    kpn_fx = accrual_fx if answers.get("S2.1") == "advance" else payment_fx
+    # Обязанность удержать возникает от ЛЮБОГО события выплаты, а не только
+    # от аванса: зачёт встречных требований и передача имущества — такая же
+    # выплата, как перечисление денег.
+    v.decide("payment-event", bool(answers.get("S2.1")))
+    is_advance = answers.get("S2.1") == "advance"
+    if is_advance:
+        v.decide("advance-accrual", bool(answers.get("S5.9")))
+    kpn_fx = accrual_fx if is_advance else payment_fx
     base_kzt = _money(amount_fx * kpn_fx)
     vat_base_kzt = _money(amount_fx * turnover_fx)
     if answers.get("S1.5") not in (None, "KZT"):
@@ -404,19 +460,27 @@ def evaluate(answers: dict, refbooks: dict, as_of_date: date,
 
     # ── R-KPN. Облагаемость и ставка по НК
     taxable, nk_rate, basis = _kpn_position(answers, refbooks, country, kind,
-                                            income, flag, pe_via_head_office)
+                                            income, flag, pe_via_head_office, v)
     v.kpn.taxable = taxable
     v.kpn.basis.extend(basis)
+    if taxable and nk_rate is None:
+        # Ставка Налогового кодекса сама по себе спорна — конвенция этого не
+        # лечит: она потолок, а под потолком остаются обе позиции.
+        disputed = _kpn_rate("dividends_25", refbooks)
+        v.kpn.applicable = None
+        v.kpn.rate_undetermined = True
+        v.kpn.positions = disputed.get("positions", [])
+        v.kpn.what_to_check = disputed.get("what_to_check")
+        v.kpn.money_at_stake = disputed.get("money_at_stake")
     v.kpn.base_kzt = base_kzt if taxable else 0
 
     # ── R-CONV. Конвенция
     final_rate = nk_rate
-    if taxable:
+    if taxable and nk_rate is not None:
         final_rate = _apply_convention(answers, refbooks, country, income,
                                        nk_rate, v, flag)
     v.kpn.rate = final_rate
-    v.kpn.amount_kzt = _money(Decimal(str(v.kpn.base_kzt)) * Decimal(str(final_rate))) \
-        if taxable else 0
+    v.kpn.amount_kzt = _kpn_amount(v, final_rate, taxable)
 
     dates_differ = bool(act_date and payment_date and act_date != payment_date)
     v.fx_single_rate_reused = bool(
@@ -476,7 +540,7 @@ def evaluate(answers: dict, refbooks: dict, as_of_date: date,
 # ── R-KPN ──────────────────────────────────────────────────────────────────
 
 def _kpn_position(answers, refbooks, country, kind, income, flag,
-                  pe_via_head_office) -> tuple[bool, float, list[str]]:
+                  pe_via_head_office, v) -> tuple[bool, Optional[float], list[str]]:
     """Облагаемость и ставка по Налоговому кодексу, без учёта конвенции."""
     basis: list[str] = []
 
@@ -499,7 +563,7 @@ def _kpn_position(answers, refbooks, country, kind, income, flag,
         if answers.get("S5.3") != "yes":
             basis.append("ст. 680 п. 1 пп. 4) — не доход из источников в РК")
             return False, 0.0, basis
-        if answers.get("S5.4") == "no":
+        if not v.decide("R-KPN-16", answers.get("S5.4") != "no"):
             flag("F-MIXED")
             basis.append("ст. 683 п. 8 — распределение не подтверждено, "
                          "облагается совокупная сумма")
@@ -534,7 +598,8 @@ def _kpn_position(answers, refbooks, country, kind, income, flag,
 
     if income == ROYALTY:
         # R-KPN-17. Невыделенная техподдержка облагается как роялти целиком.
-        if answers.get("S5.6") == "yes" and answers.get("S5.7") == "no":
+        if v.decide("royalty-support",
+                    answers.get("S5.6") == "yes" and answers.get("S5.7") == "no"):
             flag("F-ROYALTY")
             basis.append("ст. 683 п. 5 — техподдержка не выделена, вся сумма как роялти")
         rate = _kpn_rate("royalty", refbooks)
@@ -542,13 +607,49 @@ def _kpn_position(answers, refbooks, country, kind, income, flag,
         return True, rate["rate"], basis
 
     if income == DIVIDENDS:
+        threshold = refbooks["constants"].get("dividend_reduced_ownership_pct", 25)
         share = (answers.get("S5.8") or {}).get("share_pct")
-        if share is not None and share >= 25:
-            # R-KPN-08. Решение продукта: 15 % плюс предупреждение о пп. 6).
-            flag("F-DIV-25")
+        if share is not None and share >= threshold:
+            # R-KPN-08 (редакция 1.5.0). Подпункт 5) прямо исключает доходы
+            # подпунктов 6)–7), а подпункт 6) относится ровно к этому случаю.
+            # Буквальное чтение и официальный разбор расходятся, поэтому ставку
+            # не выбираем: отдаём обе позиции и вопрос.
             rate = _kpn_rate("dividends_25", refbooks)
-        else:
-            rate = _kpn_rate("dividends", refbooks)
+            resolution = rate.get("user_resolution") or {}
+            answer = answers.get("S5.8") or {}
+            chosen = answer.get("position")
+            reason = (answer.get("position_basis") or "").strip()
+
+            if chosen and reason:
+                position = next(
+                    (p for p in rate["positions"] if p["id"] == chosen), None)
+                if position is None:
+                    raise EngineError(
+                        f"Неизвестная позиция по спорной ставке: «{chosen}». "
+                        f"Допустимые: {', '.join(resolution.get('values', []))}")
+                flag("F-DIV-25-RESOLVED")
+                v.kpn.position_chosen = chosen
+                v.kpn.position_basis = reason
+                v.kpn.position_rate = position["rate"]
+                v.kpn.progressive = position.get("progressive")
+                basis.append(
+                    f"{position['basis']} — позицию по спорной норме выбрал "
+                    f"пользователь, основание: {reason}")
+                return True, position["rate"], basis
+
+            if chosen and not reason:
+                # Выбор без обоснования не принимается — молча проглотить его
+                # значит дать способ получить нужное число одним кликом.
+                basis.append(
+                    "Позиция по спорной норме выбрана, но обоснование не "
+                    "заполнено — выбор не принят")
+
+            flag("F-DIV-25")
+            basis.append(f"{rate['basis']} — дивиденды при доле участия "
+                         f"{threshold} % и выше, ставка спорна")
+            return True, None, basis
+
+        rate = _kpn_rate("dividends", refbooks)
         basis.append(f"{rate['basis']} — дивиденды")
         return True, rate["rate"], basis
 
@@ -588,6 +689,30 @@ def _kpn_position(answers, refbooks, country, kind, income, flag,
     return True, rate["rate"], basis
 
 
+def _kpn_amount(v: Verdict, final_rate, taxable: bool) -> int:
+    """Сумма налога. Прогрессия применяется, только если она задана позицией.
+
+    Подпункт 6) п. 1 ст. 682: 5 % в пределах 230 000 МРП, свыше — налог
+    с 230 000 МРП плюс 15 % с превышения. Порог в МРП, не в тенге: при смене
+    МРП он пересчитывается сам.
+    """
+    if not taxable or final_rate is None:
+        return 0
+
+    base = Decimal(str(v.kpn.base_kzt))
+    progressive = v.kpn.progressive
+    if not progressive:
+        return _money(base * Decimal(str(final_rate)))
+
+    threshold = Decimal(str(mrp_to_kzt(progressive["threshold_mrp"])))
+    if base <= threshold:
+        return _money(base * Decimal(str(final_rate)))
+
+    below = threshold * Decimal(str(final_rate))
+    above = (base - threshold) * Decimal(str(progressive["rate_above"]))
+    return _money(below + above)
+
+
 # ── R-CONV ─────────────────────────────────────────────────────────────────
 
 def _apply_convention(answers, refbooks, country, income, nk_rate, v, flag) -> float:
@@ -598,18 +723,24 @@ def _apply_convention(answers, refbooks, country, income, nk_rate, v, flag) -> f
         return nk_rate
 
     # R-CONV-07. Уплата за счёт собственных средств.
-    if answers.get("S7.7") == "yes":
+    if v.decide("own-funds", answers.get("S7.7") == "yes"):
         flag("F-OWN-FUNDS")
         v.kpn.basis.append("ст. 698 п. 3 — налог за счёт собственных средств, "
                            "международный договор не применяется")
         return nk_rate
 
     # R-CONV-01.
-    if not country.has_convention or answers.get("S7.2") != "yes":
+    if not country.has_convention:
+        return nk_rate
+    if answers.get("S7.2") != "yes":
+        # Сертификата нет вовсе — это тот же исход R-CONV-05, что и
+        # несоответствие ст. 702, и именно здесь пользователю важнее всего
+        # увидеть, во что обошлось его отсутствие.
+        v.decide("R-CONV-05", False)
         return nk_rate
 
     # R-CONV-05. Нет сертификата на дату выплаты — удерживаем по НК.
-    if answers.get("S7.3") != "yes":
+    if not v.decide("R-CONV-05", answers.get("S7.3") == "yes"):
         v.kpn.basis.append("ст. 705 п. 3 — сертификат резидентства не получен, "
                            "удержание по ставке НК")
         v.kpn.basis.append("ст. 699–701 — нерезидент вправе подать заявление "
@@ -618,31 +749,27 @@ def _apply_convention(answers, refbooks, country, income, nk_rate, v, flag) -> f
         return nk_rate
 
     # R-CONV-06. Транзитная структура — вывод не даём.
-    if answers.get("S7.6") == "yes":
+    if v.decide("conduit", answers.get("S7.6") == "yes"):
         flag("F-CONDUIT")
         v.kpn.basis.append("ст. 698 п. 1 — конвенция не применяется в интересах "
                            "третьего лица")
         return nk_rate
 
     # ст. 706 п. 1 — доход, связанный с ПУ, освобождению не подлежит.
-    if answers.get("S7.4") == "yes":
+    if v.decide("pe-linked-income", answers.get("S7.4") == "yes"):
         v.kpn.basis.append("ст. 706 п. 1 — доход связан с постоянным учреждением")
         return nk_rate
 
     if income in REDUCED_RATE_INCOME:
         # R-CONV-04. Дивиденды, вознаграждения, роялти — пониженная ставка
         # по ст. 10/11/12 конкретной конвенции, а не полное освобождение.
-        if answers.get("S7.5") != "yes":
+        if not v.decide("R-CONV-04", answers.get("S7.5") == "yes"):
             v.kpn.basis.append("ст. 706 — не подтверждён окончательный получатель дохода")
             return nk_rate
+
         v.kpn.convention_applied = True
         v.kpn.convention_type = "reduced"
-        v.kpn.needs_manual_treaty_rate = True
-        v.kpn.basis.append("ст. 706 + ст. 10/11/12 конвенции — договорная ставка; "
-                           "сверьте её с текстом конвенции")
-        # Справочник ставок в rules_101_04.json помечен как ориентир, а не
-        # источник, поэтому автоматически ставку не подставляем.
-        return nk_rate
+        return _treaty_rate(answers, refbooks, country, income, nk_rate, v, flag)
 
     # R-CONV-03. Полное освобождение.
     v.kpn.convention_applied = True
@@ -651,13 +778,101 @@ def _apply_convention(answers, refbooks, country, income, nk_rate, v, flag) -> f
     return 0.0
 
 
+# ── Ставки по конвенциям ───────────────────────────────────────────────────
+
+# Какой блок справочника отвечает за какой вид дохода.
+TREATY_BLOCK = {DIVIDENDS: "dividends", ROYALTY: "royalties", INTEREST: "interest"}
+
+
+def _treaty_rate(answers, refbooks, country, income, nk_rate, v, flag):
+    """Предельная ставка по конвенции из справочной таблицы.
+
+    Источник вторичный — сводная таблица консультанта, а не текст конвенции,
+    поэтому ставка всегда сопровождается флагом F-TREATY-RATE. Где в таблице
+    запись неоднозначна (`confidence: manual_review`), числа не даём вовсе:
+    работает уровень обязательства из disclaimer.manual_review_policy.
+    """
+    record = (refbooks["conventions"].get("rates") or {}).get(country.iso or "")
+    if not record:
+        # Конвенция есть, но ставки по ней в справочнике нет — ставка НК,
+        # выдумывать нечего.
+        v.kpn.basis.append(
+            f"ст. 706 — в справочнике нет ставок по конвенции с {country.iso}, "
+            "применена ставка Налогового кодекса")
+        return nk_rate
+
+    if record.get("mli"):
+        # MLI добавляет требование владения долей не менее 365 дней и тест
+        # основной цели — для пониженной ставки это существенно.
+        flag("F-MLI")
+
+    block = record.get(TREATY_BLOCK[income]) or {}
+
+    if block.get("confidence") == CONFIDENCE_MANUAL:
+        v.kpn.rate_undetermined = True
+        v.kpn.treaty_note = block.get("note") or block.get("raw")
+        v.kpn.needs_manual_treaty_rate = True
+        v.kpn.basis.append(
+            "ст. 706 + ст. 10/11/12 конвенции — ставка в справочной таблице "
+            "записана неоднозначно, вывод не даётся")
+        flag("F-TREATY-RATE")
+        return None
+
+    pct = _treaty_pct(answers, block, income, v)
+    if pct is None:
+        v.kpn.rate_undetermined = True
+        v.kpn.treaty_note = block.get("raw")
+        v.kpn.needs_manual_treaty_rate = True
+        v.kpn.basis.append("ст. 706 — ставка по конвенции в справочнике не указана")
+        flag("F-TREATY-RATE")
+        return None
+
+    flag("F-TREATY-RATE")
+    treaty_rate = pct / 100
+
+    # Абзац после пп. 9) п. 1 ст. 682: налогоплательщик ВПРАВЕ применить ставки
+    # международного договора. Договорная ставка — потолок, а не замена: если
+    # ставка кодекса ниже, применяется кодекс. Проверяем по всем видам дохода,
+    # а не только по дивидендам.
+    if nk_rate is not None and nk_rate < treaty_rate:
+        flag("F-TREATY-CEILING")
+        v.kpn.basis.append(
+            f"ст. 682 п. 1 — ставка кодекса {nk_rate:.0%} ниже договорной "
+            f"{pct:g} %, применяется кодекс: договорная ставка это потолок")
+        return nk_rate
+
+    v.kpn.basis.append(
+        f"ст. 706 + ст. 10/11/12 конвенции с {country.iso} — предельная ставка "
+        f"{pct:g} % (справочная таблица, {block.get('raw', '')})".rstrip(", )") + ")")
+    return treaty_rate
+
+
+def _treaty_pct(answers, block, income, v=None):
+    """Процент из блока справочника. Для дивидендов зависит от доли участия.
+
+    R-CONV-08 — порог, установленный САМОЙ КОНВЕНЦИЕЙ. Это не R-KPN-08:
+    тот про спор пп. 5) и пп. 6) ст. 682, то есть про норму кодекса. Обе
+    развилки висят на одном ответе S5.8, но нормы разные.
+    """
+    if income != DIVIDENDS:
+        return block.get("pct")
+
+    threshold = block.get("ownership_threshold_pct")
+    share = (answers.get("S5.8") or {}).get("share_pct")
+    reached = (threshold is not None and share is not None
+               and share >= threshold)
+    if v is not None and threshold is not None:
+        v.decide("R-CONV-08", reached)
+    return block.get("reduced_pct") if reached else block.get("default_pct")
+
+
 # ── R-VAT ──────────────────────────────────────────────────────────────────
 
 def _apply_vat(answers, refbooks, country, kind, income, base_kzt, v, flag) -> None:
     vat_rate = refbooks["constants"]["vat_rate"]
 
     # R-VAT-00. Главный гейт: оборот возникает только у плательщика НДС.
-    if answers.get("S1.4") != "yes":
+    if not v.decide("vat-payer", answers.get("S1.4") == "yes"):
         flag("F-VAT-THRESHOLD")
         v.vat = VatObligation(
             applicable=False,
@@ -677,7 +892,7 @@ def _apply_vat(answers, refbooks, country, kind, income, base_kzt, v, flag) -> N
 
     # R-VAT-08. Исключения ст. 454 п. 3.
     exemption = answers.get("S10")
-    if exemption:
+    if v.decide("vat-exemption-454", bool(exemption)):
         known = {e["id"] for e in refbooks["vat_exemptions_454_3"]}
         if exemption not in known:
             raise EngineError(f"Неизвестное исключение по НДС «{exemption}»")
@@ -713,6 +928,9 @@ def _apply_vat(answers, refbooks, country, kind, income, base_kzt, v, flag) -> N
         return
 
     place_is_kz = _place_is_kz(rule, answers)
+    # Место реализации — развилка, от которой зависит вся ветка НДС.
+    # Неопределённость (None) фиксируем как «не применилось»: вывода нет.
+    v.decide("place-of-supply", bool(place_is_kz))
     if place_is_kz is None:
         v.vat = VatObligation(
             applicable=None,
@@ -839,7 +1057,7 @@ def _apply_reporting(answers, refbooks, v, flag, usd_rate=None) -> None:
     threshold = refbooks["constants"]["disclosure_threshold_usd"]
 
     # R-REP-08: нет валютного договора — раскрывать нечего независимо от суммы.
-    if not answers.get("S2.5"):
+    if not v.decide("R-REP-02", bool(answers.get("S2.5"))):
         v.reporting.form_101_04_required = False
         v.reporting.reported_in_form = False
         return
@@ -950,7 +1168,7 @@ def _fill_graphs(answers, refbooks, country, kind, v) -> None:
         graphs["G"] = counterparty.get("contract_no")
 
     graphs["H"] = v.kpn.base_kzt
-    graphs["I"] = round(v.kpn.rate * 100, 2)
+    graphs["I"] = round(v.kpn.rate * 100, 2) if v.kpn.rate is not None else None
     graphs["J"] = v.kpn.amount_kzt
 
     # R-FORM-02: графа Q заполняется и при пониженной ставке, не только при
@@ -987,7 +1205,7 @@ def _primary_treaty_code(refbooks: dict) -> str:
 # ── Уверенность вывода ─────────────────────────────────────────────────────
 
 def _confidence(v: Verdict) -> str:
-    if v.vat.applicable is None or "F-CONDUIT" in v.flags:
+    if v.vat.applicable is None or v.kpn.rate_undetermined or "F-CONDUIT" in v.flags:
         return CONFIDENCE_MANUAL
     if "F-THRESHOLD-FX" in v.flags:
         return CONFIDENCE_MANUAL
