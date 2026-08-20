@@ -539,106 +539,156 @@ function Collapsible({ title, children }: { title: string; children: ReactNode }
 }
 
 /**
- * Выбор позиции по спорной ставке дивидендов (ст. 682 п. 1, пп. 5) против пп. 6)).
+ * Спорная ставка по дивидендам (ст. 682 п. 1, пп. 5) против пп. 6)).
  *
- * Это НЕ переопределение ставки: механизм узкий и действует только на эту
- * развилку. Помогайка сама позицию не выбирает — по умолчанию не выбрано ни
- * одно значение, и движок числа не даёт. Предвыбор превратил бы спорный
- * вопрос обратно в позицию помогайки, только неявную.
+ * ПОРЯДОК ЗДЕСЬ — ЧАСТЬ ЗАЩИТЫ, А НЕ ОФОРМЛЕНИЕ. Экран, начинающийся с двух
+ * ставок «5 %» и «15 %», читается как предложение выбрать: бухгалтер возьмёт
+ * меньшую и напишет обоснование формально. Получился бы механизм, узаконивающий
+ * занижение налога, — ровно то, чего он должен не допускать.
  *
- * Формулировки позиций, «что проверить» и «цена вопроса» приходят из
- * справочника: своей редакции спорной нормы у интерфейса быть не может.
+ * Поэтому сначала документ, потом ставка:
+ *   1. констатация: вопрос спорен, вывода нет, нужно письменное основание;
+ *      обе позиции с аргументами, но ставка внутри текста, а не заголовком;
+ *   2. вопрос «есть ли письменное основание?»;
+ *   3. «нет» — блок закрывается, варианты не показываются вовсе;
+ *   4. «да» — открывается поле обоснования, и только заполненное открывает
+ *      сами варианты.
+ *
+ * Механизм существует для того, у кого заключение уже на руках, и только
+ * для него. Формулировки позиций — из справочника, своей редакции спорной
+ * нормы у интерфейса нет.
  */
-function DisputedPosition({ spec, value, onChange }: {
+function DisputedPosition({ spec, value, hasBasis, onChange, onHasBasis }: {
   spec: any
   value: Record<string, any>
+  hasBasis: string | undefined
   onChange: (patch: Record<string, any>) => void
+  onHasBasis: (v: string) => void
 }) {
   const basis = String(value.position_basis || '')
+  const basisFilled = basis.trim().length > 0
   const chosen = value.position || ''
-  const basisMissing = !!chosen && !basis.trim()
+
+  // Стёртое обоснование не оставляет за собой принятый выбор: иначе ставка
+  // «залипнет» — на экране выбранная позиция, а под ней уже нет основания.
+  const setBasis = (text: string) => {
+    onChange(text.trim() ? { position_basis: text }
+                         : { position_basis: text, position: null })
+  }
+
+  const declineBasis = () => {
+    onHasBasis('no')
+    onChange({ position: null, position_basis: null })
+  }
 
   return (
     <div style={{
       marginBottom: 22, padding: '14px 16px', borderRadius: 8,
       border: '1px solid #fbbf24', background: '#fffbeb',
     }}>
-      <div style={{ fontWeight: 600, fontSize: 13.5, marginBottom: 6 }}>
+      {/* 1. Констатация. Ставок в заголовках нет. */}
+      <div style={{ fontWeight: 600, fontSize: 13.5, marginBottom: 8 }}>
         {spec.label}
       </div>
-      {spec.money_at_stake && (
-        <div style={{ ...hintS, marginTop: 0, marginBottom: 10 }}>{spec.money_at_stake}</div>
-      )}
-
-      <div style={{ fontSize: 13, color: '#78350f', marginBottom: 10 }}>
-        Помогайка ставку не выбирает. Если вы получили заключение по этому
-        вопросу — укажите позицию и её основание, и расчёт будет сделан по ней.
+      <div style={{ fontSize: 13, color: '#78350f', lineHeight: 1.6, marginBottom: 10 }}>
+        Помогайка по этому вопросу вывода не даёт: норма допускает два прочтения,
+        и выбрать между ними — не её решение. Для расчёта нужно письменное
+        основание — разъяснение КГД или заключение налогового консультанта.
       </div>
 
       {(spec.positions || []).map((position: any) => (
-        <label
-          key={position.id}
-          style={{
-            display: 'block', marginBottom: 8, padding: '9px 11px',
-            borderRadius: 6, cursor: 'pointer', background: '#fff',
-            border: `1px solid ${chosen === position.id ? '#b45309' : '#e5e7eb'}`,
-          }}
-        >
-          <input
-            type="radio" name="s58-position" value={position.id}
-            checked={chosen === position.id}
-            onChange={() => onChange({ position: position.id })}
-            style={{ marginRight: 8 }}
-          />
-          <b>{Math.round(position.rate * 100)} %</b>
-          <span style={{ color: '#64748b' }}> · {position.basis}</span>
-          {position.argument && (
-            <div style={{ fontSize: 12.5, color: '#475569', marginTop: 5, paddingLeft: 22 }}>
-              {position.argument}
-            </div>
-          )}
-        </label>
+        <div key={position.id} style={{
+          fontSize: 12.5, color: '#475569', lineHeight: 1.6, marginBottom: 8,
+          paddingLeft: 10, borderLeft: '2px solid #fde68a',
+        }}>
+          {position.argument || position.basis}
+          <div style={{ color: '#78350f', marginTop: 2 }}>{position.basis}</div>
+        </div>
       ))}
 
-      {chosen && (
-        <div style={{ marginTop: 12 }}>
-          <span style={label}>Основание выбора</span>
-          <textarea
-            style={{
-              ...inputS, minHeight: 58, resize: 'vertical',
-              borderColor: basisMissing ? '#dc2626' : undefined,
-            }}
-            value={basis}
-            placeholder="Номер письма КГД, реквизиты заключения консультанта или ссылка на разъяснение"
-            onChange={(e) => onChange({ position_basis: e.target.value })}
-          />
-          <div style={{ ...hintS, color: basisMissing ? '#dc2626' : undefined }}>
-            {basisMissing
-              ? 'Без основания выбор не принимается — движок оставит вопрос вместо суммы.'
-              : 'Позиция, основание и дата попадут на экран результата и в печать отдельной строкой.'}
-          </div>
+      {spec.money_at_stake && (
+        <div style={{ ...hintS, marginTop: 0, marginBottom: 12 }}>{spec.money_at_stake}</div>
+      )}
+
+      {/* 2. Вопрос про документ — раньше, чем любые варианты. */}
+      <div style={{ borderTop: '1px solid #fde68a', paddingTop: 12 }}>
+        <span style={label}>Есть ли у вас письменное основание по этому вопросу?</span>
+        <div style={{ display: 'flex', gap: 10, marginTop: 6 }}>
           <button
-            className="btn btn-secondary"
-            style={{ marginTop: 8, padding: '4px 10px', fontSize: 12.5 }}
-            onClick={() => onChange({ position: null, position_basis: null })}
+            className={hasBasis === 'yes' ? 'btn btn-primary' : 'btn btn-secondary'}
+            style={{ padding: '5px 14px', fontSize: 13 }}
+            onClick={() => onHasBasis('yes')}
           >
-            Снять выбор
+            Да, есть
           </button>
+          <button
+            className={hasBasis === 'no' ? 'btn btn-primary' : 'btn btn-secondary'}
+            style={{ padding: '5px 14px', fontSize: 13 }}
+            onClick={declineBasis}
+          >
+            Нет
+          </button>
+        </div>
+      </div>
+
+      {/* 3. «Нет» — блок закрыт, вариантов не показываем. */}
+      {hasBasis === 'no' && (
+        <div style={{ ...hintS, marginTop: 10 }}>
+          Помогайка идёт дальше без ставки по этой выплате. В результате будет
+          вопрос и обе позиции, а не сумма. {spec.what_to_check || ''}
         </div>
       )}
 
-      {!chosen && spec.what_to_check && (
-        <div style={{ ...hintS, marginTop: 10 }}>{spec.what_to_check}</div>
+      {/* 4. «Да» — сначала обоснование, и только заполненное открывает выбор. */}
+      {hasBasis === 'yes' && (
+        <div style={{ marginTop: 12 }}>
+          <span style={label}>Реквизиты основания</span>
+          <textarea
+            style={{ ...inputS, minHeight: 58, resize: 'vertical' }}
+            value={basis}
+            placeholder="Номер и дата письма КГД, реквизиты заключения консультанта или ссылка на разъяснение"
+            onChange={(e) => setBasis(e.target.value)}
+          />
+
+          {!basisFilled ? (
+            <div style={hintS}>
+              Заполните реквизиты — после этого можно будет указать, какая
+              позиция в нём принята.
+            </div>
+          ) : (
+            <div style={{ marginTop: 10 }}>
+              <span style={label}>Какая позиция принята в этом основании?</span>
+              {(spec.positions || []).map((position: any) => (
+                <label
+                  key={position.id}
+                  style={{
+                    display: 'block', marginTop: 6, padding: '8px 11px',
+                    borderRadius: 6, cursor: 'pointer', background: '#fff',
+                    border: `1px solid ${chosen === position.id ? '#b45309' : '#e5e7eb'}`,
+                  }}
+                >
+                  <input
+                    type="radio" name="s58-position" value={position.id}
+                    checked={chosen === position.id}
+                    onChange={() => onChange({ position: position.id })}
+                    style={{ marginRight: 8 }}
+                  />
+                  {position.basis} — {Math.round(position.rate * 100)} %
+                </label>
+              ))}
+              <div style={hintS}>
+                Выбранная позиция, её основание и дата попадут в резюме
+                результата и в печать отдельной строкой: решение принял
+                пользователь, а не помогайка.
+              </div>
+            </div>
+          )}
+        </div>
       )}
     </div>
   )
 }
 
-/** Одна норма: по клику подтягивает свой текст. */
-// Короткие подписи вопросов для трассировки в блоке 2. Это НЕ вторая редакция
-// анкеты: полные формулировки вопросов остаются на своих шагах, здесь их
-// сокращённые названия, чтобы строка «из ответов: …» читалась в одну строку.
-// Налоговых утверждений тут нет — только имена вопросов.
 // Подписи ЗНАЧЕНИЙ ответов для трассировки. Собираются из тех же списков
 // вариантов, которыми визард рисует вопросы, — второй редакции подписей не
 // заводим. Сервер подписывает только два значения, которые попадают внутрь
@@ -1022,6 +1072,17 @@ function ResultScreen({ answers, refbooks, onBack }: {
           <SummaryRow mark="—" title="КПН за нерезидента" value="не возникает" tone="#475569" />
         )}
 
+        {kpn.position_chosen && (
+          <div style={{
+            margin: '2px 0 10px 26px', fontSize: 12.5, color: '#78350f',
+            lineHeight: 1.55,
+          }}>
+            Позицию по спорной норме выбрал пользователь
+            ({Math.round((kpn.position_rate ?? 0) * 100)} %). Основание:{' '}
+            {kpn.position_basis}. Дата: {new Date().toLocaleDateString('ru-RU')}.
+          </div>
+        )}
+
         {vatUnknown ? (
           // Ноль здесь был бы утверждением «налога нет», а это неверно.
           <SummaryRow mark="⚠" title="НДС за нерезидента"
@@ -1167,6 +1228,23 @@ function ResultScreen({ answers, refbooks, onBack }: {
       )}
 
       {/* ── Блок 6. Нормативное обоснование ── */}
+      {kpn.position_chosen && (
+        <div style={{
+          marginBottom: 16, padding: '12px 14px', borderRadius: 8,
+          border: '1px solid #cbd5e1', background: '#fff', fontSize: 13,
+          lineHeight: 1.6, color: '#334155',
+        }}>
+          <b>Позицию по спорной норме выбрал пользователь.</b>{' '}
+          Ставка {Math.round((kpn.position_rate ?? 0) * 100)} %.
+          {' '}Основание: {kpn.position_basis}.
+          {' '}Дата выбора: {new Date().toLocaleDateString('ru-RU')}.
+          <div style={{ fontSize: 12.5, color: '#64748b', marginTop: 5 }}>
+            Вопрос остаётся спорным: помогайка этот вывод себе не присваивает.
+            Строка печатается и здесь, и в резюме выше.
+          </div>
+        </div>
+      )}
+
       <ExplanationBlock
         explanation={verdict.explanation}
         answerLabels={ANSWER_LABELS}
@@ -1179,22 +1257,6 @@ function ResultScreen({ answers, refbooks, onBack }: {
             .map((b: string, i: number) => <li key={i}>{b}</li>)}
         </ul>
       </Collapsible>
-
-      {kpn.position_chosen && (
-        <div style={{
-          marginTop: 16, padding: '12px 14px', borderRadius: 8,
-          border: '1px solid #cbd5e1', background: '#fff', fontSize: 13,
-          lineHeight: 1.6, color: '#334155',
-        }}>
-          <b>Позицию по спорной норме выбрал пользователь.</b>{' '}
-          Ставка {Math.round((kpn.position_rate ?? 0) * 100)} %.
-          {' '}Основание: {kpn.position_basis}.
-          {' '}Дата выбора: {new Date().toLocaleDateString('ru-RU')}.
-          <div style={{ fontSize: 12.5, color: '#64748b', marginTop: 5 }}>
-            Вопрос остаётся спорным: помогайка этот вывод себе не присваивает.
-          </div>
-        </div>
-      )}
 
       {/* ── Блок 7. Дисклеймер — обязателен, не сворачивается ── */}
       <div className="f10104-disclaimer" style={{
@@ -1696,6 +1758,8 @@ export default function F10104Page() {
               <DisputedPosition
                 spec={refbooks.disputed_dividends}
                 value={answers['S5.8'] || {}}
+                hasBasis={answers['_s58HasBasis'] as string | undefined}
+                onHasBasis={(v) => set('_s58HasBasis', v)}
                 onChange={(patch) => set('S5.8', { ...(answers['S5.8'] || {}), ...patch })}
               />
             )}

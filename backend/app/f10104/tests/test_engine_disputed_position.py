@@ -183,3 +183,37 @@ def test_r_conv_08_record_describes_the_treaty_threshold():
     assert "R-CONV-08" in decisions
     assert "R-KPN-08" not in decisions            # переехало, а не задвоилось
     assert decisions["R-CONV-08"]["fork"] == ["S5.8"]
+
+
+# ── Стирание уже принятого обоснования ─────────────────────────────────────
+
+def test_erasing_an_accepted_basis_drops_the_choice():
+    """Ставка не «залипает».
+
+    Проверка на пустое обоснование на входе — не то же самое, что проверка на
+    стирание уже принятого: во втором случае в ответах остаётся выбранная
+    позиция, и соблазн «раз позиция есть, посчитаем» появляется именно здесь.
+    Последовательность повторяет то, что делает руками пользователь.
+    """
+    accepted = run({"share_pct": 70, "position": "pp5_15pct",
+                    "position_basis": BASIS})
+    assert accepted.kpn.amount_kzt == 1_050_000
+
+    # Пользователь стёр реквизиты, позицию не трогал.
+    erased = run({"share_pct": 70, "position": "pp5_15pct",
+                  "position_basis": ""})
+
+    assert erased.kpn.rate is None
+    assert erased.kpn.amount_kzt == 0
+    assert erased.kpn.position_chosen is None
+    assert erased.kpn.position_basis is None
+    assert "F-DIV-25" in erased.flags
+    assert "F-DIV-25-RESOLVED" not in erased.flags
+
+
+def test_whitespace_only_basis_is_not_a_basis():
+    """Пробел — не реквизиты. Иначе обход механизма стоит одного нажатия."""
+    v = run({"share_pct": 70, "position": "pp6_5pct", "position_basis": "   \n\t "})
+
+    assert v.kpn.rate is None
+    assert v.kpn.amount_kzt == 0
