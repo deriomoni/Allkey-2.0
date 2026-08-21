@@ -1154,7 +1154,7 @@ function ResultScreen({ answers, refbooks, onBack }: {
     return (
       <OutOfScopeScreen
         block={refbooks.out_of_scope[verdict.out_of_scope]}
-        disclaimer={refbooks.disclaimer.text}
+        disclaimer={refbooks.disclaimer.out_of_scope_text || refbooks.disclaimer.text}
         onBack={onBack}
       />
     )

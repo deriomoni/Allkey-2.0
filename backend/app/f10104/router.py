@@ -294,6 +294,10 @@ def _disclaimer() -> dict:
         "text": block["text"].format(**values),
         "print_footer": block["print_footer"].format(**values),
         "manual_review_banner": block["manual_review_banner"],
+        # Отдельный текст для экрана выхода. Переписывать общий под два разных
+        # экрана значило бы ослабить его для обоих: на выходе нет расчёта,
+        # а общий начинается со слов «помогайка формирует расчёт».
+        "out_of_scope_text": (block.get("out_of_scope_text") or "").format(**values),
     }
 
 

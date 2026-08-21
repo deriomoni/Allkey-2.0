@@ -138,3 +138,38 @@ def test_the_variant_is_not_removed_from_the_list():
 
     assert any("остаётся в списке" in r for r in rules)
     assert any("уверенный неверный" in r for r in rules)
+
+
+# ── Дисклеймер экрана выхода ───────────────────────────────────────────────
+
+def test_the_exit_screen_has_its_own_disclaimer():
+    """Общий дисклеймер начинается со слов «помогайка формирует расчёт» —
+    на экране, где расчёта нет, это читается несогласованно. Переписывать
+    общий под два разных экрана значило бы ослабить его для обоих, поэтому
+    у выхода свой текст."""
+    block = get_rules()["disclaimer"]
+    general, exit_text = block["text"], block.get("out_of_scope_text")
+
+    assert exit_text, "текст дисклеймера для экрана выхода не заведён"
+    assert exit_text != general
+    assert "не считает налог" in exit_text
+    assert "не налоговая консультация" in exit_text
+
+
+def test_the_exit_disclaimer_is_stamped_with_the_refbook_version():
+    """Он тоже уходит в бумагу, значит обязан назвать редакцию справочника."""
+    from app.f10104.router import _disclaimer  # noqa: PLC0415
+
+    rules = get_rules()
+    built = _disclaimer()["out_of_scope_text"]
+
+    assert "{" not in built, "плейсхолдер не подставлен"
+    assert rules["meta"]["rules_version"] in built
+    assert rules["meta"]["generated"] in built
+
+
+def test_the_placement_rule_for_the_exit_text_is_written_down():
+    """Когда какой текст показывать — правило в справочнике, а не в коде."""
+    rules = " ".join(str(r) for r in get_rules()["disclaimer"]["placement_rules"])
+
+    assert "out_of_scope" in rules or "выход" in rules.lower()

@@ -1047,7 +1047,14 @@ export interface F10104Refbooks {
   service_kinds: F10104ServiceKind[]
   flags: Record<string, F10104Flag>
   vat_exemptions: { id: string; label: string }[]
-  disclaimer: { text: string; print_footer: string; manual_review_banner: string }
+  disclaimer: {
+    text: string
+    print_footer: string
+    manual_review_banner: string
+    // Свой текст для экрана выхода: там расчёта нет, и общая формулировка
+    // «помогайка формирует расчёт» читалась бы несогласованно.
+    out_of_scope_text: string
+  }
   // Спорная ставка по дивидендам: обе позиции и условия выбора. Тексты
   // приходят с сервера — своей редакции спорной нормы у интерфейса нет.
   disputed_dividends: F10104DisputedDividends
