@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react'
 import {
   f10104Api, ratesApi,
   type F10104CertMemo, type F10104Country, type F10104Flag,
@@ -17,18 +17,33 @@ import {
 // тексты предупреждений приходят с бэкенда: ставок, кодов и норм в этом файле
 // быть не должно.
 
-const DRAFT_KEY = 'f10104_draft_v1'
-const DRAFT_TTL_MS = 3 * 24 * 60 * 60 * 1000   // возврат к проверке через три дня — типовой сценарий
+// Ключ черновика прежних версий. Сам черновик больше не сохраняется (см.
+// ниже), но у тех, кто проходил анкету раньше, он лежит в браузере — и лежит
+// со старыми значениями ответов: у шести вопросов сменились варианты.
+// Читать его нельзя, поэтому при открытии страницы он удаляется.
+const LEGACY_DRAFT_KEY = 'f10104_draft_v1'
 
 type Answers = Record<string, any>
 
+// Ответы живут только в памяти вкладки.
+//
+// Черновик хранился в localStorage трое суток, и это было ошибкой в модуле,
+// где вопросы меняются каждую неделю: сохранённая вчера анкета сегодня
+// означает не то же самое. Вариант ответа переименован — черновик отдаёт
+// значение, которого больше нет; вопрос убран — ответ остаётся и молча
+// участвует в расчёте. Чинить это миграцией пришлось бы после каждой правки
+// анкеты, и каждая такая миграция — новое место, где расчёт расходится
+// с тем, что человек видел на экране.
+//
+// Пока помогайка меняется, ответы не переживают перезагрузку страницы.
+// Вернуть хранение можно будет, когда набор вопросов устоится, — и тогда
+// с версией анкеты внутри черновика, а не с одной датой сохранения.
 type Draft = {
   answers: Answers
   stepIndex: number
-  savedAt: number
 }
 
-const EMPTY_DRAFT: Draft = { answers: {}, stepIndex: 0, savedAt: 0 }
+const EMPTY_DRAFT: Draft = { answers: {}, stepIndex: 0 }
 
 // ── Шаги. Порядок фиксирован, видимость условная (ТЗ §4). ──────────────────
 
@@ -254,21 +269,6 @@ function defaultRatesPeriod(quarter: number, year: number): { from: string; to: 
   const to = new Date(Date.UTC(year, quarterStart.getUTCMonth() + 3, 0))
   const iso = (d: Date) => d.toISOString().slice(0, 10)
   return { from: iso(from), to: iso(to) }
-}
-
-function loadDraft(): Draft {
-  try {
-    const raw = localStorage.getItem(DRAFT_KEY)
-    if (!raw) return EMPTY_DRAFT
-    const parsed = JSON.parse(raw) as Draft
-    if (!parsed.savedAt || Date.now() - parsed.savedAt > DRAFT_TTL_MS) {
-      localStorage.removeItem(DRAFT_KEY)
-      return EMPTY_DRAFT
-    }
-    return { ...EMPTY_DRAFT, ...parsed }
-  } catch {
-    return EMPTY_DRAFT
-  }
 }
 
 // ── Мелкие блоки ──────────────────────────────────────────────────────────
@@ -1556,15 +1556,12 @@ function ResultScreen({ answers, refbooks, onBack, onShowMemo }: {
 // ── Страница ──────────────────────────────────────────────────────────────
 
 export default function F10104Page() {
-  const [draft, setDraft] = useState<Draft>(loadDraft)
+  const [draft, setDraft] = useState<Draft>(EMPTY_DRAFT)
   const [refbooks, setRefbooks] = useState<F10104Refbooks | null>(null)
   const [error, setError] = useState('')
-  const [saved, setSaved] = useState(false)
   // Памятка открывается поверх визарда и не считается шагом: она ничего
   // не спрашивает и ни на что не влияет.
   const [showMemo, setShowMemo] = useState(false)
-  const savedTimer = useRef<number | undefined>(undefined)
-
   const answers = draft.answers
 
   useEffect(() => {
@@ -1573,12 +1570,26 @@ export default function F10104Page() {
       .catch(() => setError('Не удалось загрузить справочники. Модуль недоступен.'))
   }, [])
 
+  // Разовая уборка: черновики, записанные прежними версиями, несовместимы
+  // с нынешней анкетой. Оставить их лежать — значит хранить мину: браузер
+  // отдаст их, если хранение когда-нибудь вернут, и отдаст молча.
   useEffect(() => {
-    localStorage.setItem(DRAFT_KEY, JSON.stringify({ ...draft, savedAt: Date.now() }))
-    setSaved(true)
-    window.clearTimeout(savedTimer.current)
-    savedTimer.current = window.setTimeout(() => setSaved(false), 1500)
-  }, [draft])
+    try {
+      localStorage.removeItem(LEGACY_DRAFT_KEY)
+    } catch {
+      // Приватный режим запрещает доступ к хранилищу — тогда убирать нечего.
+    }
+  }, [])
+
+  // Ответы не переживают перезагрузку, поэтому о ней предупреждаем. Без этого
+  // случайное F5 на четырнадцатом вопросе стирает всё без единого слова.
+  const hasAnswers = Object.keys(answers).length > 0
+  useEffect(() => {
+    if (!hasAnswers) return
+    const warn = (e: BeforeUnloadEvent) => e.preventDefault()
+    window.addEventListener('beforeunload', warn)
+    return () => window.removeEventListener('beforeunload', warn)
+  }, [hasAnswers])
 
   const countryIndex = useMemo(() => {
     const map = new Map<string, F10104Country>()
@@ -1605,8 +1616,7 @@ export default function F10104Page() {
   const go = (i: number) => setDraft((d) => ({ ...d, stepIndex: Math.max(0, i) }))
 
   function resetDraft() {
-    localStorage.removeItem(DRAFT_KEY)
-    setDraft({ ...EMPTY_DRAFT, savedAt: Date.now() })
+    setDraft(EMPTY_DRAFT)
   }
 
   const flag = (code: string): F10104Flag | null => refbooks?.flags[code] || null
@@ -2381,7 +2391,7 @@ export default function F10104Page() {
         </button>
         <button className="btn btn-secondary" onClick={resetDraft}>Очистить</button>
         <span style={{ color: '#94a3b8', fontSize: 12.5, marginLeft: 'auto' }}>
-          {saved ? 'Черновик сохранён' : 'Черновик хранится 3 дня в этом браузере'}
+          Ответы не сохраняются: закроете вкладку — анкету придётся пройти заново
         </span>
       </div>
 

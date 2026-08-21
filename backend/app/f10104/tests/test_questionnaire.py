@@ -13,6 +13,7 @@
 """
 from dataclasses import asdict
 from datetime import date
+from pathlib import Path
 
 import pytest
 
@@ -178,3 +179,62 @@ def test_cert_memo_does_not_touch_the_calculation():
     """
     stale = {"S8.1": "yes", "S8.2": "yes", "S8.3": "no", "S8.7": "yes"}
     assert asdict(run(**stale)) == asdict(run())
+
+
+# ── Черновик не переживает перезагрузку ────────────────────────────────────
+
+def wizard_source() -> str:
+    """Исходник визарда. Единственная автоматическая проверка фронтенда здесь:
+    тестов у него в проекте нет, а место опасное."""
+    path = (Path(__file__).resolve().parents[4]
+            / "frontend" / "src" / "pages" / "F10104Page.tsx")
+    if not path.exists():                      # чужая раскладка чекаута
+        pytest.skip(f"визард не найден: {path}")
+    return path.read_text(encoding="utf-8")
+
+
+def test_the_wizard_does_not_store_the_draft():
+    """Ответы живут в памяти вкладки и нигде больше.
+
+    Хранение черновика трое суток в модуле, где вопросы меняются каждую
+    неделю, означает вот что: вариант ответа переименован — браузер отдаёт
+    значение, которого больше нет; вопрос убран — ответ остаётся и молча
+    участвует в расчёте. Расхождение между тем, что человек видел на экране,
+    и тем, из чего посчитали, — ровно то, чего помогайка не должна допускать.
+
+    Вернуть хранение можно, когда набор вопросов устоится, — и тогда
+    с версией анкеты внутри черновика, а не с одной датой сохранения.
+    Поэтому тест сторожит именно запись.
+    """
+    source = wizard_source()
+
+    assert "localStorage.setItem" not in source, (
+        "черновик снова сохраняется; если это осознанно — в него нужна версия "
+        "анкеты, а этот тест переписать под проверку версии")
+    assert "sessionStorage" not in source
+    assert "indexedDB" not in source
+
+
+def test_the_stale_draft_is_cleaned_up():
+    """Убрать запись мало: у тех, кто проходил анкету вчера, черновик уже лежит.
+
+    Он несовместим — у шести вопросов сменились варианты ответов. Оставленный
+    лежать, он ждёт того дня, когда хранение вернут, и тогда всплывёт молча.
+    """
+    source = wizard_source()
+
+    assert "LEGACY_DRAFT_KEY" in source
+    assert "localStorage.removeItem(LEGACY_DRAFT_KEY)" in source
+    assert "'f10104_draft_v1'" in source, "ключ прежних версий должен совпадать"
+
+
+def test_the_user_is_warned_before_losing_the_answers():
+    """Раз ответы не переживают перезагрузку — о ней предупреждаем.
+
+    Случайное F5 на четырнадцатом вопросе иначе стирает всё без единого слова,
+    и это худший способ узнать, что хранения больше нет.
+    """
+    source = wizard_source()
+
+    assert "beforeunload" in source
+    assert "Ответы не сохраняются" in source
