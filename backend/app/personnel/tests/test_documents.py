@@ -286,7 +286,7 @@ def test_package_pd_and_deductions():
     # ПД-пакет + заявление на вычеты: заход, который подключает фронт
     names = run(_zip_names(_pkg(
         ["zayavlenie", "polozhenie_pd", "prikaz_pd"],
-        deductions=["base_30_mrp", "social_882"],
+        deductions=["base_30_mrp"],
         apply_from=date(2026, 9, 1),
         policy=s.PolicyIn(order_number="60", doc_date=date(2026, 8, 5),
                           responsible_fio="Ахметов Асхат Болатович", responsible_position="директор",
@@ -350,6 +350,18 @@ def test_package_zayavlenie_needs_deductions():
     with pytest.raises(HTTPException) as exc:
         run(R.generate_package(_pkg(["zayavlenie"], deductions=[]), user=FAKE_USER))
     assert exc.value.status_code == 400
+
+
+def test_package_social_deduction_needs_document():
+    with pytest.raises(HTTPException) as exc:
+        run(R.generate_package(_pkg(["zayavlenie"], deductions=["base_30_mrp", "social_882"]), user=FAKE_USER))
+    assert exc.value.status_code == 400
+
+
+def test_package_social_deduction_with_document_ok():
+    names = run(_zip_names(_pkg(["zayavlenie"], deductions=["base_30_mrp", "social_882"],
+                                social_document="справка ВТЭК № 5 от 10.01.2026")))
+    assert len(names) == 1 and any("Заявлен" in n for n in names)
 
 
 def test_package_missing_input_rejected():

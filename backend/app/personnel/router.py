@@ -58,6 +58,16 @@ def _docx_response(document, filename: str) -> StreamingResponse:
     )
 
 
+_SOCIAL_DEDUCTIONS = {"social_882", "social_5000"}
+
+
+def _require_social_document(deductions, social_document) -> None:
+    """Социальный вычет (882/5000 МРП) — только с подтверждающим документом."""
+    if any(k in _SOCIAL_DEDUCTIONS for k in deductions) and not (social_document or "").strip():
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="Для социального вычета укажите подтверждающий документ")
+
+
 def _hiring_warnings(employee, employment) -> List[str]:
     """Soft warnings for the form (salary rate-aware, probation, dates, ИИН match)."""
     warnings: List[str] = []
@@ -162,12 +172,14 @@ async def generate_zayavlenie_vychety(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Неизвестные виды вычета: {', '.join(unknown)}",
         )
+    _require_social_document(data.deductions, data.social_document)
 
     apply_from = data.apply_from or data.employment.start_date
     context = build_deduction_application_context(
         data.company, data.employee, data.deductions,
         apply_from=apply_from,
         application_date=data.employment.application_date or apply_from,
+        social_document=data.social_document,
     )
     document = render_template("zayavlenie_vychety_ipn.docx", context)
     filename = output_filename(
@@ -229,11 +241,13 @@ async def generate_package(
             if unknown:
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
                                     detail=f"Неизвестные виды вычета: {', '.join(unknown)}")
+            _require_social_document(data.deductions, data.social_document)
             apply_from = data.apply_from or data.employment.start_date
             ctx = build_deduction_application_context(
                 data.company, emp, data.deductions,
                 apply_from=apply_from,
                 application_date=data.employment.application_date or apply_from,
+                social_document=data.social_document,
             )
             files.append((fname("ЗаявлениеВычеты", data.employment.application_date),
                           render_bytes("zayavlenie_vychety_ipn.docx", ctx)))

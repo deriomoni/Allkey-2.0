@@ -175,8 +175,10 @@ def _one_day():
 # --- deductions (заявление о налоговых вычетах, ТЗ §4.5) ---------------------
 
 # Exact wording supplied by the client — do not paraphrase.
+# По ст. 437 НК РК по заявлению применяются базовый и социальные вычеты. Вычет
+# социальных платежей (ОПВ/ВОСМС) сюда НЕ входит — он применяется автоматически,
+# а СО в его составе относятся к ГПХ, не к трудовым; поэтому в списке его нет.
 DEDUCTION_TEXTS = {
-    "social_payments": "Налоговый вычет социальных платежей (обязательные пенсионные взносы, взносы на обязательное социальное медицинское страхование).",
     "base_30_mrp": "Базовый налоговый вычет в размере 30-кратного месячного расчётного показателя за каждый календарный месяц.",
     "social_882": "Социальный налоговый вычет в размере 882-кратного месячного расчётного показателя.",
     "social_5000": "Социальный налоговый вычет в размере 5 000-кратного месячного расчётного показателя.",
@@ -184,10 +186,21 @@ DEDUCTION_TEXTS = {
 _SOCIAL_KEYS = ("social_882", "social_5000")
 
 
-def build_deductions_context(selection: List[str], apply_from: Optional[date]) -> dict:
-    """selection is an ordered list of DEDUCTION_TEXTS keys."""
+def build_deductions_context(selection: List[str], apply_from: Optional[date],
+                             social_document: str = "") -> dict:
+    """selection is an ordered list of DEDUCTION_TEXTS keys. Для социального вычета
+    к тексту добавляется основание — подтверждающий документ."""
+    doc = (social_document or "").strip()
+    items = []
+    for k in selection:
+        if k not in DEDUCTION_TEXTS:
+            continue
+        text = DEDUCTION_TEXTS[k]
+        if k in _SOCIAL_KEYS and doc:
+            text = text.rstrip(".") + f" (на основании: {doc})."
+        items.append(text)
     return {
-        "list": [DEDUCTION_TEXTS[k] for k in selection if k in DEDUCTION_TEXTS],
+        "list": items,
         # Вычет применяется за календарный МЕСЯЦ (ст. 403 НК РК): «начиная с августа 2026 года».
         "apply_from_words": month_year_in_words(apply_from) if apply_from else "",
         "has_social": any(k in _SOCIAL_KEYS for k in selection),
@@ -199,12 +212,13 @@ def build_deductions_context(selection: List[str], apply_from: Optional[date]) -
 def build_deduction_application_context(
     company, employee, selection: List[str],
     apply_from: Optional[date], application_date: Optional[date],
+    social_document: str = "",
 ) -> dict:
     """Full context for zayavlenie_vychety_ipn.docx (ТЗ §4.5)."""
     return {
         "company": build_company_context(company),
         "employee": build_employee_context(employee),
-        "deductions": build_deductions_context(selection, apply_from),
+        "deductions": build_deductions_context(selection, apply_from, social_document),
         "application": {"date_words": _words(application_date)},
     }
 
@@ -365,15 +379,7 @@ def build_soglasie_context(company, employee, employment, consent) -> dict:
             "fio_full": emp["fio_full"], "fio_short": emp["fio_short"], "iin": emp["iin"],
         },
         "employment": {"position": employment.position_ru},
-        "consent": {
-            "date_words": _words(consent.doc_date),
-            "cross_border": bool(getattr(consent, "cross_border", False)),
-            "cross_border_countries": getattr(consent, "cross_border_countries", "") or "",
-            "cross_border_purpose": getattr(consent, "cross_border_purpose", "") or "",
-            "responsible_position": getattr(consent, "responsible_position", "") or "",
-            "responsible_fio": getattr(consent, "responsible_fio", "") or "",
-            "responsible_contacts": getattr(consent, "responsible_contacts", "") or "",
-        },
+        "consent": {"date_words": _words(consent.doc_date)},
         "recipients": [
             {"name": r.name, "bin": getattr(r, "bin", "") or "",
              "purpose": r.purpose, "scope": r.scope}

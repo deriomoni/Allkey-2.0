@@ -220,8 +220,9 @@ class ZayavlenieVychetyRequest(BaseModel):
     company: CompanyBase
     employee: EmployeeIn
     employment: EmploymentIn
-    deductions: List[str]               # keys: base_30_mrp | social_payments | social_882 | social_5000
+    deductions: List[str]               # keys: base_30_mrp | social_882 | social_5000
     apply_from: Optional[date] = None   # по умолчанию — дата начала работы
+    social_document: str = ""           # подтверждающий документ для социального вычета
 
 
 class ContractIn(BaseModel):
@@ -325,15 +326,10 @@ class RecipientIn(BaseModel):
 
 
 class SoglasieIn(BaseModel):
-    """Согласие на сбор и обработку персональных данных (§4.7)."""
+    """Согласие на сбор и обработку персональных данных (§4.7). Раздел 8 в шаблоне —
+    общая формулировка; ответственный и трансграничная передача из формы убраны."""
     doc_date: Optional[date] = None
     recipients: List[RecipientIn] = []
-    cross_border: bool = False
-    cross_border_countries: str = ""
-    cross_border_purpose: str = ""
-    responsible_position: str = ""
-    responsible_fio: str = ""
-    responsible_contacts: str = ""
 
 
 class PackageRequest(BaseModel):
@@ -344,6 +340,7 @@ class PackageRequest(BaseModel):
     documents: List[str]                        # td | prikaz | soglasie | zayavlenie | matotvet | akt | nekonkurencii
     deductions: List[str] = []                  # for zayavlenie
     apply_from: Optional[date] = None
+    social_document: str = ""                   # подтверждающий документ для социального вычета
     liability: Optional[LiabilityIn] = None     # for matotvet / akt basis
     noncompete: Optional[NonCompeteIn] = None   # for nekonkurencii / perechen terms
     act: Optional[ActIn] = None                 # for akt

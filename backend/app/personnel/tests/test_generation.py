@@ -210,5 +210,12 @@ def test_deductions_exact_texts():
     assert ctx["has_social"] is True
     assert ctx["apply_from_words"] == "августа 2026 года"
 
-    ctx2 = build_deductions_context(["social_payments"], date(2026, 8, 1))
-    assert ctx2["has_social"] is False
+    # социальный вычет с подтверждающим документом — основание попадает в текст
+    ctx2 = build_deductions_context(["social_882"], date(2026, 8, 1),
+                                    social_document="справка ВТЭК № 5 от 10.01.2026")
+    assert "на основании: справка ВТЭК № 5 от 10.01.2026" in ctx2["list"][0]
+    assert ctx2["has_social"] is True
+
+    # вычет соц.платежей убран из справочника — незнакомый ключ просто отбрасывается
+    ctx3 = build_deductions_context(["social_payments"], date(2026, 8, 1))
+    assert ctx3["list"] == [] and ctx3["has_social"] is False
