@@ -111,3 +111,19 @@ def test_the_dry_run_leaves_no_trace_in_the_verdict():
     assert v.kpn.convention_applied is not True
     assert "R-CONV-04" not in v.decisions
     assert not any("освобождение от налогообложения" in b for b in v.kpn.basis)
+
+
+def test_the_condition_is_written_down_in_the_flag_itself():
+    """Условие срабатывания живёт в справочнике, а не только в коде.
+
+    Через полгода вопрос «почему он тут не встал» возникнет при чтении
+    справочника, а не при чтении движка. Поле `when` терялось уже дважды
+    при ветвлении редакций — поэтому оно под сторожем, и сторож проверяет
+    не наличие ключа, а то, что в тексте названы все четыре условия
+    и гашение по ПУ.
+    """
+    when = get_rules()["flags"]["F-CERT-DEADLINE"].get("when")
+
+    assert when, "поле when потеряно"
+    for anchor in ("конвенция", "702", "705", "F-PE-RISK"):
+        assert anchor in when, anchor
