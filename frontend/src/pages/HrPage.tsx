@@ -196,6 +196,22 @@ export default function HrPage() {
   // расчёт от обратного при «на руки» делает 1С.
   const salaryKind = (draft.employment.salary_kind === 'net' ? 'net' : 'gross') as 'gross' | 'net'
 
+  // Справочник должностей: по русской должности подставляем казахскую (если пара есть),
+  // не перетирая уже введённое. При вводе нового казахского варианта — сохраняем пару.
+  async function lookupPositionKk(ru: string) {
+    const key = ru.trim()
+    if (!key || (draft.employment.position_kk ?? '').trim()) return
+    try {
+      const res = await personnelApi.translatePosition(key)
+      if (res.position_kk) setEmployment({ position_kk: res.position_kk })
+    } catch { /* справочник необязателен — молчим */ }
+  }
+  function savePositionKk() {
+    const ru = (draft.employment.position_ru ?? '').trim()
+    const kk = (draft.employment.position_kk ?? '').trim()
+    if (ru && kk) personnelApi.savePositionTranslation(ru, kk).catch(() => {})
+  }
+
   const flash = (m: string) => { setNotice(m); setError(''); setTimeout(() => setNotice(''), 3000) }
   const fail = (e: unknown, fb: string) => setError(errText(e, fb))
 
@@ -449,9 +465,11 @@ export default function HrPage() {
           </div>
         )}
         <Field label="Наименование (рус)" value={c.name_ru} onChange={(v) => setCompany({ name_ru: v })} />
+        <Field label="Наименование (каз)" value={c.name_kk} onChange={(v) => setCompany({ name_kk: v })} placeholder="для казахской колонки ТД" />
         <Field label="БИН" value={c.bin} onChange={(v) => setCompany({ bin: v })} placeholder="12 цифр" />
         <Field label="Город" value={c.city} onChange={(v) => setCompany({ city: v })} />
-        <Field label="Юридический адрес" value={c.legal_address} onChange={(v) => setCompany({ legal_address: v })} />
+        <Field label="Юридический адрес (рус)" value={c.legal_address} onChange={(v) => setCompany({ legal_address: v })} />
+        <Field label="Юридический адрес (каз)" value={c.address_kz} onChange={(v) => setCompany({ address_kz: v })} placeholder="для казахской колонки ТД" />
         <Field label="ФИО директора (им.п.)" value={c.director_fio_ru} onChange={(v) => setCompany({ director_fio_ru: v })} placeholder="Иванов Иван Иванович" />
         <div className="form-group">
           <label>Пол подписанта</label>
@@ -459,8 +477,12 @@ export default function HrPage() {
             <option value="male">муж.</option><option value="female">жен.</option>
           </select>
         </div>
-        <Field label="Должность подписанта" value={c.signatory_position} onChange={(v) => setCompany({ signatory_position: v })} />
+        <Field label="Должность подписанта (рус)" value={c.signatory_position} onChange={(v) => setCompany({ signatory_position: v })} />
+        <Field label="Должность подписанта (каз)" value={c.signer_position_kz} onChange={(v) => setCompany({ signer_position_kz: v })} placeholder="для казахской колонки ТД" />
         <Field label="Действует на основании" value={c.acts_on_basis} onChange={(v) => setCompany({ acts_on_basis: v })} />
+        <div style={{ fontSize: 12, color: '#6b7280', margin: '2px 0 8px' }}>
+          Казахские реквизиты юрлица заполняются один раз здесь и сохраняются в карточке — в форме приёма не спрашиваются.
+        </div>
         <button className="btn btn-secondary" onClick={saveCompanyToDirectory} disabled={busy}>
           {draft.companyId ? 'Обновить в справочнике' : 'Сохранить в справочник (реквизиты юрлица)'}
         </button>
@@ -513,7 +535,19 @@ export default function HrPage() {
       {/* 3. Conditions */}
       <section style={{ marginBottom: 28 }}>
         <h3>3. Условия приёма</h3>
-        <Field label="Должность" value={m.position_ru} onChange={(v) => setEmployment({ position_ru: v })} />
+        <div className="form-group">
+          <label>Должность (рус)</label>
+          <input value={m.position_ru ?? ''} onChange={(ev) => setEmployment({ position_ru: ev.target.value })}
+            onBlur={(ev) => lookupPositionKk(ev.target.value)} />
+        </div>
+        <div className="form-group">
+          <label>Должность (каз)</label>
+          <input value={m.position_kk ?? ''} placeholder="подставится из справочника; при первом вводе — введите"
+            onChange={(ev) => setEmployment({ position_kk: ev.target.value })} onBlur={savePositionKk} />
+          <div style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>
+            Единственное казахское поле в форме. Введённая пара «рус → каз» запоминается и в следующий раз подставится сама.
+          </div>
+        </div>
         <Field label="Подразделение" value={m.department} onChange={(v) => setEmployment({ department: v })} />
         <Field label="Дата начала работы" type="date" value={m.start_date} onChange={(v) => setEmployment({ start_date: v })} />
         <div className="form-group">
@@ -672,22 +706,15 @@ export default function HrPage() {
               onChange={(v) => setContract({ confidential_years: v })} />
 
             <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px dashed #cbd5e1' }}>
-              <strong style={{ fontSize: 14 }}>Казахские соответствия и режим (для двуязычного ТД)</strong>
+              <strong style={{ fontSize: 14 }}>Режим и место работы</strong>
               <p style={{ fontSize: 12, color: '#b45309', margin: '4px 0 10px' }}>
-                Казахский текст не вычитан юристом — проверьте перевод перед подписанием.
-                Числа, даты и срок на казахском формируются автоматически.
+                Казахская колонка ТД заполняется автоматически: ФИО — из русского, реквизиты юрлица — из карточки
+                компании, должность — из справочника, числа и даты — хелперами. Казахский текст не вычитан юристом —
+                проверьте перед подписанием.
               </p>
-              <Field label="Наименование компании (каз)" value={c.name_kk} onChange={(v) => setCompany({ name_kk: v })} />
-              <Field label="Юр. адрес компании (каз)" value={c.address_kz} onChange={(v) => setCompany({ address_kz: v })} />
-              <Field label="ФИО директора (каз)" value={c.director_fio_kk} onChange={(v) => setCompany({ director_fio_kk: v })} />
-              <Field label="Должность подписанта (каз)" value={c.signer_position_kz} onChange={(v) => setCompany({ signer_position_kz: v })} />
-              <Field label="ФИО работника (каз)" value={e.fio_full_kz} onChange={(v) => setEmployee({ fio_full_kz: v })} />
-              <Field label="Документ работника (каз)" value={e.id_document_kz} onChange={(v) => setEmployee({ id_document_kz: v })}
-                placeholder="жеке куәлік № … ІІМ … берген" />
-              <Field label="Должность (каз)" value={m.position_kk} onChange={(v) => setEmployment({ position_kk: v })} />
-              <Field label="Место работы (рус)" value={m.workplace} onChange={(v) => setEmployment({ workplace: v })} placeholder="г. Астана, офис Работодателя" />
-              <Field label="Место работы (каз)" value={m.workplace_kz} onChange={(v) => setEmployment({ workplace_kz: v })} />
-              <Field label="Условия труда (рус)" value={m.conditions} onChange={(v) => setEmployment({ conditions: v })} placeholder="нормальными" />
+              <Field label="Место работы (если отличается от юр. адреса)" value={m.workplace}
+                onChange={(v) => setEmployment({ workplace: v })} placeholder="по умолчанию — юр. адрес компании" />
+              <Field label="Условия труда" value={m.conditions} onChange={(v) => setEmployment({ conditions: v })} placeholder="нормальными" />
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                 <div className="form-group" style={{ flex: '1 1 120px' }}>
                   <label>Часов в день</label>

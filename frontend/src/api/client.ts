@@ -986,6 +986,13 @@ export const personnelApi = {
     const response = await api.post('/personnel/documents/package', body, { responseType: 'blob' })
     downloadBlob(response.data, response.headers['content-disposition'], 'Пакет.zip')
   },
+
+  // Справочник должностей рус→каз: подбор по русской должности и сохранение пары.
+  translatePosition: async (ru: string): Promise<{ position_ru: string; position_kk: string }> =>
+    (await api.get('/personnel/positions/translate', { params: { ru } })).data,
+  savePositionTranslation: async (position_ru: string, position_kk: string): Promise<void> => {
+    await api.post('/personnel/positions/translate', { position_ru, position_kk })
+  },
 }
 
 // ─── Помогайка по форме 101.04 (внутренняя бета) ───────────────────────────
