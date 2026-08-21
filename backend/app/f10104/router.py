@@ -122,6 +122,12 @@ async def refbooks(_: User = Depends(require_service(SERVICE_CODE))) -> dict:
         "out_of_scope": {k: v for k, v in
                          (get_rules().get("out_of_scope") or {}).items()
                          if not k.startswith("_")},
+        # Подсказки под вопросами анкеты и памятка по документу
+        # о резидентстве. Формулировок в TypeScript быть не должно.
+        "question_hints": {k: v for k, v in
+                           (get_rules().get("question_hints") or {}).items()
+                           if not k.startswith("_")},
+        "cert_memo": get_rules().get("cert_memo") or {},
         # Дисклеймер и правило manual_review — целиком из справочника.
         # Версия, дата справочника и дата формирования подставляются здесь:
         # в интерфейсе не должно остаться константы, которую забудут поправить.

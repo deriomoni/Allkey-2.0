@@ -36,6 +36,11 @@ ROUTE_INDIVIDUAL = "individual_200_00"
 ROUTE_PE_BRANCH = "pe_branch_not_reported"
 ROUTE_OUT_OF_SCOPE = "out_of_scope"
 
+# Пометка для граф формы, которые помогайка не вычисляет: их значение —
+# реквизит, известный только пользователю. Пустая ячейка читалась бы как
+# «нечего заполнять», а здесь заполнять как раз есть что.
+FILLED_BY_USER = "заполняете вы"
+
 # Вид дохода → ключ раздела out_of_scope в справочнике.
 #
 # Помогайка считает там, где вывод следует из анкеты. Где он зависит от
@@ -473,10 +478,20 @@ def evaluate(answers: dict, refbooks: dict, as_of_date: date,
 
     pe_via_head_office = answers.get("S3.1") == "yes" and (
         answers.get("S3.2") == "head_office" or answers.get("S3.3") == "no")
+    # Регистрация нерезидента в налоговых органах РК — такой же признак
+    # постоянного учреждения, как остальные из блока S3: сама по себе она
+    # ПУ не образует, но означает, что у контрагента есть присутствие,
+    # о котором стоит спросить. «Не знаю» здесь законно — это свойство
+    # контрагента, а не осведомлённости бухгалтера, и приравнивать его
+    # к «нет» нельзя: неизвестность не то же самое, что отсутствие.
+    registered_in_kz = answers.get("S3.5")
     if v.decide("pe-risk",
                 answers.get("S3.4") in {"over_183", "construction",
-                                        "dependent_agent"}):
+                                        "dependent_agent"}
+                or registered_in_kz == "yes"):
         flag("F-PE-RISK")
+    elif registered_in_kz == "unknown":
+        flag("F-PE-UNKNOWN")
 
     # ── Сумма и курсы
     # Три даты одной операции дают три РАЗНЫХ курса, и переиспользовать один
@@ -1232,7 +1247,13 @@ def _apply_reporting(answers, refbooks, v, flag, usd_rate=None) -> None:
     threshold = refbooks["constants"]["disclosure_threshold_usd"]
 
     # R-REP-08: нет валютного договора — раскрывать нечего независимо от суммы.
-    if not v.decide("R-REP-02", bool(answers.get("S2.5"))):
+    #
+    # S2.5 — ПРИЗНАК, а не номер. Для правила нужен только факт постановки
+    # договора на учёт в банке; сам учётный номер в расчёте не участвует
+    # и вернётся в анкету вместе с выгрузкой в шаблон формы, где он нужен
+    # по-настоящему — для графы Y. Старые черновики с номером в строке
+    # читаются по-прежнему: непустая строка — это тоже «да».
+    if not v.decide("R-REP-02", _has_currency_contract(answers)):
         v.reporting.form_101_04_required = False
         v.reporting.reported_in_form = False
         return
@@ -1323,6 +1344,20 @@ def _individual_route(answers, refbooks, country, v, payment_date) -> Verdict:
 
 # ── Графы приложения и строки расчёта ──────────────────────────────────────
 
+def _has_currency_contract(answers) -> bool:
+    """Есть ли валютный договор, поставленный на учёт в банке.
+
+    Принимает и признак «да», и старую форму — введённый номер: значение
+    когда-то было строкой, и черновики с ним не должны молча терять правило.
+    """
+    answer = answers.get("S2.5")
+    if answer in ("yes", True):
+        return True
+    if answer in ("no", False, None, ""):
+        return False
+    return bool(str(answer).strip())
+
+
 def _fill_graphs(answers, refbooks, country, kind, v) -> None:
     counterparty = answers.get("S2.4") or {}
     payment_date = answers.get("S4.2")
@@ -1334,15 +1369,21 @@ def _fill_graphs(answers, refbooks, country, kind, v) -> None:
         # R-FORM-03: графа B не заполняется для начисленных, но невыплаченных —
         # а это теперь вывод правила R-DATE, а не отдельный вариант ответа.
         graphs["B"] = f"{payment_date.month:02d}"
-    graphs["C"] = counterparty.get("name")
+    # Реквизиты контрагента в расчёте не участвуют: помогайка их не вычисляет,
+    # а возвращала бы пользователю то, что он сам ввёл. Из анкеты они убраны
+    # до появления выгрузки в шаблон формы — там они понадобятся, чтобы
+    # заполнить файл. В таблице заготовки графа остаётся, но со словами
+    # «заполняете вы»: пользователь должен видеть, что она существует
+    # и требует его данных, а не пустое место.
+    graphs["C"] = counterparty.get("name") or FILLED_BY_USER
     graphs["D"] = country.graph_d
-    graphs["E"] = counterparty.get("tin")
+    graphs["E"] = counterparty.get("tin") or FILLED_BY_USER
     graphs["F"] = _income_code(answers, country, kind)
 
     # R-FORM-04: для дивидендов реквизиты контракта не заполняются —
     # основанием служит протокол общего собрания.
     if income != DIVIDENDS:
-        graphs["G"] = counterparty.get("contract_no")
+        graphs["G"] = counterparty.get("contract_no") or FILLED_BY_USER
 
     graphs["H"] = v.kpn.base_kzt
     graphs["I"] = round(v.kpn.rate * 100, 2) if v.kpn.rate is not None else None

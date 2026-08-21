@@ -1,14 +1,15 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import {
   f10104Api, ratesApi,
-  type F10104Country, type F10104Flag, type F10104OutOfScope, type F10104Refbooks,
+  type F10104CertMemo, type F10104Country, type F10104Flag,
+  type F10104OutOfScope, type F10104Refbooks,
   type F10104ServiceKind, type NbrkRateRow,
 } from '../api/client'
 
 // Помогайка по форме 101.04 — визард по одной операции.
 //
 // Порядок шагов взят из ТЗ §4 и НЕ переставляется: S1 → S2 → S5 → S3 → S6 →
-// S7 → S8 → S4 → S9 → результат. Он подобран так, чтобы условные шаги не
+// S7 → S4 → S9 → результат. Он подобран так, чтобы условные шаги не
 // перескакивали при смене ответа: тип дохода спрашивается раньше скрининга ПУ,
 // потому что от него зависит, нужен ли скрининг вообще.
 //
@@ -56,7 +57,9 @@ const STEPS: Step[] = [
       return !!c && !c.is_offshore && c.has_convention
     },
   },
-  { id: 'S8', title: 'Сертификат резидентства', visible: (a) => a['S7.2'] === 'yes' },
+  // Шаг S8 убран из потока: семь галочек не влияли ни на одну цифру,
+  // а стояли между пользователем и результатом. Содержимое стало памяткой,
+  // которая открывается ссылкой с S7 и из чек-листа действий.
   { id: 'S4', title: 'Даты и суммы' },
   { id: 'S9', title: 'НДС за нерезидента', visible: (a) => a['S1.4'] === 'yes' },
   { id: 'R', title: 'Заключение' },
@@ -82,10 +85,20 @@ const RESIDENCY: [string, string][] = [
   ['branch', 'Филиал иностранной компании'],
 ]
 
+// «Не уверен» здесь быть не может: компания либо состоит на учёте, либо нет.
+// Вместо третьего варианта — подсказка из справочника, где посмотреть.
 const VAT_REGISTERED: [string, string][] = [
   ['yes', 'Да, состоим на учёте по НДС'],
   ['no', 'Нет'],
-  ['unsure', 'Не уверен'],
+]
+
+// Регистрация нерезидента в налоговых органах РК. Здесь «не знаю» ЗАКОННО:
+// это свойство контрагента, а не осведомлённости бухгалтера, и проверить
+// его самостоятельно он может не всегда.
+const REGISTERED_IN_KZ: [string, string][] = [
+  ['yes', 'Да, зарегистрирован'],
+  ['no', 'Нет'],
+  ['unknown', 'Не знаю'],
 ]
 
 // ОДНА ОСЬ: чем рассчитались. Стадия — аванс это или обычная выплата —
@@ -169,25 +182,10 @@ const CERT_STATUS: [string, string][] = [
   ['no', 'Нет'],
 ]
 
-// Семь пунктов чек-листа ст. 702 и 705. Пятый и шестой — РАЗНЫЕ даты и разные
-// адресаты: их регулярно сливают в одну, и это прямая дорога к отказу
-// в освобождении.
-const CERT_CHECKLIST: [string, string, string][] = [
-  ['S8.1', 'Форма документа',
-   'Оригинал, заверенный компетентным органом; нотариально засвидетельствованная копия; либо бумажная копия электронного документа с интернет-ресурса компетентного органа. Скан обычного письма от контрагента сертификатом не является (ст. 702 п. 1).'],
-  ['S8.2', 'Легализация',
-   'Апостиль или консульская легализация — либо документ подпадает под исключение: размещён на интернет-ресурсе компетентного органа, иной порядок установлен международным договором или процедурой взаимного согласования (ст. 702 п. 2).'],
-  ['S8.3', 'Перевод на казахский или русский язык',
-   'Прямого требования нотариального перевода в ст. 702 нет, но аналогичное требование есть в ст. 708 — рекомендуется как страховка.'],
-  ['S8.4', 'Период охватывает год выплаты дохода',
-   'Если период не указан, документ действует за календарный год выдачи. Сертификат за 2025 год под выплату 2026 года не подойдёт (ст. 702 п. 3).'],
-  ['S8.5', 'Сертификат получен вами от нерезидента в срок',
-   'Не позднее более ранней из дат: 31 марта года, следующего за налоговым периодом, либо за 5 рабочих дней до завершения налоговой проверки (ст. 705 п. 3).'],
-  ['S8.6', 'Копия сдана в налоговый орган',
-   'Отдельная обязанность и другой срок: не позднее 5 календарных дней после срока сдачи формы 101.04 за IV квартал, то есть примерно 5 апреля (ст. 705 п. 7).'],
-  ['S8.7', 'Для дивидендов, роялти и вознаграждений через посредника',
-   'В контракте указаны наименование посредника, суммы выплат, данные окончательного получателя, его номер налоговой регистрации и данные госрегистрации (ст. 706 п. 2).'],
-]
+// Чек-лист ст. 702 и 705 переехал в справочник, раздел cert_memo: он стал
+// отдельной памяткой, которую отправляют нерезиденту, а не шагом визарда.
+// Пятый и шестой пункты там — РАЗНЫЕ даты и разные адресаты; их регулярно
+// сливают в одну, и это прямая дорога к отказу в освобождении.
 
 const PLACE_OF_SUPPLY: [string, string][] = [
   ['kz', 'Полностью на территории РК'],
@@ -195,11 +193,6 @@ const PLACE_OF_SUPPLY: [string, string][] = [
   ['partly', 'Частично там, частично здесь'],
 ]
 
-const UNK_OPTIONS: [string, string][] = [
-  ['yes', 'Да, есть'],
-  ['no', 'Нет'],
-  ['unknown', 'Не знаю'],
-]
 
 // ── Оформление. Инлайновые стили, как в остальных модулях. ─────────────────
 
@@ -1115,8 +1108,75 @@ function OutOfScopeScreen({ block, disclaimer, onBack }: {
   )
 }
 
-function ResultScreen({ answers, refbooks, onBack }: {
+/**
+ * Памятка по документу, подтверждающему резидентство нерезидента.
+ *
+ * Была шагом визарда — семью галочками, которые не влияли ни на одну цифру,
+ * но стояли между пользователем и результатом: к моменту расчёта мысль уже
+ * терялась. Стала отдельной страницей.
+ *
+ * Читается и печатается САМА ПО СЕБЕ, без прохождения визарда: её отправляют
+ * нерезиденту, чтобы объяснить, какой документ нужен. Поэтому здесь нет ни
+ * ссылок на «ваш расчёт», ни сумм, ни ответов анкеты.
+ *
+ * Весь текст — из справочника, раздел cert_memo.
+ */
+function CertMemo({ memo, onBack }: {
+  memo: F10104CertMemo
+  onBack?: () => void
+}) {
+  if (!memo?.sections?.length) return null
+
+  return (
+    <div style={card}>
+      <h3 style={{ marginTop: 0, fontSize: 17 }}>{memo.title}</h3>
+
+      {memo.sections.map((section: F10104CertMemo['sections'][number], i: number) => (
+        <div key={i} style={{ marginTop: i ? 18 : 12 }}>
+          <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 5 }}>
+            {section.heading}
+          </div>
+          {section.lead && (
+            <div style={{ fontSize: 13.5, lineHeight: 1.65, color: '#334155' }}>
+              {section.lead}
+            </div>
+          )}
+          {!!section.items?.length && (
+            <ul style={{ margin: '7px 0 0', paddingLeft: 20, fontSize: 13.5,
+                         lineHeight: 1.65, color: '#334155' }}>
+              {section.items.map((item: string, j: number) => (
+                <li key={j} style={{ marginBottom: 5 }}>{item}</li>
+              ))}
+            </ul>
+          )}
+          {section.note && (
+            <div style={{ fontSize: 13, color: '#9a3412', marginTop: 6 }}>
+              {section.note}
+            </div>
+          )}
+          {section.basis && (
+            <div style={{ fontSize: 12.5, color: '#64748b', marginTop: 5 }}>
+              Основание: {section.basis}
+            </div>
+          )}
+        </div>
+      ))}
+
+      <div className="f10104-noprint" style={{ display: 'flex', gap: 10, marginTop: 20 }}>
+        {onBack && (
+          <button className="btn btn-secondary" onClick={onBack}>Назад</button>
+        )}
+        <button className="btn btn-primary" onClick={() => window.print()}>
+          Печать или сохранение в PDF
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function ResultScreen({ answers, refbooks, onBack, onShowMemo }: {
   answers: Answers; refbooks: F10104Refbooks; onBack: () => void
+  onShowMemo: () => void
 }) {
   const [verdict, setVerdict] = useState<Verdict | null>(null)
   const [error, setError] = useState('')
@@ -1374,6 +1434,27 @@ function ResultScreen({ answers, refbooks, onBack }: {
               <span>{what}</span>
             </div>
           ))}
+
+          {/* Второй вход в памятку. Первый — ссылкой рядом с вопросом
+              о документе на S7. Здесь она нужна тем, кто дошёл до результата
+              и увидел, что без документа налог выше. */}
+          {refbooks.cert_memo?.sections?.length && (
+            <div className="f10104-noprint" style={{
+              display: 'flex', gap: 12, padding: '8px 0', fontSize: 14,
+            }}>
+              <b style={{ minWidth: 96 }}>справочно</b>
+              <button
+                onClick={onShowMemo}
+                style={{
+                  border: 'none', background: 'none', padding: 0, cursor: 'pointer',
+                  color: '#2563eb', fontSize: 14, textAlign: 'left',
+                  textDecoration: 'underline dotted',
+                }}
+              >
+                {refbooks.cert_memo.title}
+              </button>
+            </div>
+          )}
         </div>
       )}
 
@@ -1479,6 +1560,9 @@ export default function F10104Page() {
   const [refbooks, setRefbooks] = useState<F10104Refbooks | null>(null)
   const [error, setError] = useState('')
   const [saved, setSaved] = useState(false)
+  // Памятка открывается поверх визарда и не считается шагом: она ничего
+  // не спрашивает и ни на что не влияет.
+  const [showMemo, setShowMemo] = useState(false)
   const savedTimer = useRef<number | undefined>(undefined)
 
   const answers = draft.answers
@@ -1642,17 +1726,24 @@ export default function F10104Page() {
         браузере и на сервере не сохраняются.
       </div>
 
-      <StepNav steps={visibleSteps} current={stepIndex} onGo={go} />
+      {showMemo && refbooks.cert_memo && (
+        <CertMemo memo={refbooks.cert_memo} onBack={() => setShowMemo(false)} />
+      )}
 
-      {step?.id === 'R' && (
+      {!showMemo && (
+      <StepNav steps={visibleSteps} current={stepIndex} onGo={go} />
+      )}
+
+      {!showMemo && step?.id === 'R' && (
         <ResultScreen
           answers={answers}
           refbooks={refbooks}
           onBack={() => go(stepIndex - 1)}
+          onShowMemo={() => setShowMemo(true)}
         />
       )}
 
-      {step?.id !== 'R' && (
+      {!showMemo && step?.id !== 'R' && (
       <div style={card}>
         {step?.id === 'S1' && (
           <>
@@ -1703,11 +1794,7 @@ export default function F10104Page() {
               options={VAT_REGISTERED}
               value={answers['S1.4']}
               onChange={(v) => set('S1.4', v)}
-              // Второе предложение — про то, «как было до 2026 года» — убрано:
-              // текста прежнего кодекса у нас нет, и практикующий бухгалтер
-              // говорит, что так было всегда. Непроверенное не утверждаем.
-              hint={'С 1 января 2026 года НДС за нерезидента платит только покупатель, состоящий '
-                + 'на регистрационном учёте по НДС (ст. 454 п. 1 НК РК).'}
+              hint={refbooks.question_hints?.['S1.4']}
             />
 
             <div style={{ marginBottom: 4 }}>
@@ -1772,51 +1859,27 @@ export default function F10104Page() {
               </select>
             </div>
 
-            <div style={{ marginBottom: 22 }}>
-              <span style={label}>Наименование, налоговый номер, реквизиты контракта</span>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                <input
-                  style={inputS} placeholder="Наименование контрагента"
-                  value={answers['S2.4']?.name || ''}
-                  onChange={(e) => set('S2.4', { ...(answers['S2.4'] || {}), name: e.target.value })}
-                />
-                <input
-                  style={inputS} placeholder="Налоговый номер в стране резидентства"
-                  value={answers['S2.4']?.tin || ''}
-                  onChange={(e) => set('S2.4', { ...(answers['S2.4'] || {}), tin: e.target.value })}
-                />
-                <input
-                  style={inputS} placeholder="Номер контракта"
-                  value={answers['S2.4']?.contract_no || ''}
-                  onChange={(e) => set('S2.4', { ...(answers['S2.4'] || {}), contract_no: e.target.value })}
-                />
-                <input
-                  style={inputS} type="date" placeholder="Дата контракта"
-                  value={answers['S2.4']?.contract_date || ''}
-                  onChange={(e) => set('S2.4', { ...(answers['S2.4'] || {}), contract_date: e.target.value })}
-                />
-              </div>
-              <div style={hintS}>Попадает в графы C, E и G приложения к форме.</div>
-            </div>
+            {/* Наименование, налоговый номер и реквизиты контракта из анкеты
+                убраны: помогайка их не вычисляет, а возвращала бы пользователю
+                то, что он сам ввёл. Восемь полей ради переписывания туда-обратно,
+                при том что заполненный файл формы мы пока не выдаём. Вернутся
+                вместе с выгрузкой в шаблон 101.04 — там они нужны по-настоящему.
+                В таблице заготовки графы остаются со словами «заполняете вы». */}
 
+            {/* Для правила R-REP-02 нужен только ФАКТ постановки договора
+                на учёт. Сам номер уходит в графу Y и вернётся в анкету вместе
+                с выгрузкой в шаблон формы. Общее правило: в анкете спрашиваем
+                признак, от которого зависит вывод; реквизит для заполнения
+                графы — на этапе выгрузки. */}
             <Radio
-              question="Есть ли учётный номер валютного договора (УНК)?"
-              options={UNK_OPTIONS}
-              value={answers['S2.5'] ? 'yes' : answers['_unk'] || ''}
-              onChange={(v) => {
-                set('_unk', v)
-                if (v !== 'yes') set('S2.5', null)
-              }}
-              hint="УНК присваивается банком при сумме договора свыше 50 000 USD — это валютный контроль, на налоги не влияет."
+              question="Выплата идёт по валютному договору, поставленному на учёт в банке (есть УНК)?"
+              options={YES_NO}
+              value={typeof answers['S2.5'] === 'string' && answers['S2.5'] !== 'yes' && answers['S2.5'] !== 'no'
+                ? 'yes'                                  // старый черновик с номером
+                : (answers['S2.5'] as string) || ''}
+              onChange={(v) => set('S2.5', v)}
+              hint={refbooks.question_hints?.['S2.5']}
             />
-            {answers['_unk'] === 'yes' && (
-              <input
-                style={{ ...inputS, maxWidth: 320, marginTop: -12, marginBottom: 20 }}
-                placeholder="Номер УНК"
-                value={answers['S2.5'] || ''}
-                onChange={(e) => set('S2.5', e.target.value)}
-              />
-            )}
           </>
         )}
 
@@ -1966,6 +2029,17 @@ export default function F10104Page() {
               value={answers['S3.4']}
               onChange={(v) => set('S3.4', v)}
             />
+
+            {/* Прежде спрашивался БИН контрагента. Сам номер в расчёте
+                не участвует — значим факт регистрации, и он такой же признак
+                постоянного учреждения, как остальные из этого блока. */}
+            <Radio
+              question="Зарегистрирован ли нерезидент в налоговых органах Казахстана?"
+              options={REGISTERED_IN_KZ}
+              value={answers['S3.5']}
+              onChange={(v) => set('S3.5', v)}
+              hint={refbooks.question_hints?.['S3.5']}
+            />
           </>
         )}
 
@@ -2014,6 +2088,18 @@ export default function F10104Page() {
               hint="Основание — ст. 702 НК РК."
             />
 
+            <button
+              className="f10104-noprint"
+              onClick={() => setShowMemo(true)}
+              style={{
+                border: 'none', background: 'none', padding: 0, marginTop: -14,
+                marginBottom: 20, cursor: 'pointer', color: '#2563eb',
+                fontSize: 13, textDecoration: 'underline dotted',
+              }}
+            >
+              Какой документ подходит и в какие сроки — памятка
+            </button>
+
             {answers['S7.2'] === 'yes' && (
               <label style={{
                 display: 'block', marginTop: -14, marginBottom: 20,
@@ -2061,57 +2147,6 @@ export default function F10104Page() {
               value={answers['S7.7']}
               onChange={(v) => set('S7.7', v)}
             />
-          </>
-        )}
-
-        {step?.id === 'S8' && (
-          <>
-            <h3 style={{ marginTop: 0, fontSize: 17 }}>Чек-лист сертификата резидентства</h3>
-            <div style={{ ...hintS, marginTop: 0, marginBottom: 16 }}>
-              Отметьте выполненные пункты. Непроставленный пункт попадёт
-              в заключение как предупреждение — ответственность за неправомерное
-              освобождение несёт налоговый агент, а не нерезидент.
-            </div>
-
-            {CERT_CHECKLIST.map(([key, title, note]) => (
-              <label key={key} style={{
-                display: 'flex', gap: 10, alignItems: 'flex-start', padding: '11px 12px',
-                border: `1px solid ${answers[key] ? '#2563eb' : '#e2e8f0'}`,
-                background: answers[key] ? '#eff6ff' : '#fff',
-                borderRadius: 8, marginBottom: 8, cursor: 'pointer',
-              }}>
-                <input
-                  type="checkbox" style={{ marginTop: 3 }}
-                  checked={!!answers[key]}
-                  onChange={(e) => set(key, e.target.checked)}
-                />
-                <span>
-                  <span style={{ fontSize: 14, fontWeight: 600 }}>{title}</span>
-                  <span style={{ ...hintS, display: 'block' }}>{note}</span>
-                </span>
-              </label>
-            ))}
-
-            <div style={{
-              marginTop: 14, padding: '12px 14px', background: '#fff7ed',
-              border: '1px solid #fed7aa', borderRadius: 8, fontSize: 13.5,
-              color: '#9a3412', lineHeight: 1.55,
-            }}>
-              <b>Две разные даты, их часто путают.</b>
-              <div style={{ marginTop: 6 }}>
-                <b>До 31 марта года, следующего за годом выплаты</b> — нерезидент
-                представляет сертификат вам, налоговому агенту (ст. 705 п. 3).
-              </div>
-              <div style={{ marginTop: 4 }}>
-                <b>В течение 5 календарных дней после срока сдачи 101.04 за IV квартал,
-                то есть примерно 5 апреля</b> — вы сдаёте копию сертификата в налоговый
-                орган (ст. 705 п. 7).
-              </div>
-              <div style={{ marginTop: 6 }}>
-                Разные сроки и разные адресаты: первый — вам от контрагента,
-                второй — от вас в налоговую.
-              </div>
-            </div>
           </>
         )}
 
@@ -2316,7 +2351,7 @@ export default function F10104Page() {
           </>
         )}
 
-        {step && !['S1', 'S2', 'S5', 'S3', 'S6', 'S7', 'S8', 'S4', 'S9', 'R'].includes(step.id) && (
+        {step && !['S1', 'S2', 'S5', 'S3', 'S6', 'S7', 'S4', 'S9', 'R'].includes(step.id) && (
           <div style={{ color: '#64748b', fontSize: 14, lineHeight: 1.6 }}>
             <h3 style={{ marginTop: 0, fontSize: 17, color: '#0f172a' }}>{step.title}</h3>
             Шаг <b>{step.id}</b> — следующая итерация. Порядок шагов и условия их показа

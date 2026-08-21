@@ -223,6 +223,24 @@ def test_refbooks_carry_flag_texts_for_live_warnings(make_client):
     assert any(e["id"] == "art474" for e in body["vat_exemptions"])
 
 
+def test_refbooks_carry_the_hints_and_the_certificate_memo(make_client):
+    """Подсказки к вопросам и памятка приходят с сервера.
+
+    Раньше памятка была шагом визарда, а её текст — константой в TypeScript.
+    Теперь это раздел справочника: юрист вычитывает формулировки там же, где
+    остальные тексты, и правка не требует пересборки фронтенда.
+    """
+    body = make_client("admin").get("/f10104/refbooks").json()
+
+    assert body["question_hints"]["S1.4"]
+    assert body["question_hints"]["S3.5"]
+
+    memo = body["cert_memo"]
+    assert memo["title"]
+    assert len(memo["sections"]) >= 5
+    assert all(section["heading"] for section in memo["sections"])
+
+
 def test_evaluate_returns_the_explanation_block(make_client):
     """Блок 2 приходит вместе с вердиктом: отдельного запроса за объяснением
     нет — иначе экран мог бы показать расчёт без причин или причины от другого

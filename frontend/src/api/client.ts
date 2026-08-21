@@ -1061,6 +1061,22 @@ export interface F10104Refbooks {
   // Экраны выхода за периметр. Ключ — вид дохода, по которому помогайка
   // не считает; тексты только отсюда, своих в интерфейсе нет.
   out_of_scope: Record<string, F10104OutOfScope>
+  // Подсказки под вопросами: ключ — идентификатор вопроса из ТЗ §4.
+  question_hints: Record<string, string>
+  // Памятка по документу о резидентстве. Отдельная страница: её отправляют
+  // нерезиденту, поэтому она читается без контекста расчёта.
+  cert_memo: F10104CertMemo
+}
+
+export interface F10104CertMemo {
+  title: string
+  sections: {
+    heading: string
+    lead?: string
+    items?: string[]
+    basis?: string
+    note?: string
+  }[]
 }
 
 export interface F10104OutOfScope {
