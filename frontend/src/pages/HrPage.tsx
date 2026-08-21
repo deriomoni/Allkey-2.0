@@ -48,9 +48,12 @@ type Draft = {
   inventory: InventoryItem[]
   deductions: string[]
   applyFromMonth: string          // 'YYYY-MM'; пусто → месяц приёма
+  socialRight: boolean            // «есть право на социальный вычет» — открывает 882/5000 МРП
+  socialDocument: string          // подтверждающий документ для социального вычета
   contract: ContractInput
   noncompete: NonCompeteInput
   consent: SoglasieInput
+  pkg: { number: string; date: string | null }   // единая нумерация пакета: № (перекрывается) и дата (одна)
 }
 
 const EMPTY_DRAFT: Draft = {
@@ -67,6 +70,8 @@ const EMPTY_DRAFT: Draft = {
   inventory: [],
   deductions: ['base_30_mrp'],
   applyFromMonth: '',
+  socialRight: false,
+  socialDocument: '',
   contract: {
     number: '', doc_date: null, kind: 'indefinite', term_count: null, term_unit: 'year',
     end_date: null, task: '', task_kz: '', confidential_years: '3',
@@ -80,10 +85,9 @@ const EMPTY_DRAFT: Draft = {
     penalty: '1 000 000 (один миллион) тенге',
   },
   consent: {
-    doc_date: null, recipients: [], cross_border: false,
-    cross_border_countries: '', cross_border_purpose: '',
-    responsible_position: '', responsible_fio: '', responsible_contacts: '',
+    doc_date: null, recipients: [],
   },
+  pkg: { number: '', date: null },
 }
 
 const num = (v: string | number | null | undefined): number => {
@@ -119,9 +123,10 @@ const CONTRACT_KINDS: [string, string][] = [
   ['substitute', 'На время замещения'],
 ]
 
-const DEDUCTION_OPTIONS: [string, string][] = [
-  ['base_30_mrp', 'Базовый вычет 30 МРП (за каждый месяц)'],
-  ['social_payments', 'Соц. платежи (ОПВ, ВОСМС)'],
+// По ст. 437 НК РК по заявлению применяются базовый и социальные вычеты.
+// Соц. платежи (ОПВ/ВОСМС) применяются автоматически и в список не входят.
+const BASE_DEDUCTION = 'base_30_mrp'
+const SOCIAL_DEDUCTIONS: [string, string][] = [
   ['social_882', 'Социальный вычет 882 МРП'],
   ['social_5000', 'Социальный вычет 5 000 МРП'],
 ]
@@ -141,7 +146,9 @@ function loadDraft(): Draft {
       // Обязательные документы всегда включены (даже в старом черновике), чтобы их
       // блоки ввода отрисовались и они попали в пакет.
       const documents = { ...d.documents, td: true, prikaz: true, soglasie: true, zayavlenie: true }
-      return { ...EMPTY_DRAFT, ...d, documents }
+      // раскрыть блок соц. вычета, если в черновике уже выбран социальный вычет
+      const socialRight = !!d.socialRight || (d.deductions ?? []).some((k) => k === 'social_882' || k === 'social_5000')
+      return { ...EMPTY_DRAFT, ...d, documents, socialRight }
     }
   } catch { /* ignore */ }
   return EMPTY_DRAFT
@@ -155,8 +162,23 @@ function errText(e: unknown, fallback: string): string {
   return fallback
 }
 
+// Единая нумерация пакета: № приказа/ТД перекрываются, если у клиента своя книга;
+// дата одна на весь пакет, во всех датах документов.
+function pkgEmployment(d: Draft): Partial<PersonnelEmployment> {
+  const n = (d.pkg.number ?? '').trim()
+  const date = d.pkg.date
+  return {
+    ...d.employment,
+    order_number: (d.employment.order_number ?? '').trim() || n,
+    order_date: date,
+    contract_number: (d.contract.number ?? '').trim() || n,
+    contract_date: date,
+    application_date: date,
+  }
+}
+
 function body(d: Draft): PrikazBody {
-  return { company: d.company, employee: d.employee, employment: d.employment }
+  return { company: d.company, employee: d.employee, employment: pkgEmployment(d) }
 }
 
 function Field(props: {
@@ -292,6 +314,15 @@ export default function HrPage() {
       ...d,
       deductions: d.deductions.includes(key) ? d.deductions.filter((k) => k !== key) : [...d.deductions, key],
     }))
+  const setPkg = (patch: Partial<Draft['pkg']>) =>
+    setDraft((d) => ({ ...d, pkg: { ...d.pkg, ...patch } }))
+  // Выключение «права на социальный вычет» убирает соц-ключи и очищает документ-основание.
+  const toggleSocialRight = (on: boolean) =>
+    setDraft((d) => ({
+      ...d, socialRight: on,
+      deductions: on ? d.deductions : d.deductions.filter((k) => k !== 'social_882' && k !== 'social_5000'),
+      socialDocument: on ? d.socialDocument : '',
+    }))
   const setContract = (patch: Partial<ContractInput>) =>
     setDraft((d) => ({ ...d, contract: { ...d.contract, ...patch } }))
   const setNonCompete = (patch: Partial<NonCompeteInput>) =>
@@ -389,19 +420,37 @@ export default function HrPage() {
       setError('Для согласия на обработку ПД добавьте хотя бы одного получателя данных')
       return
     }
-    const b: PackageBody = {
-      company: draft.company, employee: draft.employee, employment: draft.employment, documents,
+    const hasSocial = draft.deductions.some((k) => k === 'social_882' || k === 'social_5000')
+    if (draft.documents.zayavlenie && hasSocial && !draft.socialDocument.trim()) {
+      setError('Для социального вычета укажите подтверждающий документ')
+      return
     }
-    if (draft.documents.matotvet || draft.documents.akt) b.liability = draft.liability
-    if (draft.documents.akt) { b.act = draft.act; b.inventory = draft.inventory }
+    // Единая нумерация: № по документу перекрывается, иначе — номер пакета; дата одна.
+    const pkgNum = (draft.pkg.number ?? '').trim()
+    const pkgDate = draft.pkg.date
+    const b: PackageBody = {
+      company: draft.company, employee: draft.employee, employment: pkgEmployment(draft), documents,
+    }
+    if (draft.documents.matotvet || draft.documents.akt) {
+      b.liability = { ...draft.liability, number: (draft.liability.number ?? '').trim() || pkgNum, doc_date: pkgDate }
+    }
+    if (draft.documents.akt) {
+      b.act = { ...draft.act, number: (draft.act.number ?? '').trim() || pkgNum, doc_date: pkgDate }
+      b.inventory = draft.inventory
+    }
     if (draft.documents.zayavlenie) {
       b.deductions = draft.deductions
       // пусто → сервер берёт месяц приёма (employment.start_date); иначе первый день выбранного месяца
       b.apply_from = draft.applyFromMonth ? `${draft.applyFromMonth}-01` : null
+      if (hasSocial) b.social_document = draft.socialDocument.trim()
     }
-    if (draft.documents.td) b.contract = draft.contract
-    if (draft.documents.nekonkurencii) b.noncompete = draft.noncompete
-    if (draft.documents.soglasie) b.consent = draft.consent
+    if (draft.documents.td) {
+      b.contract = { ...draft.contract, number: (draft.contract.number ?? '').trim() || pkgNum, doc_date: pkgDate }
+    }
+    if (draft.documents.nekonkurencii) {
+      b.noncompete = { ...draft.noncompete, number: (draft.noncompete.number ?? '').trim() || pkgNum, doc_date: pkgDate }
+    }
+    if (draft.documents.soglasie) b.consent = { ...draft.consent, doc_date: pkgDate }
     setBusy(true); setError('')
     try { await personnelApi.generatePackage(b) }
     catch (e) { fail(e, 'Не удалось сформировать пакет') } finally { setBusy(false) }
@@ -575,13 +624,11 @@ export default function HrPage() {
           </select>
         </div>
         <Field label="Испытательный срок, мес (0–3)" type="number" value={m.probation_months} onChange={(v) => setEmployment({ probation_months: Number(v) })} />
-        <Field label="№ трудового договора (вручную)" value={m.contract_number} onChange={(v) => setEmployment({ contract_number: v })} />
-        <Field label="Дата ТД" type="date" value={m.contract_date} onChange={(v) => setEmployment({ contract_date: v })} />
-        <Field label="№ приказа (вручную)" value={m.order_number} onChange={(v) => setEmployment({ order_number: v })} />
-        <Field label="Дата приказа" type="date" value={m.order_date} onChange={(v) => setEmployment({ order_date: v })} />
-        <Field label="Дата заявления" type="date" value={m.application_date} onChange={(v) => setEmployment({ application_date: v })} />
         <Field label="Часов в неделю" type="number" value={m.hours_per_week} onChange={(v) => setEmployment({ hours_per_week: Number(v) })} />
         <Field label="Выходные" value={m.days_off} onChange={(v) => setEmployment({ days_off: v })} />
+        <div style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>
+          Номер и дата документов задаются один раз в разделе «Пакет документов» ниже.
+        </div>
       </section>
 
       {/* 4. Preview & generate */}
@@ -642,17 +689,45 @@ export default function HrPage() {
           ))}
         </div>
 
+        <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 8, padding: 14, marginBottom: 12 }}>
+          <h4 style={{ marginBottom: 8 }}>Нумерация пакета</h4>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <Field label="Номер (единый для пакета)" value={draft.pkg.number} onChange={(v) => setPkg({ number: v })} placeholder="напр. 58" />
+            <Field label="Дата (единая для пакета)" type="date" value={draft.pkg.date} onChange={(v) => setPkg({ date: v })} />
+          </div>
+          <div style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>
+            Номер и дата подставляются во все документы. Дата — одна на пакет. Если у документа своя книга
+            нумерации, укажите его номер в блоке документа ниже — он перекроет номер пакета.
+          </div>
+          <Field label="Приказ о приёме № (если своя книга)" value={m.order_number}
+            onChange={(v) => setEmployment({ order_number: v })} placeholder="иначе — номер пакета" />
+        </div>
+
         {draft.documents.zayavlenie && (
           <div style={{ background: '#f8fafc', borderRadius: 8, padding: 14, marginBottom: 12 }}>
             <h4 style={{ marginBottom: 8 }}>Заявление на налоговые вычеты (ИПН)</h4>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 10 }}>
-              {DEDUCTION_OPTIONS.map(([key, label]) => (
-                <label key={key} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                  <input type="checkbox" checked={draft.deductions.includes(key)} onChange={() => toggleDeduction(key)} />
-                  {label}
-                </label>
-              ))}
-            </div>
+            <label style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
+              <input type="checkbox" checked={draft.deductions.includes(BASE_DEDUCTION)} onChange={() => toggleDeduction(BASE_DEDUCTION)} />
+              Базовый вычет 30 МРП (за каждый месяц) — нужен практически всем
+            </label>
+
+            <label style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6 }}>
+              <input type="checkbox" checked={draft.socialRight} onChange={(ev) => toggleSocialRight(ev.target.checked)} />
+              Есть право на социальный вычет (инвалидность, родитель ребёнка с инвалидностью, участник ВОВ и др.)
+            </label>
+            {draft.socialRight && (
+              <div style={{ marginLeft: 24, marginBottom: 10 }}>
+                {SOCIAL_DEDUCTIONS.map(([key, label]) => (
+                  <label key={key} style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 4 }}>
+                    <input type="checkbox" checked={draft.deductions.includes(key)} onChange={() => toggleDeduction(key)} />
+                    {label}
+                  </label>
+                ))}
+                <Field label="Подтверждающий документ (обязательно)" value={draft.socialDocument}
+                  onChange={(v) => setDraft((d) => ({ ...d, socialDocument: v }))}
+                  placeholder="напр. справка ВТЭК № … от …" />
+              </div>
+            )}
             <div className="form-group">
               <label>Применять с месяца</label>
               <input type="month" value={draft.applyFromMonth || monthOf(m.start_date)}
@@ -673,8 +748,7 @@ export default function HrPage() {
                 {CONTRACT_KINDS.map(([val, label]) => <option key={val} value={val}>{label}</option>)}
               </select>
             </div>
-            <Field label="№ договора" value={draft.contract.number} onChange={(v) => setContract({ number: v })} />
-            <Field label="Дата договора" type="date" value={draft.contract.doc_date} onChange={(v) => setContract({ doc_date: v })} />
+            <Field label="№ ТД (если своя книга; иначе — номер пакета)" value={draft.contract.number} onChange={(v) => setContract({ number: v })} />
 
             {draft.contract.kind === 'fixed' && (
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -738,8 +812,7 @@ export default function HrPage() {
         {draft.documents.nekonkurencii && (
           <div style={{ background: '#f8fafc', borderRadius: 8, padding: 14, marginBottom: 12 }}>
             <h4 style={{ marginBottom: 8 }}>Договор о неконкуренции</h4>
-            <Field label="№ договора" value={draft.noncompete.number} onChange={(v) => setNonCompete({ number: v })} />
-            <Field label="Дата договора" type="date" value={draft.noncompete.doc_date} onChange={(v) => setNonCompete({ doc_date: v })} />
+            <Field label="№ (если своя книга; иначе — номер пакета)" value={draft.noncompete.number} onChange={(v) => setNonCompete({ number: v })} />
             <Field label="Срок неконкуренции" value={draft.noncompete.term_noncompete}
               onChange={(v) => setNonCompete({ term_noncompete: v })} placeholder="6 (шесть) месяцев" />
             <Field label="Срок непереманивания" value={draft.noncompete.term_nonsolicit}
@@ -763,16 +836,14 @@ export default function HrPage() {
         {(draft.documents.matotvet || draft.documents.akt) && (
           <div style={{ background: '#f8fafc', borderRadius: 8, padding: 14, marginBottom: 12 }}>
             <h4 style={{ marginBottom: 8 }}>Реквизиты договора о матответственности</h4>
-            <Field label="№ договора" value={draft.liability.number} onChange={(v) => setLiability({ number: v })} />
-            <Field label="Дата договора" type="date" value={draft.liability.doc_date} onChange={(v) => setLiability({ doc_date: v })} />
+            <Field label="№ (если своя книга; иначе — номер пакета)" value={draft.liability.number} onChange={(v) => setLiability({ number: v })} />
           </div>
         )}
 
         {draft.documents.akt && (
           <div style={{ background: '#f8fafc', borderRadius: 8, padding: 14, marginBottom: 12 }}>
             <h4 style={{ marginBottom: 8 }}>Акт приёма-передачи</h4>
-            <Field label="№ акта" value={draft.act.number} onChange={(v) => setAct({ number: v })} />
-            <Field label="Дата акта" type="date" value={draft.act.doc_date} onChange={(v) => setAct({ doc_date: v })} />
+            <Field label="№ акта (если своя книга; иначе — номер пакета)" value={draft.act.number} onChange={(v) => setAct({ number: v })} />
             <Field label="Основание (напр. «приказ № 14 от 17.08.2026»; пусто — не выводится)"
               value={draft.act.basis} onChange={(v) => setAct({ basis: v })} />
             <Field label="Особые отметки" value={draft.act.notes} onChange={(v) => setAct({ notes: v })} />
@@ -844,28 +915,6 @@ export default function HrPage() {
         {draft.documents.soglasie && (
           <div style={{ background: '#f8fafc', borderRadius: 8, padding: 14, marginBottom: 12 }}>
             <h4 style={{ marginBottom: 8 }}>Согласие на обработку персональных данных</h4>
-            <Field label="Дата согласия" type="date" value={draft.consent.doc_date} onChange={(v) => setConsent({ doc_date: v })} />
-            <Field label="Ответственный за обработку ПД, должность" value={draft.consent.responsible_position}
-              onChange={(v) => setConsent({ responsible_position: v })} placeholder="менеджер по персоналу" />
-            <Field label="Ответственный за обработку ПД, ФИО" value={draft.consent.responsible_fio}
-              onChange={(v) => setConsent({ responsible_fio: v })} placeholder="Иванова И.И." />
-            <Field label="Контакты ответственного" value={draft.consent.responsible_contacts}
-              onChange={(v) => setConsent({ responsible_contacts: v })} placeholder="телефон, e-mail" />
-
-            <label style={{ display: 'flex', gap: 8, alignItems: 'center', margin: '8px 0' }}>
-              <input type="checkbox" checked={draft.consent.cross_border}
-                onChange={(ev) => setConsent({ cross_border: ev.target.checked })} />
-              Трансграничная передача (в другие страны)
-            </label>
-            {draft.consent.cross_border && (
-              <>
-                <Field label="Страны передачи" value={draft.consent.cross_border_countries}
-                  onChange={(v) => setConsent({ cross_border_countries: v })} placeholder="Российская Федерация, …" />
-                <Field label="Цель трансграничной передачи" value={draft.consent.cross_border_purpose}
-                  onChange={(v) => setConsent({ cross_border_purpose: v })} />
-              </>
-            )}
-
             <div style={{ marginTop: 10 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <strong>Получатели данных</strong>

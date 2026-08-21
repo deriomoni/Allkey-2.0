@@ -883,12 +883,6 @@ export interface RecipientInput {
 export interface SoglasieInput {
   doc_date: string | null
   recipients: RecipientInput[]
-  cross_border: boolean
-  cross_border_countries: string
-  cross_border_purpose: string
-  responsible_position: string
-  responsible_fio: string
-  responsible_contacts: string
 }
 
 // Данные приказа об ответственном за ПД + Положения о ПД (§4.6).
@@ -911,6 +905,7 @@ export interface PackageBody {
   documents: string[]
   deductions?: string[]
   apply_from?: string | null
+  social_document?: string
   liability?: LiabilityInput | null
   act?: ActInput | null
   inventory?: InventoryItem[]
