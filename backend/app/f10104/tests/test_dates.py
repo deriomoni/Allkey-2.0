@@ -381,3 +381,89 @@ def test_the_form_quarter_follows_the_recognition_date_not_the_payment():
 
     # Срок и квартал — от одной и той же даты признания.
     assert (v.periods.kpn_quarter - 1) * 3 < v.date_rule.fx_date.month <= v.periods.kpn_quarter * 3
+
+
+# ── Формулировки живут в справочнике ───────────────────────────────────────
+
+def test_no_wording_is_left_in_the_code():
+    """Тексты правил R-DATE обязаны жить в справочнике, а не в dates.py.
+
+    Довод не в чистоте правила: впереди юридическая вычитка формулировок,
+    и юрист читает `rules_101_04.json`. Текст, оставшийся в коде, вычитку
+    просто не пройдёт — его там не увидят.
+
+    Ищем строковые константы разбором кода, а не регуляркой: регулярка
+    цепляет куски между кавычками из соседних строк и врёт в обе стороны.
+    Докстроки и служебные сообщения выведены явно.
+    """
+    import ast  # noqa: PLC0415
+    import re  # noqa: PLC0415
+
+    from app.f10104 import dates  # noqa: PLC0415
+
+    allowed = ("не заведён в справочнике", "раздел date_rules")
+    tree = ast.parse(open(dates.__file__, encoding="utf-8").read())
+
+    docstrings = set()
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Module, ast.FunctionDef, ast.ClassDef)):
+            doc = ast.get_docstring(node, clean=False)
+            if doc:
+                docstrings.add(doc)
+
+    leftovers = [
+        node.value for node in ast.walk(tree)
+        if isinstance(node, ast.Constant) and isinstance(node.value, str)
+        and len(node.value) >= 30
+        and re.search(r"[а-яё]", node.value, re.I)
+        and node.value not in docstrings
+        and not any(mark in node.value for mark in allowed)
+    ]
+
+    assert not leftovers, leftovers
+
+
+def test_every_rule_has_a_template_in_the_refbook():
+    """Правило без текста объяснит себя служебной строкой — это дыра."""
+    from app.f10104.rules import get_rules  # noqa: PLC0415
+
+    section = get_rules()["date_rules"]
+
+    # Правила с одним исходом — один шаблон.
+    for rule_id in ("R-DATE-00", "R-DATE-01", "R-DATE-02", "R-DATE-03",
+                    "R-DATE-06", "R-DATE-07", "R-DATE-08"):
+        record = section.get(rule_id) or {}
+        assert record.get("template"), rule_id
+
+    # Правила с развилкой — по шаблону на исход плюс описание условия выбора,
+    # чтобы читающий формулировки видел и то, когда какая применяется.
+    for rule_id, variants in (
+        ("R-DATE-04", ("variant_a", "variant_b", "variant_b_unpaid", "variant_c")),
+        ("R-DATE-05", ("variant_a", "variant_b")),
+    ):
+        record = section[rule_id]
+        for variant in variants:
+            assert record.get(variant), f"{rule_id}.{variant}"
+        assert record.get("when"), f"{rule_id}: условие выбора не описано"
+
+
+def test_no_explanation_falls_back_to_the_service_message():
+    """Ни один из живых случаев не должен печатать «текст не заведён»."""
+    for answers in (
+        {"S4.1": ACT, "S4.2": PAY},
+        {"S4.2": PAY},
+        {"S4.1": date(2026, 4, 15), "S4.2": PAY},
+        {"S4.1": ACT, "S4.6": {"deducted": True, "year": 2026}},
+        {"S4.1": ACT, "S4.6": {"deducted": False}},
+        {"S2.1": "counter_supply", "S4.1": ACT, "S4.2": PAY},
+        {"S2.1": "counter_supply"},
+        {},
+        {"S4.1": date(2026, 4, 15), "S4.2": PAY, "S4.4": 4000.0,
+         "S4.2a": {"mode": "partial", "advance_amount": 4500.0}},
+        {"S4.1": date(2026, 4, 15), "S4.2": PAY, "S4.4": 10000.0,
+         "S4.2a": {"mode": "partial", "advance_amount": 4000.0,
+                   "rest_payment_date": date(2026, 5, 20)}},
+    ):
+        text = resolve(answers).explanation
+        assert "не заведён" not in text, answers
+        assert "{" not in text, f"неподставленный плейсхолдер: {text}"
