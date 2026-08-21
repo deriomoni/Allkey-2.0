@@ -346,3 +346,38 @@ def test_three_control_dates_do_not_merge():
     assert back < due < year, "порядок дат нарушен"
     assert v.date_rule.advance_unclosed_fx == 500
     assert v.date_rule.control_reason and "остаток аванса" in v.date_rule.control_reason
+
+
+def test_the_form_quarter_follows_the_recognition_date_not_the_payment():
+    """Квартал формы — по дате признания дохода, а не по дате ухода денег.
+
+    Найдено прогоном консультации K05: аванс 20.04.2026, акт 25.09.2026.
+    Консультация говорит прямо — «предоплата это ещё не доход нерезидента»,
+    форма за III квартал, уплата до 25.10.2026. Помогайка ставила срок
+    от правила R-DATE (октябрь), а квартал от даты выплаты (II), и они
+    расходились внутри одного вердикта.
+
+    Проверяется именно СОГЛАСОВАННОСТЬ: срок и квартал обязаны считаться
+    от одной даты, иначе один из них врёт, а какой — не видно.
+    """
+    from datetime import date as d  # noqa: PLC0415
+
+    from app.f10104.engine import evaluate  # noqa: PLC0415
+    from app.f10104.rules import get_rules  # noqa: PLC0415
+
+    from .answers import base  # noqa: PLC0415
+
+    v = evaluate(base(**{
+        "S1.1": {"quarter": 3, "year": 2026}, "S2.3": "UZ", "S1.5": "USD",
+        "S5.1": "services", "S5.5": "consulting", "S6.1": "outside",
+        "S7.2": "no", "S4.1": d(2026, 9, 25), "S4.2": d(2026, 4, 20),
+        "S4.4": 10000.0, "S4.5": 500.0,
+    }), refbooks=get_rules(), as_of_date=d(2026, 10, 31))
+
+    assert v.date_rule.rule_id == "R-DATE-03"
+    assert v.date_rule.fx_date == d(2026, 9, 25)
+    assert v.deadlines.kpn_payment == d(2026, 10, 25)
+    assert v.periods.kpn_quarter == 3, "форма ушла в квартал аванса"
+
+    # Срок и квартал — от одной и той же даты признания.
+    assert (v.periods.kpn_quarter - 1) * 3 < v.date_rule.fx_date.month <= v.periods.kpn_quarter * 3

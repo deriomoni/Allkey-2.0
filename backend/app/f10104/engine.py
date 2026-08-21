@@ -559,6 +559,12 @@ def evaluate(answers: dict, refbooks: dict, as_of_date: date,
     # ── R-VAT
     _apply_vat(answers, refbooks, country, kind, income, vat_base_kzt, v, flag)
 
+    # Срок ставит правило R-DATE — ДО расчёта периодов, иначе запасной
+    # вариант внутри посчитает свой и будет тут же перезаписан. Порядок
+    # тут не косметика: перезапись прячет, какой из двух источников сработал.
+    if date_rule.deadline:
+        v.deadlines.kpn_payment = date_rule.deadline
+
     # ── Периоды и сроки
     _apply_periods_and_deadlines(answers, refbooks, payment_date, act_date, v, flag)
 
@@ -574,8 +580,6 @@ def evaluate(answers: dict, refbooks: dict, as_of_date: date,
     # и означает другое — их нельзя сливать в одно поле.
     if date_rule.rule_id in ("R-DATE-02", "R-DATE-04") and payment_date:
         v.advance_control_date = _plus_months(payment_date, ADVANCE_CONTROL_MONTHS)
-    if date_rule.deadline:
-        v.deadlines.kpn_payment = date_rule.deadline
 
     # ── R-REP. Отчётность
     _apply_reporting(answers, refbooks, v, flag, usd_rate)
@@ -1158,7 +1162,18 @@ def _kz_answer(value: Optional[str]) -> Optional[bool]:
 # ── Периоды и сроки ────────────────────────────────────────────────────────
 
 def _apply_periods_and_deadlines(answers, refbooks, payment_date, act_date, v, flag) -> None:
-    kpn_date = payment_date or act_date
+    # Квартал формы определяется датой, на которую доход ПРИЗНАН, а не датой
+    # ухода денег. При авансе, закрытом более поздним актом, это дата акта:
+    # «предоплата — это ещё не доход нерезидента» (ст. 684 п. 1 пп. 3).
+    #
+    # Дату признания уже вычислил разрешитель R-DATE — берём её, а не считаем
+    # заново. Прежде срок уплаты шёл от правила, а квартал от даты выплаты,
+    # и они расходились: срок в октябре при форме за II квартал. Найдено
+    # прогоном консультации K05 (аванс 20.04, акт 25.09 → форма за III
+    # квартал, уплата до 25.10), где это и было названо прямым текстом.
+    rule = v.date_rule
+    kpn_date = (rule.fx_date if rule is not None and rule.fx_date
+                else payment_date or act_date)
     v.periods = Periods(
         kpn_quarter=_quarter(kpn_date), kpn_year=kpn_date.year if kpn_date else None,
         vat_quarter=_quarter(act_date), vat_year=act_date.year if act_date else None)
@@ -1169,9 +1184,12 @@ def _apply_periods_and_deadlines(answers, refbooks, payment_date, act_date, v, f
 
     deadlines = refbooks["deadlines"]
     if kpn_date:
-        # ст. 684 п. 1 пп. 1) — 25 календарных дней после месяца выплаты.
-        v.deadlines.kpn_payment = _plus_days(_end_of_month(kpn_date),
-                                             KPN_PAYMENT_DAYS_AFTER_MONTH)
+        # Срок ставит правило R-DATE — у него своя норма под каждый случай.
+        # Здесь остаётся запасной вариант на случай, когда правило срока
+        # не дало: 25 календарных дней после окончания месяца признания.
+        if v.deadlines.kpn_payment is None:
+            v.deadlines.kpn_payment = _plus_days(_end_of_month(kpn_date),
+                                                 KPN_PAYMENT_DAYS_AFTER_MONTH)
         quarter_key = f"q{v.periods.kpn_quarter}"
         form = deadlines["form_101_04"].get(quarter_key, {})
         v.deadlines.form_101_04 = _iso(form.get("date_2026"))
