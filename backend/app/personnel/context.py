@@ -232,13 +232,19 @@ def build_prikaz_preview(company, employee, employment, hr_responsible_fio: str 
     Editing any of them flows into the generated document via the same context.
     """
     ctx = build_order_context(company, employee, employment, hr_responsible_fio)
+    # Оклад прописью в приказе больше не выводится (его нет в order-контексте), но в превью
+    # он нужен как редактируемое значение (идёт в ТД) — считаем его напрямую из оклада,
+    # с учётом ручного переопределения. Раньше чтение ctx["employment"]["salary_words_ru"]
+    # падало KeyError, т.к. поле убрано из приказа.
+    salary = employment.salary or 0
+    salary_words = (getattr(employment, "salary_words_override", None) or "") or ru_int_to_words(int(salary))
     return {
         "context": ctx,
         "editable": {
             "employee": current_declensions(employee),
             "employment": {
-                "position_ru": ctx["employment"]["position"],
-                "salary_words_ru": ctx["employment"]["salary_words_ru"],
+                "position_ru": employment.position_ru or "",
+                "salary_words_ru": salary_words,
             },
         },
     }

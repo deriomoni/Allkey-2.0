@@ -12,6 +12,7 @@ from types import SimpleNamespace
 
 from app.personnel.context import (
     build_order_context, build_deductions_context, build_deduction_application_context,
+    build_prikaz_preview,
 )
 from app.personnel.generator import render_template, output_filename
 
@@ -219,3 +220,16 @@ def test_deductions_exact_texts():
     # вычет соц.платежей убран из справочника — незнакомый ключ просто отбрасывается
     ctx3 = build_deductions_context(["social_payments"], date(2026, 8, 1))
     assert ctx3["list"] == [] and ctx3["has_social"] is False
+
+
+def test_prikaz_preview_has_salary_words_without_keyerror():
+    # Регрессия: приказ больше не выводит оклад, но превью обязано отдать
+    # «оклад прописью» как редактируемое значение (идёт в ТД), а не падать KeyError.
+    company, employee, employment = sample_entities()
+    employee.fio_genitive_override = None
+    employee.fio_dative_override = None
+    employee.fio_accusative_override = None
+    employment.salary_words_override = None
+    p = build_prikaz_preview(company, employee, employment)
+    assert p["editable"]["employment"]["salary_words_ru"].startswith("триста тысяч")
+    assert p["editable"]["employment"]["position_ru"] == "менеджер по продажам"
