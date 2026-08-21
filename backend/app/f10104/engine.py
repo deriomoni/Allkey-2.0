@@ -501,7 +501,7 @@ def evaluate(answers: dict, refbooks: dict, as_of_date: date,
     final_rate = nk_rate
     if taxable and nk_rate is not None:
         final_rate = _apply_convention(answers, refbooks, country, income,
-                                       nk_rate, v, flag)
+                                       nk_rate, v, flag, as_of_date)
     v.kpn.rate = final_rate
     v.kpn.amount_kzt = _kpn_amount(v, final_rate, taxable)
 
@@ -746,7 +746,8 @@ def _kpn_amount(v: Verdict, final_rate, taxable: bool) -> int:
 
 # ── R-CONV ─────────────────────────────────────────────────────────────────
 
-def _apply_convention(answers, refbooks, country, income, nk_rate, v, flag) -> float:
+def _apply_convention(answers, refbooks, country, income, nk_rate, v, flag,
+                      as_of_date=None) -> float:
     """Возвращает итоговую ставку с учётом конвенции."""
     # R-CONV-02. Офшор — конвенция не применяется.
     if country.is_offshore:
@@ -782,18 +783,39 @@ def _apply_convention(answers, refbooks, country, income, nk_rate, v, flag) -> f
                            "удержание по ставке НК")
         v.kpn.basis.append("ст. 699–701 — нерезидент вправе подать заявление "
                            "на возврат налога из бюджета")
-        flag("F-CERT-DEADLINE")
+
+        # Напоминание о сроке ст. 705 п. 3 поднимается, ТОЛЬКО если документ
+        # реально спасёт деньги. Иначе флаг встанет на каждой второй операции,
+        # и к третьему экрану пользователь перестанет читать флаги вообще —
+        # то же самое, что случается с красным цветом, когда его слишком много.
+        #
+        # При признаках постоянного учреждения флаг гасится совсем: если ПУ
+        # образовалось, вся конструкция «удержали у источника и применили
+        # конвенцию» под вопросом, и совет собирать сертификат уводит
+        # бухгалтера от настоящей проблемы. Один стоп-сигнал вместо двух
+        # разнонаправленных подсказок.
+        if ("F-PE-RISK" not in v.flags
+                and _document_would_lower_the_tax(answers, refbooks, country,
+                                                  income, nk_rate)
+                and _certificate_deadline_open(answers, as_of_date)):
+            flag("F-CERT-DEADLINE")
         return nk_rate
 
     # R-CONV-05. Документ есть и соответствует ст. 702 — конвенция работает.
-    if not v.decide("R-CONV-05", True):
-        v.kpn.basis.append("ст. 705 п. 3 — сертификат резидентства не получен, "
-                           "удержание по ставке НК")
-        v.kpn.basis.append("ст. 699–701 — нерезидент вправе подать заявление "
-                           "на возврат налога из бюджета")
-        flag("F-CERT-DEADLINE")
-        return nk_rate
+    v.decide("R-CONV-05", True)
 
+    return _convention_tail(answers, refbooks, country, income, nk_rate, v, flag)
+
+
+def _convention_tail(answers, refbooks, country, income, nk_rate, v, flag) -> float:
+    """Что даёт конвенция ПОСЛЕ того, как документ признан годным.
+
+    Вынесено отдельно, чтобы этот же путь можно было прогнать вхолостую —
+    на выброшенном вердикте и без флагов — и узнать, изменит ли документ
+    сумму вообще. Считать это отдельным предикатом нельзя: он разойдётся
+    с настоящей веткой, и мы будем обещать пользователю экономию, которой
+    в расчёте нет.
+    """
     # R-CONV-06. Транзитная структура — вывод не даём.
     if v.decide("conduit", answers.get("S7.6") == "yes"):
         flag("F-CONDUIT")
@@ -822,6 +844,38 @@ def _apply_convention(answers, refbooks, country, income, nk_rate, v, flag) -> f
     v.kpn.convention_type = "full"
     v.kpn.basis.append("ст. 705 + ст. 7 конвенции — освобождение от налогообложения в РК")
     return 0.0
+
+
+def _document_would_lower_the_tax(answers, refbooks, country, income,
+                                  nk_rate) -> bool:
+    """Изменит ли годный документ сумму налога.
+
+    Прогоняем настоящую ветку конвенции на выброшенном вердикте: флаги
+    глушим, обоснование уходит в никуда, важен только полученный процент.
+    Если он не ниже ставки кодекса — документ ничего не спасает, и говорить
+    о сроке его получения незачем.
+    """
+    if nk_rate is None:
+        return False
+    try:
+        rate = _convention_tail(answers, refbooks, country, income, nk_rate,
+                                Verdict(), lambda _code: None)
+    except EngineError:
+        return False
+    return rate is not None and rate < nk_rate
+
+
+def _certificate_deadline_open(answers, as_of_date) -> bool:
+    """Не истёк ли срок ст. 705 п. 3.
+
+    Документ представляется налоговому агенту не позднее 31 марта года,
+    следующего за годом выплаты дохода. Срок прошёл — собирать документ
+    поздно, и напоминание о нём становится шумом.
+    """
+    payment = answers.get("S4.2") or answers.get("S4.1")
+    if payment is None or as_of_date is None:
+        return True                    # дат не знаем — молчать не будем
+    return as_of_date <= date(payment.year + 1, 3, 31)
 
 
 # ── Ставки по конвенциям ───────────────────────────────────────────────────
