@@ -255,3 +255,94 @@ def test_the_two_control_dates_coexist_and_differ():
     assert far == d(2027, 3, 20)             # выплата плюс 12 месяцев
     assert "F-ADVANCE" in v.flags
     assert v.date_rule.control_reason        # у ближней есть своё объяснение
+
+
+# ── Частичное начисление выводится, а не спрашивается ──────────────────────
+
+def test_accrued_part_is_derived_from_the_two_amounts():
+    """Публикация: аванс 4 500, акт на 4 000. Ни одного нового вопроса.
+
+    По пп. 3) облагается меньшая из двух — начисленное. Остаток аванса
+    дохода пока не образует.
+    """
+    r = resolve({"S4.1": date(2026, 3, 20), "S4.2": date(2026, 3, 10),
+                 "S4.4": 4000.0,
+                 "S4.2a": {"mode": "partial", "advance_amount": 4500.0}})
+
+    assert r.rule_id == "R-DATE-04"
+    assert r.taxable_now_fx == 4000
+    assert r.advance_unclosed_fx == 500
+    assert len(r.parts) == 1              # остатка по акту нет — акт меньше аванса
+    assert r.parts[0].subparagraph == "пп. 3)"
+
+
+def test_the_act_exceeding_the_advance_goes_by_subparagraph_one():
+    """Обратный случай: акт больше аванса — остаток идёт по пп. 1)."""
+    r = resolve({"S4.1": date(2026, 4, 15), "S4.2": PAY, "S4.4": 10_000.0,
+                 "S4.2a": {"mode": "partial", "advance_amount": 4_000.0,
+                           "rest_payment_date": date(2026, 5, 20)}})
+
+    assert r.taxable_now_fx == 4_000
+    assert r.advance_unclosed_fx is None
+    advance, rest = r.parts
+    assert (advance.subparagraph, advance.amount_fx) == ("пп. 3)", 4_000)
+    assert (rest.subparagraph, rest.amount_fx) == ("пп. 1)", 6_000)
+
+
+def test_no_answer_declares_how_much_was_accrued():
+    """Сторож на возврат ярлыка: сумма начисления не должна приходить ответом.
+
+    Если однажды в разрешитель снова придёт `accrued_amount`, значит вопрос
+    «начислена ли часть суммы» вернули в анкету — а это тот же ярлык
+    состояния, от которых мы ушли.
+    """
+    import inspect  # noqa: PLC0415
+
+    from app.f10104 import dates, engine  # noqa: PLC0415
+
+    # Ищем именно ЧТЕНИЕ ключа ответа, а не совпадение по имени переменной.
+    for module in (dates, engine):
+        source = inspect.getsource(module)
+        assert '"accrued_amount"' not in source, module.__name__
+        assert "['accrued_amount']" not in source, module.__name__
+
+
+def test_three_control_dates_do_not_merge():
+    """У этого сценария ТРИ разные даты, и все три про разное.
+
+    1. срок уплаты по начисленной части — ст. 684 п. 1 пп. 3);
+    2. возврат за остатком аванса — акт его ещё не закрыл, дохода нет;
+    3. двенадцать месяцев по ст. 679 п. 1 пп. 5) — неотработанный аванс
+       сам становится доходом нерезидента.
+
+    Проверяется связь и порядок, а не значения: слипнись любые две, и одно
+    из трёх обязательств исчезнет с экрана незаметно.
+    """
+    from datetime import date as d  # noqa: PLC0415
+
+    from app.f10104.engine import evaluate  # noqa: PLC0415
+    from app.f10104.rules import get_rules  # noqa: PLC0415
+
+    from .answers import base  # noqa: PLC0415
+
+    answers = base(**{
+        "S2.3": "OFF54", "S5.1": "rent", "S5.5": "rent_vehicle",
+        "S6.1": "outside", "S7.2": "no", "S1.5": "EUR",
+        "S4.1": d(2026, 3, 20), "S4.2": d(2026, 3, 10),
+        "S4.4": 4000.0, "S4.5": 594.50,
+        "S4.2a": {"mode": "partial", "advance_amount": 4500.0},
+    })
+    v = evaluate(answers, refbooks=get_rules(), as_of_date=d(2026, 3, 31))
+
+    due = v.deadlines.kpn_payment          # срок уплаты по начисленной части
+    back = v.date_rule.control_date        # вернуться за остатком аванса
+    year = v.advance_control_date          # двенадцать месяцев по ст. 679
+
+    assert due is not None, "потерян срок уплаты"
+    assert back is not None, "потеряна дата возврата за остатком аванса"
+    assert year is not None, "потеряна двенадцатимесячная дата"
+
+    assert len({due, back, year}) == 3, "две из трёх дат слиплись"
+    assert back < due < year, "порядок дат нарушен"
+    assert v.date_rule.advance_unclosed_fx == 500
+    assert v.date_rule.control_reason and "остаток аванса" in v.date_rule.control_reason

@@ -67,6 +67,13 @@ class DateVerdict:
     explanation: str = ""
     parts: list[DatePart] = field(default_factory=list)
     norms: list[str] = field(default_factory=list)
+    # Сумма в валюте договора, облагаемая по пп. 3) СЕЙЧАС. Выводится, а не
+    # спрашивается: отдельный вопрос «начислена ли часть суммы» был бы тем же
+    # ярлыком состояния, от которых мы ушли. None — правило сумму не сужает.
+    taxable_now_fx: Optional[Decimal] = None
+    # Часть аванса, которую акт ещё не закрыл: дохода она не образует,
+    # но требует возврата к операции.
+    advance_unclosed_fx: Optional[Decimal] = None
 
 
 # ── Вспомогательное ────────────────────────────────────────────────────────
@@ -263,50 +270,101 @@ def _partial_advance(answers: dict, act: date, payment: date,
                      partial: dict) -> DateVerdict:
     """R-DATE-04. Частичный аванс: одна операция, две нормы, два срока.
 
-    В пределах предоплаты действует подпункт 3) — курс на дату начисления.
-    Остаток, выплаченный после акта, идёт по подпункту 1) — курс на дату
-    выплаты остатка. Сроки считаются отдельно и могут попасть в разные месяцы.
+    Ни одного нового вопроса: всё выводится из суммы аванса (S4.2a) и суммы
+    по акту (S4.4).
+
+        начислено          = сумма по акту
+        по пп. 3) сейчас   = меньшая из двух: аванс и начисленное
+        остаток аванса     = аванс сверх начисленного — дохода пока не образует
+        остаток акта       = начисленное сверх аванса — идёт по пп. 1)
+
+    Контрольный пример официального разбора: аванс 4 500, акт на 4 000 →
+    по пп. 3) облагается 4 000, а 500 остаются незакрытыми.
     """
     advance_amount = partial.get("advance_amount")
     rest_payment = partial.get("rest_payment_date")
-    total = answers.get("S4.4")
+    act_amount = answers.get("S4.4")          # начислено = сумма по акту
 
     advance = Decimal(str(advance_amount)) if advance_amount is not None else None
-    rest = (Decimal(str(total)) - advance
-            if total is not None and advance is not None else None)
+    accrued = Decimal(str(act_amount)) if act_amount is not None else None
+
+    taxable_now = min(advance, accrued) if advance is not None and accrued is not None else advance
+    unclosed = (advance - accrued if advance is not None and accrued is not None
+                and advance > accrued else None)
+    act_rest = (accrued - advance if advance is not None and accrued is not None
+                and accrued > advance else None)
 
     advance_due = deadline_after_month(act)
     rest_due = deadline_after_month(rest_payment) if rest_payment else None
 
-    parts = [
-        DatePart("аванс", "пп. 3)", advance, act, advance_due),
-        DatePart("остаток", "пп. 1)", rest, rest_payment, rest_due,
-                 rest_payment is not None),
-    ]
+    parts = [DatePart("начисленная часть", "пп. 3)", taxable_now, act, advance_due)]
+    if act_rest is not None:
+        parts.append(DatePart("остаток по акту", "пп. 1)", act_rest, rest_payment,
+                              rest_due, rest_payment is not None))
+
+    # Возврат за незакрытым остатком аванса — своя причина и свой срок.
+    # Смешивать его ни со сроком уплаты, ни с двенадцатимесячной датой
+    # по ст. 679 п. 1 пп. 5) нельзя: это три разных обязательства.
+    if unclosed is not None:
+        control_date = end_of_month(act)
+        control_reason = ("Вернуться, когда акт закроет остаток аванса "
+                          f"{_num(unclosed)} — дохода он пока не образует")
+    elif act_rest is not None and rest_payment is None:
+        control_date = end_of_month(act)
+        control_reason = "Вернуться после выплаты остатка по акту"
+    else:
+        control_date = None
+        control_reason = None
+
     return DateVerdict(
         rule_id="R-DATE-04", subparagraph="пп. 3) + пп. 1)",
-        fx_date=act, deadline=advance_due,
-        obligation_arisen=True,
-        control_date=None if rest_payment else end_of_month(act),
-        control_reason=None if rest_payment else "Вернуться после выплаты остатка",
+        fx_date=act, deadline=advance_due, obligation_arisen=True,
+        control_date=control_date, control_reason=control_reason,
         norms=["ст. 684 п. 1 пп. 3)", "ст. 684 п. 1 пп. 1)"],
-        explanation=(
-            f"Часть суммы перечислена авансом {_fmt(payment)}, акт подписан "
-            f"{_fmt(act)}, остаток выплачен {_fmt(rest_payment)}. Это одна "
-            f"операция, но норм две. В пределах предоплаты действует подпункт 3) "
-            f"пункта 1 статьи 684: курс на дату начисления — {_fmt(act)}, "
-            f"срок до {_fmt(advance_due)}. Остаток идёт по подпункту 1): курс "
-            f"на дату выплаты остатка — {_fmt(rest_payment)}, "
-            f"срок до {_fmt(rest_due)}."
-            if rest_payment else
-            f"Часть суммы перечислена авансом {_fmt(payment)}, акт подписан "
-            f"{_fmt(act)}, остаток ещё не выплачен. В пределах предоплаты "
-            f"действует подпункт 3) пункта 1 статьи 684: курс на дату "
-            f"начисления — {_fmt(act)}, срок до {_fmt(advance_due)}. По остатку "
-            f"обязанность наступит в момент выплаты — контрольная дата "
-            f"в чек-листе."),
-        parts=parts,
+        explanation=_partial_text(act, payment, rest_payment, advance, accrued,
+                                  taxable_now, unclosed, act_rest,
+                                  advance_due, rest_due),
+        parts=parts, taxable_now_fx=taxable_now, advance_unclosed_fx=unclosed,
     )
+
+
+def _num(value: Optional[Decimal]) -> str:
+    if value is None:
+        return "—"
+    return f"{value:f}".rstrip("0").rstrip(".")
+
+
+def _partial_text(act, payment, rest_payment, advance, accrued, taxable_now,
+                  unclosed, act_rest, advance_due, rest_due) -> str:
+    """Объяснение словами. Три разных случая, и путать их нельзя."""
+    head = (f"Аванс {_num(advance)} перечислен {_fmt(payment)}, "
+            f"акт подписан {_fmt(act)} на {_num(accrued)}. ")
+
+    if unclosed is not None:
+        return head + (
+            f"Начислено меньше, чем выплачено, поэтому по подпункту 3) пункта 1 "
+            f"статьи 684 облагается начисленная часть — {_num(taxable_now)}, "
+            f"курс на дату начисления {_fmt(act)}, срок до {_fmt(advance_due)}. "
+            f"Остаток аванса {_num(unclosed)} дохода пока не образует: "
+            f"вернитесь к операции, когда акт его закроет.")
+
+    if act_rest is not None:
+        tail = (f"Остаток по акту {_num(act_rest)} идёт по подпункту 1): курс "
+                f"на дату выплаты остатка {_fmt(rest_payment)}, "
+                f"срок до {_fmt(rest_due)}."
+                if rest_payment else
+                f"Остаток по акту {_num(act_rest)} ещё не выплачен — "
+                f"по нему обязанность наступит в момент выплаты.")
+        return head + (
+            f"Это одна операция, но норм две. В пределах предоплаты действует "
+            f"подпункт 3) пункта 1 статьи 684: облагается {_num(taxable_now)}, "
+            f"курс на дату начисления {_fmt(act)}, срок до {_fmt(advance_due)}. "
+        ) + tail
+
+    return head + (
+        f"Аванс и начисленное совпали, поэтому вся сумма идёт по подпункту 3) "
+        f"пункта 1 статьи 684: курс на дату начисления {_fmt(act)}, "
+        f"срок до {_fmt(advance_due)}.")
 
 
 # Подсказка «более поздняя дата» — проверка себя, а НЕ правило. В кодексе

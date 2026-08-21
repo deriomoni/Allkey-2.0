@@ -358,16 +358,13 @@ def _taxable_amount_fx(answers: dict, date_rule=None) -> Decimal:
     accrual = answers.get("S5.9") or {}
     if accrual and accrual.get("accrued") is False:
         return Decimal("0")                       # R-KPN-19: дохода нет
-    # ВНИМАНИЕ. Частичное начисление (`accrued_amount`) движок читает, но
-    # с 21.08.2026 ни один экран его не задаёт: блок S5.9 убран вместе
-    # с вопросом «доход по авансу уже начислен?», а в фактах S4-А места
-    # под «начислена часть суммы» нет. Путь жив и покрыт контрольным
-    # набором (строка PPP_ME, начислено 4 000 из 4 500), но из интерфейса
-    # недостижим. Нужно решение владельца: либо факт возвращается в S4-А,
-    # либо путь удаляется. Молча оставлять нельзя — это скрытая половина
-    # поведения.
-    if accrual.get("accrued_amount") is not None:
-        return Decimal(str(accrual["accrued_amount"]))
+
+    # Частичное начисление НЕ спрашивается, а выводится из суммы аванса
+    # и суммы по акту (R-DATE-04). Отдельный вопрос «начислена ли часть
+    # суммы» был бы тем же ярлыком состояния, от которых мы ушли, а нужные
+    # числа уже собраны. Прежний вход `S5.9.accrued_amount` удалён.
+    if date_rule is not None and date_rule.taxable_now_fx is not None:
+        return date_rule.taxable_now_fx
 
     if answers.get("S5.1") == GOODS and answers.get("S5.4") == "yes":
         services_amount = answers.get("S5.4a")
