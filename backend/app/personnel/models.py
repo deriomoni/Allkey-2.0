@@ -52,6 +52,20 @@ class Company(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
+class PositionTranslation(Base):
+    """Справочник должностей рус→каз (§4.2). Единственное ручное казахское поле в
+    форме приёма: при первом вводе должности переводчик пишет казахский вариант,
+    пара сохраняется и в следующий раз подставляется автоматически. Механика та
+    же, что у словаря склонений; это НЕ персональные данные — только текст должности."""
+    __tablename__ = "personnel_position_translations"
+
+    id = Column(Integer, primary_key=True, index=True)
+    position_ru = Column(String, nullable=False)              # ключ (сравнение без регистра/пробелов)
+    position_kk = Column(String, nullable=False, default="")
+
+    __table_args__ = (UniqueConstraint("position_ru", name="uq_position_ru"),)
+
+
 class DocumentTemplate(Base):
     """Template library, imported from Навигатор_КУ.xlsx (ТЗ §3, §5)."""
     __tablename__ = "personnel_document_templates"

@@ -169,6 +169,28 @@ def test_trudovoy_salary_kind_changes_wording():
     assert "Приложение № 1" not in gross and "Приложение №1" not in gross
 
 
+def test_trudovoy_kk_derived_without_kk_inputs():
+    # Без единого казахского поля работника/условий: ФИО копируется из русского,
+    # id-документ собирается из структурных полей, место работы — юр. адрес компании.
+    company = s.CompanyBase(name_ru="ТОО «Ромашка»", name_kk="«Ромашка» ЖШС", bin="150640001237",
+                            city="Алматы", legal_address="ул. Абая, 1", address_kz="Абай к-сі, 1",
+                            director_fio_ru="Иванов Иван Иванович", signer_position_kz="Директор")
+    employee = s.EmployeeIn(last_name="Климов", first_name="Василий", middle_name="Александрович",
+                            iin="900715312346", gender="male", document_type="id_card",
+                            document_number="012345678", document_issued_by="ІІМ РК",
+                            document_issue_date=date(2015, 3, 20))
+    employment = s.EmploymentIn(position_ru="менеджер", position_kk="менеджер",
+                                salary=Decimal("300000"), start_date=date(2026, 8, 5))
+    contract = s.ContractIn(number="21", doc_date=date(2026, 8, 5), kind="indefinite")
+    c = build_trudovoy_context(company, employee, employment, contract)
+    assert c["employee"]["fio_full_kz"] == c["employee"]["fio_full"]        # ФИО из русского
+    assert c["company"]["signer_fio_kz"] == "Иванов Иван Иванович"
+    assert "жеке куәлік № 012345678" in c["employee"]["id_document_kz"] and "берген" in c["employee"]["id_document_kz"]
+    assert c["employment"]["workplace"] == "ул. Абая, 1"                    # = юр. адрес
+    assert c["employment"]["workplace_kz"] == "Абай к-сі, 1"                # = address_kz компании
+    assert c["company"]["name_full_kz"] == "«Ромашка» ЖШС"
+
+
 def test_trudovoy_task_and_substitute():
     t1 = _td("task", task="разработка сайта", task_kz="сайт әзірлеу")
     assert "{%" not in t1 and "разработка сайта" in t1 and "сайт әзірлеу" in t1

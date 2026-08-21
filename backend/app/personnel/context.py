@@ -70,6 +70,22 @@ def format_id_document(employee) -> str:
     return head + (", " + " ".join(tail) if tail else "")
 
 
+def format_id_document_kz(employee) -> str:
+    """Казахский вариант документа, собранный из тех же структурных полей —
+    отдельного ввода не требуется. 'жеке куәлік № 012345678, ІІМ РК 15.03.2015 берген'."""
+    kind = "жеке куәлік" if getattr(employee, "document_type", "") == "id_card" else "паспорт"
+    head = kind
+    if employee.document_number:
+        head += f" № {employee.document_number}"
+    tail = []
+    if employee.document_issued_by:
+        tail.append(employee.document_issued_by)
+    if employee.document_issue_date:
+        tail.append(_short(employee.document_issue_date))
+    body = " ".join(tail)
+    return head + (f", {body} берген" if body else "")
+
+
 # --- entity contexts --------------------------------------------------------
 
 def build_company_context(company) -> dict:
@@ -413,20 +429,27 @@ def build_trudovoy_context(company, employee, employment, contract) -> dict:
             "signer_position_genitive": comp["signer_position_genitive"],
             "signer_position_kz": getattr(company, "signer_position_kz", "") or "",
             "signer_fio_genitive": comp["signer_fio_genitive"],
-            "signer_fio_kz": company.director_fio_kk or "",
+            # ФИО пишется одинаково в обеих колонках — копируем из русского поля.
+            "signer_fio_kz": company.director_fio_ru or "",
             "signer_fio_short": comp["signer_fio_short"],
             "signer_basis": comp["signer_basis"], "signer_basis_kz": kkd.kk_basis(company.acts_on_basis),
         },
         "employee": {
-            "fio_full": emp["fio_full"], "fio_full_kz": getattr(employee, "fio_full_kz", "") or "",
+            # ФИО одинаково в обеих колонках — копируем из русского.
+            "fio_full": emp["fio_full"], "fio_full_kz": emp["fio_full"],
             "fio_short": emp["fio_short"], "iin": emp["iin"],
-            "id_document": emp["id_document"], "id_document_kz": getattr(employee, "id_document_kz", "") or "",
+            # id-документ на казахском собирается из структурных полей (не отдельный ввод).
+            "id_document": emp["id_document"],
+            "id_document_kz": getattr(employee, "id_document_kz", "") or format_id_document_kz(employee),
             "address_actual": emp["address_actual"],
         },
         "employment": {
             "position": employment.position_ru, "position_kz": employment.position_kk or "",
-            "workplace": getattr(employment, "workplace", "") or "",
-            "workplace_kz": getattr(employment, "workplace_kz", "") or "",
+            # Место работы по умолчанию — юр. адрес компании; переопределяется одним полем.
+            "workplace": getattr(employment, "workplace", "") or comp["address"],
+            "workplace_kz": (getattr(employment, "workplace_kz", "")
+                             or getattr(employment, "workplace", "")
+                             or getattr(company, "address_kz", "") or ""),
             "start_date_words": _words(employment.start_date),
             "start_date_words_kz": _kk_words_date(employment.start_date),
             "probation_months": months,

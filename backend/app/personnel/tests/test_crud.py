@@ -68,3 +68,33 @@ def test_get_missing_company_404(db):
     with pytest.raises(HTTPException) as exc:
         run(crud.get_company(999, db=db, _u=FAKE_USER))
     assert exc.value.status_code == 404
+
+
+# --- Справочник должностей рус→каз (§4.2) ---
+
+def test_position_translation_lookup_miss_returns_empty(db):
+    res = run(crud.translate_position("менеджер по продажам", db=db, _u=FAKE_USER))
+    assert res.position_kk == ""          # пары нет → пустой казахский, клиент покажет ввод
+
+
+def test_position_translation_save_then_lookup(db):
+    run(crud.save_position_translation(
+        s.PositionTranslationIn(position_ru="менеджер по продажам", position_kk="сату жөніндегі менеджер"),
+        db=db, _u=FAKE_USER))
+    # регистр/лишние пробелы не мешают подбору
+    res = run(crud.translate_position("  Менеджер  по   продажам ", db=db, _u=FAKE_USER))
+    assert res.position_kk == "сату жөніндегі менеджер"
+
+
+def test_position_translation_upsert_updates(db):
+    ru = "бухгалтер"
+    run(crud.save_position_translation(s.PositionTranslationIn(position_ru=ru, position_kk="есепші"), db=db, _u=FAKE_USER))
+    run(crud.save_position_translation(s.PositionTranslationIn(position_ru=ru, position_kk="бас есепші"), db=db, _u=FAKE_USER))
+    res = run(crud.translate_position(ru, db=db, _u=FAKE_USER))
+    assert res.position_kk == "бас есепші"   # обновилась, не задвоилась
+
+
+def test_position_translation_empty_kk_not_saved(db):
+    run(crud.save_position_translation(s.PositionTranslationIn(position_ru="кладовщик", position_kk="  "), db=db, _u=FAKE_USER))
+    res = run(crud.translate_position("кладовщик", db=db, _u=FAKE_USER))
+    assert res.position_kk == ""

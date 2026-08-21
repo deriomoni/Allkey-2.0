@@ -93,6 +93,8 @@ class CompanyUpdate(BaseModel):
     director_gender: Optional[str] = None
     signatory_position: Optional[str] = None
     acts_on_basis: Optional[str] = None
+    address_kz: Optional[str] = None                # kk-реквизиты юрлица — заполняются в карточке
+    signer_position_kz: Optional[str] = None
     state_registration_date: Optional[date] = None
     bank: Optional[str] = None
     iik: Optional[str] = None
@@ -104,6 +106,17 @@ class CompanyUpdate(BaseModel):
 class CompanyResponse(_ORMModel, CompanyBase):
     id: int
     created_at: Optional[datetime] = None
+
+
+class PositionTranslationIn(BaseModel):
+    """Пара «русская должность → казахская» для справочника (§4.2)."""
+    position_ru: str
+    position_kk: str = ""
+
+
+class PositionTranslationOut(_ORMModel):
+    position_ru: str
+    position_kk: str
 
 
 # --- Stateless input models (NOT stored; come in the request body) ----

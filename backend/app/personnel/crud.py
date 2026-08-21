@@ -13,10 +13,12 @@ from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
+from sqlalchemy import func
+
 from app.database import get_db
 from app.personnel import schemas as s
 from app.personnel.helpers.iin import is_valid_bin
-from app.personnel.models import Company
+from app.personnel.models import Company, PositionTranslation
 from app.services.dependencies import require_service
 from app.users.models import User
 
@@ -71,3 +73,47 @@ async def update_company(company_id: int, data: s.CompanyUpdate, db: Session = D
     db.commit()
     db.refresh(company)
     return company
+
+
+# --- Справочник должностей рус→каз (§4.2) ---------------------------------
+# Единственное ручное казахское поле в форме приёма. При первом вводе должности
+# пара сохраняется; в следующий раз казахский вариант подставляется автоматически.
+# Должность — не персональные данные, поэтому запрос по значению допустим.
+
+def _norm_ru(position_ru: str) -> str:
+    return " ".join(position_ru.split()).strip()
+
+
+@crud_router.get("/positions/translate", response_model=s.PositionTranslationOut)
+async def translate_position(ru: str, db: Session = Depends(get_db),
+                             _u: User = Depends(require_service(SERVICE_CODE))):
+    """Подобрать казахский вариант должности по русскому (без учёта регистра/пробелов).
+    Если пары нет — возвращаем пустой казахский, чтобы клиент показал поле для ввода."""
+    key = _norm_ru(ru)
+    row = (db.query(PositionTranslation)
+             .filter(func.lower(PositionTranslation.position_ru) == key.lower())
+             .first())
+    if row:
+        return row
+    return s.PositionTranslationOut(position_ru=key, position_kk="")
+
+
+@crud_router.post("/positions/translate", response_model=s.PositionTranslationOut)
+async def save_position_translation(data: s.PositionTranslationIn, db: Session = Depends(get_db),
+                                    _u: User = Depends(require_service(SERVICE_CODE))):
+    """Сохранить/обновить пару «должность рус → каз». Пустой казахский не сохраняем."""
+    key = _norm_ru(data.position_ru)
+    kk = data.position_kk.strip()
+    if not key or not kk:
+        return s.PositionTranslationOut(position_ru=key, position_kk=kk)
+    row = (db.query(PositionTranslation)
+             .filter(func.lower(PositionTranslation.position_ru) == key.lower())
+             .first())
+    if row:
+        row.position_kk = kk
+    else:
+        row = PositionTranslation(position_ru=key, position_kk=kk)
+        db.add(row)
+    db.commit()
+    db.refresh(row)
+    return row
