@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import {
   f10104Api, ratesApi,
-  type F10104Country, type F10104Flag, type F10104Refbooks,
+  type F10104Country, type F10104Flag, type F10104OutOfScope, type F10104Refbooks,
   type F10104ServiceKind, type NbrkRateRow,
 } from '../api/client'
 
@@ -112,6 +112,8 @@ const RECIPIENTS: [string, string][] = [
 
 const INCOME_TYPES: [string, string][] = [
   ['goods', 'Товары (поставка) — в том числе с работами или услугами в цене'],
+  ['agency', 'Агентский или посреднический договор'],
+  ['inbound_aid', 'Безвозмездная помощь, полученная от нерезидента'],
   ['services', 'Работы или услуги'],
   ['royalty', 'Роялти / лицензия (право на ПО, товарный знак, ноу-хау)'],
   ['dividends', 'Дивиденды'],
@@ -1032,6 +1034,87 @@ function ExplanationBlock({ explanation, answerLabels }: {
   )
 }
 
+/**
+ * Экран выхода за периметр — вместо расчёта, а не рядом с ним.
+ *
+ * Помогайка считает там, где вывод следует из анкеты. Где он зависит от
+ * первичных документов или квалификации отношений — не считает и не гадает.
+ * Один уверенный неверный ответ обесценивает сто верных.
+ *
+ * Здесь НЕТ и не должно быть: сумм, ставок, кодов вида дохода, сроков —
+ * ни серых, ни предварительных. Серая цифра запоминается, а оговорка
+ * рядом с ней — нет.
+ *
+ * Все формулировки приходят из справочника, раздел `out_of_scope`.
+ * Своих текстов у интерфейса тут не бывает.
+ */
+function OutOfScopeScreen({ block, disclaimer, onBack }: {
+  block: F10104OutOfScope
+  disclaimer: string
+  onBack: () => void
+}) {
+  const norms = (value?: string | string[]) =>
+    Array.isArray(value) ? value.join('; ') : value
+
+  return (
+    <div style={card}>
+      <h3 style={{ marginTop: 0, fontSize: 17, color: '#9a3412' }}>
+        {block.title}
+      </h3>
+
+      <div style={{ fontSize: 13.5, lineHeight: 1.65, color: '#334155' }}>
+        {block.lead}
+      </div>
+
+      {!!block.forks?.length && (
+        <div style={{ marginTop: 16 }}>
+          <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 8 }}>
+            Из-за чего ответ неоднозначен
+          </div>
+          {block.forks.map((fork, i: number) => (
+            <div key={i} style={{
+              padding: '10px 12px', marginBottom: 8, borderRadius: 8,
+              background: '#fff', border: '1px solid #e2e8f0',
+            }}>
+              <div style={{ fontWeight: 600, fontSize: 13.5 }}>{fork.q}</div>
+              <div style={{ fontSize: 13, color: '#334155', lineHeight: 1.6, marginTop: 4 }}>
+                {fork.a}
+              </div>
+              {fork.norms && (
+                <div style={{ fontSize: 12.5, color: '#64748b', marginTop: 5 }}>
+                  {norms(fork.norms)}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div style={{
+        marginTop: 14, padding: '12px 14px', borderRadius: 8,
+        background: '#f8fafc', border: '1px solid #cbd5e1',
+        fontSize: 13.5, lineHeight: 1.6, color: '#334155',
+      }}>
+        <b>Что делать</b>
+        <div style={{ marginTop: 5 }}>{block.what_to_do}</div>
+      </div>
+
+      <div className="f10104-disclaimer" style={{
+        marginTop: 16, fontSize: 13, lineHeight: 1.6, color: '#64748b',
+      }}>
+        {disclaimer}
+      </div>
+
+      <div className="f10104-noprint" style={{ display: 'flex', gap: 10, marginTop: 16 }}>
+        <button className="btn btn-secondary" onClick={onBack}>Вернуться к ответам</button>
+        <button className="btn btn-primary" onClick={() => window.print()}>
+          Печать или сохранение в PDF
+        </button>
+      </div>
+    </div>
+  )
+}
+
 function ResultScreen({ answers, refbooks, onBack }: {
   answers: Answers; refbooks: F10104Refbooks; onBack: () => void
 }) {
@@ -1064,6 +1147,18 @@ function ResultScreen({ answers, refbooks, onBack }: {
     )
   }
   if (!verdict) return null
+
+  // Операция за периметром: вместо расчёта — экран выхода. Не рядом с ним
+  // и не «серым»: ни сумм, ни ставок, ни кодов дохода тут быть не должно.
+  if (verdict.out_of_scope && refbooks.out_of_scope?.[verdict.out_of_scope]) {
+    return (
+      <OutOfScopeScreen
+        block={refbooks.out_of_scope[verdict.out_of_scope]}
+        disclaimer={refbooks.disclaimer.text}
+        onBack={onBack}
+      />
+    )
+  }
 
   const kpn = verdict.kpn
   const vat = verdict.vat
@@ -1450,7 +1545,8 @@ export default function F10104Page() {
 
     if (id === 'S5') {
       if (answers['S2.1'] === 'advance') codes.push('F-ADVANCE')
-      if (answers['S5.1'] === 'goods' && answers['S5.4'] === 'no') codes.push('F-MIXED')
+      // F-MIXED по товарам не поднимается: предупреждать не о чем,
+      // расчёта по этой ветке не будет вовсе.
       if (answers['S5.1'] === 'royalty' && answers['S5.6'] === 'yes' && answers['S5.7'] === 'no') {
         codes.push('F-ROYALTY')
       }
@@ -1496,7 +1592,7 @@ export default function F10104Page() {
     if (step?.id === 'S5') {
       if (!answers['S5.1']) return false
       if (answers['S5.1'] === 'services' && !answers['S5.5']) return false
-      if (answers['S5.1'] === 'goods' && !answers['S5.2']) return false
+      // По товарам расчёта нет — уточняющих ответов не требуем.
       // Позиция по спорной норме без обоснования не принимается. Проверка
       // дублирует движок намеренно: пользователь должен узнать об этом на
       // шаге, а не увидеть на экране результата вопрос вместо суммы.
@@ -1735,64 +1831,9 @@ export default function F10104Page() {
               onChange={(v) => set('S5.1', v)}
             />
 
-            {answers['S5.1'] === 'goods' && (
-              <>
-                {/* Норма звучит сразу при выборе вида дохода, а не в заключении:
-                    иначе бухгалтер проходит всю ветку, не понимая, зачем она. */}
-                <div style={{
-                  marginBottom: 18, padding: '11px 13px', borderRadius: 8,
-                  border: '1px solid #bbf7d0', background: '#f0fdf4',
-                  fontSize: 13, lineHeight: 1.6, color: '#166534',
-                }}>
-                  <b>Выплата за поставку товара доходом из источников в РК не признаётся</b>{' '}
-                  (ст. 680 п. 1 пп. 4)) — КПН у источника с неё не удерживается.
-                  <div style={{ marginTop: 5, color: '#3f6212' }}>
-                    Эта ветка нужна из-за второй половины нормы: работы и услуги
-                    на территории РК, связанные с поставкой. Если их стоимость
-                    не выделена в цене — облагается вся стоимость контракта.
-                  </div>
-                </div>
-
-                <Radio
-                  question="Товар ввозится в РК по внешнеторговому контракту?"
-                  options={YES_NO}
-                  value={answers['S5.2']}
-                  onChange={(v) => set('S5.2', v)}
-                />
-                <Radio
-                  question="Включает ли контракт работы или услуги на территории РК — шефмонтаж, пусконаладку, обучение, гарантийное обслуживание?"
-                  options={YES_NO}
-                  value={answers['S5.3']}
-                  onChange={(v) => set('S5.3', v)}
-                />
-                {answers['S5.3'] === 'yes' && (
-                  <>
-                    <Radio
-                      question="Стоимость этих работ и услуг выделена отдельно в контракте или акте?"
-                      options={YES_NO}
-                      value={answers['S5.4']}
-                      onChange={(v) => set('S5.4', v)}
-                    />
-                    {answers['S5.4'] === 'yes' && (
-                      <div style={{ marginBottom: 22 }}>
-                        <span style={label}>
-                          Стоимость работ и услуг на территории РК, {answers['S1.5'] || 'валюта договора'}
-                        </span>
-                        <input
-                          style={{ ...inputS, maxWidth: 260 }} type="number" min="0"
-                          placeholder="Только услуги, без стоимости товара"
-                          value={answers['S5.4a'] ?? ''}
-                          onChange={(e) => set('S5.4a', e.target.value === '' ? null : Number(e.target.value))}
-                        />
-                        <div style={hintS}>
-                          Это и есть база по КПН. Стоимость самого товара в неё не входит.
-                        </div>
-                      </div>
-                    )}
-                  </>
-                )}
-              </>
-            )}
+            {/* Ветка уточняющих вопросов по товарам убрана вместе с расчётом:
+                выплаты за товары выведены за периметр (ТЗ §5а). Вариант
+                в списке остался и ведёт на экран выхода. */}
 
             {answers['S5.1'] === 'services' && (
               <div style={{ marginBottom: 22 }}>

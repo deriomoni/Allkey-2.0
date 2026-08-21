@@ -1051,6 +1051,16 @@ export interface F10104Refbooks {
   // Спорная ставка по дивидендам: обе позиции и условия выбора. Тексты
   // приходят с сервера — своей редакции спорной нормы у интерфейса нет.
   disputed_dividends: F10104DisputedDividends
+  // Экраны выхода за периметр. Ключ — вид дохода, по которому помогайка
+  // не считает; тексты только отсюда, своих в интерфейсе нет.
+  out_of_scope: Record<string, F10104OutOfScope>
+}
+
+export interface F10104OutOfScope {
+  title: string
+  lead: string
+  forks?: { q: string; a: string; norms?: string | string[] }[]
+  what_to_do: string
 }
 
 export interface F10104DisputedPosition {

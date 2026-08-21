@@ -36,6 +36,20 @@ ROUTE_INDIVIDUAL = "individual_200_00"
 ROUTE_PE_BRANCH = "pe_branch_not_reported"
 ROUTE_OUT_OF_SCOPE = "out_of_scope"
 
+# Вид дохода → ключ раздела out_of_scope в справочнике.
+#
+# Помогайка считает там, где вывод следует из анкеты. Где он зависит от
+# первичных документов или квалификации отношений — не считает и не гадает,
+# а показывает выход. Один уверенный неверный ответ обесценивает сто верных.
+#
+# Вариант из списка при этом НЕ УБИРАЕТСЯ: не нашедший своего случая выберет
+# соседний и получит уверенный неверный ответ — это хуже честного отказа.
+OUT_OF_SCOPE_INCOME = {
+    GOODS: "goods",              # четыре развилки, каждая переворачивает ответ
+    "agency": "agency",          # зависит от обоснованности отчёта агента
+    "inbound_aid": "inbound_aid",  # доход у резидента, форма 100.00
+}
+
 CONFIDENCE_CONFIRMED = "confirmed"
 CONFIDENCE_LIKELY = "likely"
 CONFIDENCE_MANUAL = "manual_review"
@@ -181,6 +195,9 @@ class Verdict:
     flags: list[str] = field(default_factory=list)
     basis: list[str] = field(default_factory=list)
     advance_control_date: Optional[date] = None
+    # Ключ раздела out_of_scope справочника, если операция за периметром.
+    # Пока он заполнен, сумм в вердикте нет и быть не должно.
+    out_of_scope: Optional[str] = None
     # Какая норма ст. 684 п. 1 применилась, на какую дату курс и когда платить.
     # Выводится из фактов (две даты, вычеты, способ расчёта), а не из ответа
     # пользователя «аванс или нет» — см. app/f10104/dates.py.
@@ -410,6 +427,19 @@ def evaluate(answers: dict, refbooks: dict, as_of_date: date,
     if int(period.get("year", 0)) < FIRST_SUPPORTED_YEAR:
         v.route = ROUTE_OUT_OF_SCOPE
         v.basis.append("Помогайка работает с НК РК от 18.07.2025 № 214-VIII, с 01.01.2026")
+        return v
+
+    # ── R-SCOPE-01. Виды дохода, по которым расчёта не будет.
+    # Возврат ранний и намеренно пустой: ни базы, ни ставки, ни кода дохода,
+    # ни сроков. Серая предварительная цифра здесь была бы хуже её отсутствия —
+    # её запомнят, а оговорку рядом нет.
+    scope_key = OUT_OF_SCOPE_INCOME.get(answers.get("S5.1"))
+    if scope_key:
+        v.route = ROUTE_OUT_OF_SCOPE
+        v.out_of_scope = scope_key
+        v.kpn = KpnObligation(taxable=False, rate=None, applicable=False)
+        v.vat = VatObligation(applicable=False, reason=None, basis=None)
+        v.reporting = Reporting(form_101_04_required=False, reported_in_form=False)
         return v
 
     # Развилки, которые на вывод не влияют, но объясняют, откуда взялись
@@ -1355,6 +1385,10 @@ def aggregate_form(verdicts: list[Verdict]) -> FormLines:
     line_002 = {"I": 0, "II": 0, "III": 0}
 
     for v in verdicts:
+        if v.out_of_scope:
+            # Операция за периметром в расчёт квартала не входит: у неё нет
+            # ни базы, ни налога, и ноль в сумме читался бы как «посчитали».
+            continue
         for month, amount in (v.lines.get("101.04.001") or {}).items():
             line_001[month] += amount
         for month, amount in (v.lines.get("101.04.002") or {}).items():
