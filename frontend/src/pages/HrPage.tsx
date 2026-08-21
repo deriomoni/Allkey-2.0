@@ -56,6 +56,12 @@ type Draft = {
   pkg: { number: string; date: string | null }   // единая нумерация пакета: № (перекрывается) и дата (одна)
 }
 
+// Локальная дата 'YYYY-MM-DD' (не UTC — чтобы у полуночи не съезжало на день).
+const todayISO = (): string => {
+  const d = new Date()
+  return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10)
+}
+
 const EMPTY_DRAFT: Draft = {
   company: { director_gender: 'male', signatory_position: 'Директор', acts_on_basis: 'Устава' },
   employee: { document_type: 'id_card', gender: 'male', citizenship: 'Республики Казахстан' },
@@ -87,7 +93,7 @@ const EMPTY_DRAFT: Draft = {
   consent: {
     doc_date: null, recipients: [],
   },
-  pkg: { number: '', date: null },
+  pkg: { number: '', date: todayISO() },
 }
 
 const num = (v: string | number | null | undefined): number => {
@@ -148,7 +154,9 @@ function loadDraft(): Draft {
       const documents = { ...d.documents, td: true, prikaz: true, soglasie: true, zayavlenie: true }
       // раскрыть блок соц. вычета, если в черновике уже выбран социальный вычет
       const socialRight = !!d.socialRight || (d.deductions ?? []).some((k) => k === 'social_882' || k === 'social_5000')
-      return { ...EMPTY_DRAFT, ...d, documents, socialRight }
+      // дата пакета по умолчанию — сегодня (поле редактируемое)
+      const pkg = { number: d.pkg?.number ?? '', date: d.pkg?.date || todayISO() }
+      return { ...EMPTY_DRAFT, ...d, documents, socialRight, pkg }
     }
   } catch { /* ignore */ }
   return EMPTY_DRAFT
