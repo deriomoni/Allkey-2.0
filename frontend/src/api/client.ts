@@ -931,6 +931,28 @@ function downloadBlob(blob: Blob, contentDisposition: string | undefined, fallba
   window.URL.revokeObjectURL(url)
 }
 
+// POST expecting a file download. Because responseType is 'blob', an error body
+// (e.g. a 400 with {"detail": "..."}) also arrives as a Blob — so we read it and
+// replace e.response.data with the parsed JSON, letting the caller's errText()
+// surface the SERVER's message instead of a generic one.
+async function postForDownload(url: string, body: unknown, fallbackName: string): Promise<void> {
+  try {
+    const response = await api.post(url, body, { responseType: 'blob' })
+    downloadBlob(response.data, response.headers['content-disposition'], fallbackName)
+  } catch (e) {
+    // @ts-expect-error narrow axios error shape
+    const data = e?.response?.data
+    if (data instanceof Blob) {
+      try {
+        const parsed = JSON.parse(await data.text())
+        // @ts-expect-error put the parsed body back so errText() finds detail
+        e.response.data = parsed
+      } catch { /* тело не JSON — оставляем как есть */ }
+    }
+    throw e
+  }
+}
+
 export const personnelApi = {
   // ИИН travels only in the request body (PII rule).
   validateIin: async (iin: string, birth_date?: string | null, gender?: string | null): Promise<IinCheck> => {
@@ -954,10 +976,8 @@ export const personnelApi = {
   prikazPreview: async (body: PrikazBody): Promise<PrikazPreview> =>
     (await api.post('/personnel/documents/prikaz/preview', body)).data,
 
-  generatePrikaz: async (body: PrikazBody): Promise<void> => {
-    const response = await api.post('/personnel/documents/prikaz', body, { responseType: 'blob' })
-    downloadBlob(response.data, response.headers['content-disposition'], 'ПриказПриём.docx')
-  },
+  generatePrikaz: async (body: PrikazBody): Promise<void> =>
+    postForDownload('/personnel/documents/prikaz', body, 'ПриказПриём.docx'),
 
   // Parse an .xlsx опись. Without a mapping the server auto-detects columns (by
   // synonyms) and the header row (below any 1С preamble); if it can't, it returns
@@ -977,10 +997,8 @@ export const personnelApi = {
     return r.data
   },
 
-  generatePackage: async (body: PackageBody): Promise<void> => {
-    const response = await api.post('/personnel/documents/package', body, { responseType: 'blob' })
-    downloadBlob(response.data, response.headers['content-disposition'], 'Пакет.zip')
-  },
+  generatePackage: async (body: PackageBody): Promise<void> =>
+    postForDownload('/personnel/documents/package', body, 'Пакет.zip'),
 
   // Авто-перевод реквизитов юрлица на казахский (наименование/адрес) при вводе русского.
   translateCompany: async (name: string, address: string, city: string): Promise<{ name_kk: string; address_kz: string }> =>
