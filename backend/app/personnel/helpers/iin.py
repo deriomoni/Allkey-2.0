@@ -12,6 +12,7 @@ Public API:
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from datetime import date
 from typing import List, Optional
@@ -28,9 +29,10 @@ _GENDER = {1: "male", 2: "female", 3: "male", 4: "female", 5: "male", 6: "female
 
 
 def _to_digits(value: str) -> Optional[List[int]]:
-    """Return the 12 digits, or None if the value is not exactly 12 digits."""
-    cleaned = (value or "").strip()
-    if len(cleaned) != 12 or not cleaned.isdigit():
+    """Return the 12 digits, or None. Терпимо к форматированию: пробелы/дефисы
+    выбрасываются (валидный ИИН, введённый как «950313 300574», не должен падать)."""
+    cleaned = re.sub(r"\D", "", value or "")
+    if len(cleaned) != 12:
         return None
     return [int(ch) for ch in cleaned]
 

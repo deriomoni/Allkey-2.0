@@ -10,6 +10,7 @@ production, lightweight sample objects in tests) — they never touch the sessio
 """
 from __future__ import annotations
 
+import re
 from datetime import date
 from decimal import Decimal
 from typing import List, Optional
@@ -132,7 +133,7 @@ def build_employee_context(employee) -> dict:
         "fio_genitive": decl["fio_genitive"],
         "fio_dative": decl["fio_dative"],
         "fio_accusative_upper": decl["fio_accusative"].upper(),
-        "iin": employee.iin,
+        "iin": re.sub(r"\D", "", employee.iin or ""),   # в документ — только цифры
         "id_document": format_id_document(employee),
         "address_actual": employee.actual_address or "",
         "phone": employee.phone or "",

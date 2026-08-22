@@ -635,9 +635,9 @@ export default function HrPage() {
         <Field label="Отчество" value={e.middle_name} onChange={(v) => setEmployee({ middle_name: v })} />
         <div className="form-group">
           <label>ИИН</label>
-          <input value={e.iin ?? ''} placeholder="12 цифр"
-            onChange={(ev) => setEmployee({ iin: ev.target.value })}
-            onBlur={(ev) => checkIin(ev.target.value)} />
+          <input value={e.iin ?? ''} placeholder="12 цифр" inputMode="numeric" maxLength={12}
+            onChange={(ev) => setEmployee({ iin: ev.target.value.replace(/\D/g, '') })}
+            onBlur={(ev) => checkIin(ev.target.value.replace(/\D/g, ''))} />
           {iin && !iin.valid && (
             <div style={{ color: '#b91c1c', fontSize: 13, marginTop: 4 }}>
               ИИН не прошёл проверку: нужно 12 цифр с верной контрольной суммой и корректной датой рождения.

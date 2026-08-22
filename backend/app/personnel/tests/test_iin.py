@@ -97,3 +97,11 @@ def test_bin_rejects_bad_checksum_length_nondigit():
     assert not is_valid_bin("150640001230")  # wrong control digit
     assert not is_valid_bin("15064000123")   # 11 digits
     assert not is_valid_bin("15064000123x")
+
+
+def test_iin_tolerates_separators():
+    from app.personnel.helpers.iin import is_valid_iin
+    assert is_valid_iin("950313300574")       # чистый
+    assert is_valid_iin("950313 300574")      # с пробелом — валидный
+    assert is_valid_iin("950313-300574")      # с дефисом — валидный
+    assert not is_valid_iin("745820400487")   # месяц 58 — невалиден и с очисткой
