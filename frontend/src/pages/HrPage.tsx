@@ -154,23 +154,68 @@ const SOCIAL_DEDUCTIONS: [string, string][] = [
 // 'YYYY-MM-DD' | 'YYYY-MM' → 'YYYY-MM' (для input type=month и apply_from по месяцу)
 const monthOf = (d: string | null | undefined): string => (d ? String(d).slice(0, 7) : '')
 
+const KNOWN_DEDUCTIONS = [BASE_DEDUCTION, ...SOCIAL_DEDUCTIONS.map(([k]) => k)]
+const asStr = (v: unknown, def = ''): string => (typeof v === 'string' ? v : def)
+
+// Устойчивое восстановление черновика: структура формы меняется между версиями,
+// а старый черновик (localStorage или импорт из файла) может содержать что угодно.
+// Берём известные поля, игнорируем лишние, подставляем умолчания для отсутствующих.
+// Особо: сервер ОТКЛОНЯЕТ неизвестные виды вычета и документы — их отфильтровываем.
+function sanitizeDraft(raw: unknown): Draft {
+  const d = (raw && typeof raw === 'object' ? raw : {}) as Record<string, any>
+
+  const deductions: string[] = Array.isArray(d.deductions)
+    ? d.deductions.filter((k: unknown) => KNOWN_DEDUCTIONS.includes(k as string))
+    : [...EMPTY_DRAFT.deductions]
+
+  const rawDocs = (d.documents && typeof d.documents === 'object') ? d.documents : {}
+  const documents: Record<string, boolean> = {}
+  for (const [k] of [...MANDATORY_DOCS, ...OPTIONAL_DOCS]) documents[k] = !!rawDocs[k]
+  for (const [k] of MANDATORY_DOCS) documents[k] = true    // обязательные всегда включены
+
+  const rc = (d.consent && Array.isArray(d.consent.recipients)) ? d.consent.recipients : null
+  const recipients = rc
+    ? rc.map((r: any) => ({ name: asStr(r?.name), bin: asStr(r?.bin), purpose: asStr(r?.purpose), scope: asStr(r?.scope) }))
+    : EMPTY_DRAFT.consent.recipients.map((r) => ({ ...r }))
+
+  const salaryKind = d.employment?.salary_kind === 'net' ? 'net' : 'gross'
+  const socialRight = !!d.socialRight || deductions.some((k) => k === 'social_882' || k === 'social_5000')
+
+  return {
+    ...EMPTY_DRAFT,
+    company: { ...EMPTY_DRAFT.company, ...(d.company ?? {}) },
+    employee: { ...EMPTY_DRAFT.employee, ...(d.employee ?? {}) },
+    employment: { ...EMPTY_DRAFT.employment, ...(d.employment ?? {}), salary_kind: salaryKind },
+    companyId: typeof d.companyId === 'number' ? d.companyId : undefined,
+    documents,
+    liability: { ...EMPTY_DRAFT.liability, ...(d.liability ?? {}) },
+    act: {
+      number: asStr(d.act?.number), doc_date: d.act?.doc_date ?? null,
+      basis: asStr(d.act?.basis), notes: asStr(d.act?.notes),
+      commission: Array.isArray(d.act?.commission) ? d.act.commission : [],
+    },
+    inventory: Array.isArray(d.inventory) ? d.inventory : [],
+    deductions,
+    applyFromMonth: asStr(d.applyFromMonth),
+    socialRight,
+    socialDocument: asStr(d.socialDocument),
+    contract: { ...EMPTY_DRAFT.contract, ...(d.contract ?? {}) },
+    noncompete: { ...EMPTY_DRAFT.noncompete, ...(d.noncompete ?? {}) },
+    consent: { doc_date: d.consent?.doc_date ?? null, recipients },   // редизайн: только известные поля
+    pkg: { number: asStr(d.pkg?.number), date: (d.pkg?.date ?? null) || todayISO() },
+  }
+}
+
 function loadDraft(): Draft {
   try {
     const raw = localStorage.getItem(DRAFT_KEY)
     if (raw) {
-      const d = JSON.parse(raw) as Draft
-      if (d.savedAt && Date.now() - d.savedAt > DRAFT_TTL_MS) {
+      const d = JSON.parse(raw) as Record<string, unknown>
+      if (typeof d.savedAt === 'number' && Date.now() - d.savedAt > DRAFT_TTL_MS) {
         localStorage.removeItem(DRAFT_KEY)   // gigiene: auto-clear stale drafts
         return EMPTY_DRAFT
       }
-      // Обязательные документы всегда включены (даже в старом черновике), чтобы их
-      // блоки ввода отрисовались и они попали в пакет.
-      const documents = { ...d.documents, td: true, prikaz: true, soglasie: true, zayavlenie: true }
-      // раскрыть блок соц. вычета, если в черновике уже выбран социальный вычет
-      const socialRight = !!d.socialRight || (d.deductions ?? []).some((k) => k === 'social_882' || k === 'social_5000')
-      // дата пакета по умолчанию — сегодня (поле редактируемое)
-      const pkg = { number: d.pkg?.number ?? '', date: d.pkg?.date || todayISO() }
-      return { ...EMPTY_DRAFT, ...d, documents, socialRight, pkg }
+      return sanitizeDraft(d)
     }
   } catch { /* ignore */ }
   return EMPTY_DRAFT
@@ -529,7 +574,7 @@ export default function HrPage() {
   function importDraft(file: File) {
     const reader = new FileReader()
     reader.onload = () => {
-      try { setDraft({ ...EMPTY_DRAFT, ...JSON.parse(String(reader.result)) }); setPreview(null); flash('Черновик загружен') }
+      try { setDraft(sanitizeDraft(JSON.parse(String(reader.result)))); setPreview(null); flash('Черновик загружен') }
       catch { setError('Не удалось прочитать файл черновика') }
     }
     reader.readAsText(file)
