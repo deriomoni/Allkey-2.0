@@ -106,7 +106,19 @@ def test_seed_positions_idempotent_and_preserves_edits(db):
     assert run(crud.translate_position("Заместитель директора", db=db, _u=FAKE_USER)).position_kk == "Директордың орынбасары"
     # регистр/пробелы не мешают
     assert run(crud.translate_position("  генеральный   директор ", db=db, _u=FAKE_USER)).position_kk == "Бас директор"
-    # пользователь поправил пару — повторный сид не затирает и не падает
-    run(crud.save_position_translation(s.PositionTranslationIn(position_ru="Директор", position_kk="Дир."), db=db, _u=FAKE_USER))
+    # пользователь поправил пару (валидный казахский) — повторный сид не затирает и не падает
+    run(crud.save_position_translation(s.PositionTranslationIn(position_ru="Директор", position_kk="Атқарушы"), db=db, _u=FAKE_USER))
     crud.seed_positions(db)
-    assert run(crud.translate_position("Директор", db=db, _u=FAKE_USER)).position_kk == "Дир."
+    assert run(crud.translate_position("Директор", db=db, _u=FAKE_USER)).position_kk == "Атқарушы"
+
+
+def test_position_translation_rejects_garbage(db):
+    # kk == ru → в справочник не пишем
+    run(crud.save_position_translation(s.PositionTranslationIn(position_ru="Логист", position_kk="Логист"), db=db, _u=FAKE_USER))
+    assert run(crud.translate_position("Логист", db=db, _u=FAKE_USER)).position_kk == ""
+    # kk без казахских букв → не пишем
+    run(crud.save_position_translation(s.PositionTranslationIn(position_ru="Курьер", position_kk="Курьер по городу"), db=db, _u=FAKE_USER))
+    assert run(crud.translate_position("Курьер", db=db, _u=FAKE_USER)).position_kk == ""
+    # настоящий казахский (есть қ/ы/…) → сохраняем
+    run(crud.save_position_translation(s.PositionTranslationIn(position_ru="Снабженец", position_kk="Жабдықтаушы"), db=db, _u=FAKE_USER))
+    assert run(crud.translate_position("Снабженец", db=db, _u=FAKE_USER)).position_kk == "Жабдықтаушы"

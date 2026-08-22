@@ -88,6 +88,16 @@ def _norm_ru(position_ru: str) -> str:
     return " ".join(position_ru.split()).strip().lower()
 
 
+# Казахские буквы, которых нет в русском алфавите. Если казахский перевод не содержит
+# ни одной из них (или совпадает с русским) — это, скорее всего, не перевод, а копия
+# русского. Такое в справочник не пишем.
+_KAZAKH_LETTERS = set("әғқңөұүһі")
+
+
+def _looks_kazakh(text: str) -> bool:
+    return any(ch in _KAZAKH_LETTERS for ch in text.lower())
+
+
 @crud_router.get("/positions/translate", response_model=s.PositionTranslationOut)
 async def translate_position(ru: str, db: Session = Depends(get_db),
                              _u: User = Depends(require_service(SERVICE_CODE))):
@@ -103,10 +113,16 @@ async def translate_position(ru: str, db: Session = Depends(get_db),
 @crud_router.post("/positions/translate", response_model=s.PositionTranslationOut)
 async def save_position_translation(data: s.PositionTranslationIn, db: Session = Depends(get_db),
                                     _u: User = Depends(require_service(SERVICE_CODE))):
-    """Сохранить/обновить пару «должность рус → каз». Пустой казахский не сохраняем."""
+    """Сохранить/обновить пару «должность рус → каз».
+
+    Защита от мусора: не пишем в справочник, если казахское пустое, совпадает с
+    русским (без учёта регистра) или не содержит ни одной казахской буквы. Значение
+    всё равно уйдёт в документ (это клиентский ввод), но правилом для всех не станет —
+    иначе первая же ошибка бухгалтера закрепится в справочнике."""
     key = _norm_ru(data.position_ru)
     kk = data.position_kk.strip()
-    if not key or not kk:
+    ru_raw = data.position_ru.strip()
+    if not key or not kk or kk.lower() == ru_raw.lower() or not _looks_kazakh(kk):
         return s.PositionTranslationOut(position_ru=key, position_kk=kk)
     row = db.query(PositionTranslation).filter(PositionTranslation.position_ru == key).first()
     if row:
