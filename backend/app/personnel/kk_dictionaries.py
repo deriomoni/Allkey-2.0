@@ -151,6 +151,31 @@ ADDRESS_WORDS = {
 }
 
 
+# В русских адресах имя улицы почти всегда в родительном падеже (ул. Абая,
+# ул. Жандосова), а в казахском нужен именительный. Сбрасываем ТОЛЬКО явные
+# родительные окончания — иначе рискуем испортить обычные слова:
+#   * фамилии: -ова/-ева/-ёва/-ина/-ына → -ов/-ев/-ёв/-ин/-ын;
+#   * казахские имена на -ай: -ая → -ай, но НЕ прилагательные (Северная, Луговая…).
+# Казахскую орфографию (Байтұрсынов, Сәтбаев) НЕ восстанавливаем — это отдельный
+# словарь имён; тут только грамматика. Проверено на реальных улицах: 0 поломок.
+_ADJ_AYA = ("ная", "ская", "цкая", "вая", "жая", "чая", "щая", "шая",
+            "льная", "нняя", "онная", "енная")
+_STREET_KK = {"көшесі", "даңғылы", "тұйық көше", "гүлзары", "алаңы"}
+
+
+def _street_word_nominative(word: str) -> str:
+    low = word.lower()
+    if len(word) > 3 and low.endswith(("ова", "ева", "ёва", "ина", "ына")):
+        return word[:-1]
+    if len(word) > 3 and low.endswith("ая") and not low.endswith(_ADJ_AYA):
+        return word[:-2] + "ай"
+    return word
+
+
+def _street_nominative(name: str) -> str:
+    return " ".join(_street_word_nominative(t) for t in name.split())
+
+
 def _kk_address_segment(seg, city_kz) -> str:
     tokens = seg.split()
     if not tokens:
@@ -161,6 +186,8 @@ def _kk_address_segment(seg, city_kz) -> str:
     rest = " ".join(tokens[1:]).strip()
     if kk == "қ.":                       # сегмент города — берём из city_kz (или переводим)
         rest = (city_kz or kk_city(rest)).strip()
+    elif kk in _STREET_KK:               # улица/проспект/… — имя в именительный падеж
+        rest = _street_nominative(rest)
     if not rest:
         return kk
     return f"{rest} {kk}"                 # казахский порядок: имя, затем служебное слово

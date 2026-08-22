@@ -131,9 +131,14 @@ def test_kk_company_name_and_address_transforms():
     assert kkd.kk_company_name("ИП Оспанов") == "Оспанов ЖК"
     assert kkd.kk_company_name("Крестьянское хозяйство «Береке»") == "«Береке» Шаруа қожалығы"
     assert kkd.kk_company_name("Нечто без ОПФ") == "Нечто без ОПФ"     # не распознано — как есть
-    # город берётся из city_kz (Уральск → Орал), улица не склоняется
-    assert kkd.kk_address("г. Алматы, ул. Абая, 10", "Алматы") == "Алматы қ., Абая көшесі, 10"
+    # город из city_kz (Уральск→Орал); имя улицы — в именительный (Абая→Абай)
+    assert kkd.kk_address("г. Алматы, ул. Абая, 10", "Алматы") == "Алматы қ., Абай көшесі, 10"
     assert kkd.kk_address("г. Уральск, пр. Достык, д. 5", kkd.kk_city("Уральск")).startswith("Орал қ.")
+    # фамилии в родительном → именительный
+    assert kkd.kk_address("ул. Жандосова, 2", "") == "Жандосов көшесі, 2"
+    assert kkd.kk_address("ул. Сатпаева", "") == "Сатпаев көшесі"
+    # прилагательные НЕ трогаем
+    assert kkd.kk_address("ул. Северная, 5", "") == "Северная көшесі, 5"
 
 
 def test_translate_company_requisites_endpoint():
