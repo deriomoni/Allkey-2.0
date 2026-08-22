@@ -91,7 +91,21 @@ const EMPTY_DRAFT: Draft = {
     penalty: '1 000 000 (один миллион) тенге',
   },
   consent: {
-    doc_date: null, recipients: [],
+    doc_date: null,
+    // Типовые получатели по умолчанию (строки можно править или удалить):
+    // сама ARTY (аутсорсинговая бухгалтерия) и банк по зарплатному проекту.
+    recipients: [
+      {
+        name: 'ARTY', bin: '',
+        purpose: 'ведение бухгалтерского и кадрового учёта на условиях аутсорсинга',
+        scope: 'данные, необходимые для расчёта заработной платы и оформления кадровых документов',
+      },
+      {
+        name: 'Банк (зарплатный проект)', bin: '',
+        purpose: 'зачисление заработной платы',
+        scope: 'ФИО, ИИН, номер счёта',
+      },
+    ],
   },
   pkg: { number: '', date: todayISO() },
 }
@@ -429,7 +443,11 @@ export default function HrPage() {
   const invTotal = draft.inventory.reduce((sum, r) => sum + num(r.qty) * num(r.price), 0)
 
   async function generatePackage() {
-    if (iin && !iin.valid) { setError('ИИН работника не прошёл проверку — исправьте ИИН перед формированием'); return }
+    // Правило: ни одна проверка не блокирует кнопку молча — каждый ранний выход
+    // показывает сообщение (оно видно и рядом с кнопкой) с указанием секции и поля.
+    if (iin && !iin.valid) {
+      setError('Раздел 2 «Работник»: ИИН не прошёл проверку — исправьте ИИН перед формированием.'); return
+    }
     // Ровно семь разрешённых: 4 обязательных всегда + отмеченные из 3 дополнительных.
     // Любые посторонние ключи из старого черновика игнорируются.
     const documents = [
@@ -437,20 +455,20 @@ export default function HrPage() {
       ...OPTIONAL_DOCS.filter(([k]) => draft.documents[k]).map(([k]) => k),
     ]
     if (draft.documents.akt && draft.inventory.length === 0) {
-      setError('Для акта приёма-передачи добавьте хотя бы одну позицию описи (или снимите галочку «Акт»)')
+      setError('Раздел 5, блок «Акт приёма-передачи»: добавьте хотя бы одну позицию описи (или снимите галочку «Акт приёма-передачи»).')
       return
     }
     if (draft.documents.zayavlenie && draft.deductions.length === 0) {
-      setError('Для заявления на вычеты отметьте хотя бы один вид вычета (или снимите галочку «Заявление»)')
+      setError('Раздел 5, блок «Заявление на налоговые вычеты»: отметьте хотя бы один вид вычета (базовый или социальный).')
       return
     }
     if (draft.documents.td && draft.contract.kind === 'fixed' && !draft.contract.term_count && !draft.contract.end_date) {
-      setError('Для срочного договора укажите срок (число + единица) или дату окончания')
+      setError('Раздел 5, блок «Трудовой договор»: для срочного договора укажите срок (число + единица) или дату окончания.')
       return
     }
     const hasSocial = draft.deductions.some((k) => k === 'social_882' || k === 'social_5000')
     if (draft.documents.zayavlenie && hasSocial && !draft.socialDocument.trim()) {
-      setError('Для социального вычета укажите подтверждающий документ')
+      setError('Раздел 5, блок «Заявление на налоговые вычеты»: для социального вычета заполните поле «Подтверждающий документ».')
       return
     }
     // Единая нумерация: № по документу перекрывается, иначе — номер пакета; дата одна.
@@ -870,9 +888,6 @@ export default function HrPage() {
               onChange={(v) => setNonCompete({ competitors: v })} />
             <Field label="Штраф (неустойка)" value={draft.noncompete.penalty}
               onChange={(v) => setNonCompete({ penalty: v })} placeholder="1 000 000 (один миллион) тенге" />
-            <div style={{ fontSize: 12, color: '#b45309', marginTop: -6, marginBottom: 4 }}>
-              Суд вправе уменьшить неустойку при явной несоразмерности (ст. 297 ГК РК). Соотносите сумму с окладом работника.
-            </div>
           </div>
         )}
 
@@ -981,6 +996,7 @@ export default function HrPage() {
           </div>
         )}
 
+        {error && <div className="error-message" style={{ marginTop: 8 }}>{error}</div>}
         <button className="btn btn-primary" style={{ marginTop: 8 }} onClick={generatePackage} disabled={busy}>
           Сформировать пакет (ZIP)
         </button>
