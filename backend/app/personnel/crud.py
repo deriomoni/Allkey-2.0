@@ -13,7 +13,7 @@ from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
 
 from app.database import get_db
 from app.personnel import schemas as s
@@ -81,7 +81,11 @@ async def update_company(company_id: int, data: s.CompanyUpdate, db: Session = D
 # Должность — не персональные данные, поэтому запрос по значению допустим.
 
 def _norm_ru(position_ru: str) -> str:
-    return " ".join(position_ru.split()).strip()
+    """Ключ справочника: без лишних пробелов и в нижнем регистре. Нормализуем в Python,
+    а сравниваем точным равенством — не зависим от того, как БД сворачивает регистр
+    кириллицы (SQLite lower() кириллицу не трогает, Postgres — трогает). Значение
+    position_ru в справочнике служит только ключом и пользователю не показывается."""
+    return " ".join(position_ru.split()).strip().lower()
 
 
 @crud_router.get("/positions/translate", response_model=s.PositionTranslationOut)
@@ -90,9 +94,7 @@ async def translate_position(ru: str, db: Session = Depends(get_db),
     """Подобрать казахский вариант должности по русскому (без учёта регистра/пробелов).
     Если пары нет — возвращаем пустой казахский, чтобы клиент показал поле для ввода."""
     key = _norm_ru(ru)
-    row = (db.query(PositionTranslation)
-             .filter(func.lower(PositionTranslation.position_ru) == key.lower())
-             .first())
+    row = db.query(PositionTranslation).filter(PositionTranslation.position_ru == key).first()
     if row:
         return row
     return s.PositionTranslationOut(position_ru=key, position_kk="")
@@ -106,9 +108,7 @@ async def save_position_translation(data: s.PositionTranslationIn, db: Session =
     kk = data.position_kk.strip()
     if not key or not kk:
         return s.PositionTranslationOut(position_ru=key, position_kk=kk)
-    row = (db.query(PositionTranslation)
-             .filter(func.lower(PositionTranslation.position_ru) == key.lower())
-             .first())
+    row = db.query(PositionTranslation).filter(PositionTranslation.position_ru == key).first()
     if row:
         row.position_kk = kk
     else:
@@ -117,3 +117,35 @@ async def save_position_translation(data: s.PositionTranslationIn, db: Session =
     db.commit()
     db.refresh(row)
     return row
+
+
+# --- Начальное наполнение справочника должностей (типовые должности подписанта) ---
+# Справочник один на модуль: и должности работников, и должности подписанта. Бухгалтер
+# не обязан знать казахский — типовые пары идут из коробки, остальные накапливаются.
+SEED_POSITIONS = [
+    ("Директор", "Директор"),
+    ("Генеральный директор", "Бас директор"),
+    ("Исполнительный директор", "Атқарушы директор"),
+    ("Заместитель директора", "Директордың орынбасары"),
+    ("Президент", "Президент"),
+    ("Управляющий", "Басқарушы"),
+    ("Индивидуальный предприниматель", "Жеке кәсіпкер"),
+]
+
+
+def seed_positions(db: Session) -> None:
+    """Идемпотентно засеять справочник стартовыми парами. Существующие пары не трогаем.
+    Гонку между воркерами (uq_position_ru) гасим откатом — норм, кто-то уже засеял."""
+    added = False
+    for ru, kk in SEED_POSITIONS:
+        key = _norm_ru(ru)
+        exists = db.query(PositionTranslation).filter(PositionTranslation.position_ru == key).first()
+        if exists is None:
+            db.add(PositionTranslation(position_ru=key, position_kk=kk))
+            added = True
+    if not added:
+        return
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()   # параллельный воркер успел засеять — это нормально

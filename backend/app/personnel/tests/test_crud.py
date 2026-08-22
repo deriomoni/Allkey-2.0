@@ -98,3 +98,15 @@ def test_position_translation_empty_kk_not_saved(db):
     run(crud.save_position_translation(s.PositionTranslationIn(position_ru="кладовщик", position_kk="  "), db=db, _u=FAKE_USER))
     res = run(crud.translate_position("кладовщик", db=db, _u=FAKE_USER))
     assert res.position_kk == ""
+
+
+def test_seed_positions_idempotent_and_preserves_edits(db):
+    crud.seed_positions(db)
+    assert run(crud.translate_position("Директор", db=db, _u=FAKE_USER)).position_kk == "Директор"
+    assert run(crud.translate_position("Заместитель директора", db=db, _u=FAKE_USER)).position_kk == "Директордың орынбасары"
+    # регистр/пробелы не мешают
+    assert run(crud.translate_position("  генеральный   директор ", db=db, _u=FAKE_USER)).position_kk == "Бас директор"
+    # пользователь поправил пару — повторный сид не затирает и не падает
+    run(crud.save_position_translation(s.PositionTranslationIn(position_ru="Директор", position_kk="Дир."), db=db, _u=FAKE_USER))
+    crud.seed_positions(db)
+    assert run(crud.translate_position("Директор", db=db, _u=FAKE_USER)).position_kk == "Дир."

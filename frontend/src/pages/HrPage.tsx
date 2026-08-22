@@ -241,6 +241,21 @@ export default function HrPage() {
     const kk = (draft.employment.position_kk ?? '').trim()
     if (ru && kk) personnelApi.savePositionTranslation(ru, kk).catch(() => {})
   }
+  // Тот же справочник должностей — для должности подписанта в карточке компании
+  // (бухгалтер не обязан знать казахский; типовые должности идут из сида).
+  async function lookupSignerPositionKk(ru: string) {
+    const key = ru.trim()
+    if (!key || (draft.company.signer_position_kz ?? '').trim()) return
+    try {
+      const res = await personnelApi.translatePosition(key)
+      if (res.position_kk) setCompany({ signer_position_kz: res.position_kk })
+    } catch { /* справочник необязателен */ }
+  }
+  function saveSignerPositionKk() {
+    const ru = (draft.company.signatory_position ?? '').trim()
+    const kk = (draft.company.signer_position_kz ?? '').trim()
+    if (ru && kk) personnelApi.savePositionTranslation(ru, kk).catch(() => {})
+  }
 
   const flash = (m: string) => { setNotice(m); setError(''); setTimeout(() => setNotice(''), 3000) }
   const fail = (e: unknown, fb: string) => setError(errText(e, fb))
@@ -534,8 +549,19 @@ export default function HrPage() {
             <option value="male">муж.</option><option value="female">жен.</option>
           </select>
         </div>
-        <Field label="Должность подписанта (рус)" value={c.signatory_position} onChange={(v) => setCompany({ signatory_position: v })} />
-        <Field label="Должность подписанта (каз)" value={c.signer_position_kz} onChange={(v) => setCompany({ signer_position_kz: v })} placeholder="для казахской колонки ТД" />
+        <div className="form-group">
+          <label>Должность подписанта (рус)</label>
+          <input value={c.signatory_position ?? ''} onChange={(ev) => setCompany({ signatory_position: ev.target.value })}
+            onBlur={(ev) => lookupSignerPositionKk(ev.target.value)} />
+        </div>
+        <div className="form-group">
+          <label>Должность подписанта (каз)</label>
+          <input value={c.signer_position_kz ?? ''} placeholder="подставится из справочника; при первом вводе — введите"
+            onChange={(ev) => setCompany({ signer_position_kz: ev.target.value })} onBlur={saveSignerPositionKk} />
+          <div style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>
+            Казахский вариант подставляется из справочника должностей. Новые пары запоминаются.
+          </div>
+        </div>
         <Field label="Действует на основании" value={c.acts_on_basis} onChange={(v) => setCompany({ acts_on_basis: v })} />
         <div style={{ fontSize: 12, color: '#6b7280', margin: '2px 0 8px' }}>
           Казахские реквизиты юрлица заполняются один раз здесь и сохраняются в карточке — в форме приёма не спрашиваются.

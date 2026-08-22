@@ -11,7 +11,7 @@ from app.licenses.router import router as licenses_router
 from app.settings.router import router as settings_router
 from app.services.router import router as services_router, seed_services
 from app.personnel.router import router as personnel_router
-from app.personnel.crud import crud_router as personnel_crud_router
+from app.personnel.crud import crud_router as personnel_crud_router, seed_positions
 from app.personnel.schema_sync import ensure_personnel_schema
 from app.f10104.router import router as f10104_router
 from app.rates.router import router as rates_router
@@ -38,6 +38,7 @@ async def lifespan(app: FastAPI):
     try:
         seed_services(db)
         seed_changelog(db)
+        seed_positions(db)
     finally:
         db.close()
     # Startup: launch background cleanup
