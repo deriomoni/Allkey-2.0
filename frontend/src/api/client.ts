@@ -982,6 +982,10 @@ export const personnelApi = {
     downloadBlob(response.data, response.headers['content-disposition'], 'Пакет.zip')
   },
 
+  // Авто-перевод реквизитов юрлица на казахский (наименование/адрес) при вводе русского.
+  translateCompany: async (name: string, address: string, city: string): Promise<{ name_kk: string; address_kz: string }> =>
+    (await api.get('/personnel/company/translate', { params: { name, address, city } })).data,
+
   // Справочник должностей рус→каз: подбор по русской должности и сохранение пары.
   translatePosition: async (ru: string): Promise<{ position_ru: string; position_kk: string }> =>
     (await api.get('/personnel/positions/translate', { params: { ru } })).data,

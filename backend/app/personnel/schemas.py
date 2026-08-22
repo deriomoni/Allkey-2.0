@@ -119,6 +119,12 @@ class PositionTranslationOut(_ORMModel):
     position_kk: str
 
 
+class CompanyTranslateOut(BaseModel):
+    """Авто-перевод реквизитов юрлица на казахский (наименование, адрес)."""
+    name_kk: str = ""
+    address_kz: str = ""
+
+
 # --- Stateless input models (NOT stored; come in the request body) ----
 # Employee/Employment carry third-party personal data and are never persisted —
 # they live in the client's draft and arrive in the generation request body.

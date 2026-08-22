@@ -96,3 +96,80 @@ def kk_basis(text) -> str:
         if key in n:
             return kk
     return str(text or "").strip()
+
+
+# --- company name: organizational form → Kazakh, moved to the end ------
+# Название (в кавычках или фамилия для ИП) не меняется, меняется только форма.
+ORG_FORMS = {
+    "тоо": "ЖШС",
+    "ао": "АҚ",
+    "ип": "ЖК",
+    "филиал": "Филиал",
+    "представительство": "Өкілдік",
+    "учреждение": "Мекеме",
+    "общественное объединение": "Қоғамдық бірлестік",
+    "производственный кооператив": "Өндірістік кооператив",
+    "крестьянское хозяйство": "Шаруа қожалығы",
+}
+
+
+def kk_company_name(name_ru) -> str:
+    """«ТОО «X»» → ««X» ЖШС», «ИП Петров» → «Петров ЖК». Если ведущая ОПФ не
+    распознана — возвращаем как есть (пользователь поправит)."""
+    name = str(name_ru or "").strip()
+    if not name:
+        return ""
+    low = name.lower()
+    for form in sorted(ORG_FORMS, key=len, reverse=True):   # многословные ОПФ первыми
+        if low.startswith(form):
+            after = name[len(form):]
+            if after[:1] in ("", " ", "\u00ab", "\u201c", '"'):   # граница слова
+                rest = after.strip()
+                kk = ORG_FORMS[form]
+                return f"{rest} {kk}".strip()
+    return name
+
+
+# --- address: service words → Kazakh, generic moved AFTER the name -----
+ADDRESS_WORDS = {
+    "г.": "қ.", "г": "қ.", "город": "қ.",
+    "улица": "көшесі", "ул.": "көшесі", "ул": "көшесі",
+    "проспект": "даңғылы", "пр.": "даңғылы", "пр": "даңғылы",
+    "микрорайон": "шағын ауданы", "мкр.": "шағын ауданы", "мкр": "шағын ауданы",
+    "дом": "үй", "д.": "үй",
+    "квартира": "пәтер", "кв.": "пәтер", "кв": "пәтер",
+    "офис": "кеңсе", "оф.": "кеңсе",
+    "здание": "ғимарат",
+    "переулок": "тұйық көше", "пер.": "тұйық көше",
+    "район": "ауданы",
+    "область": "облысы", "обл.": "облысы",
+    "село": "ауылы", "с.": "ауылы",
+    "посёлок": "кенті", "поселок": "кенті", "пос.": "кенті",
+    "шоссе": "тас жолы",
+    "бульвар": "гүлзары", "бул.": "гүлзары",
+    "площадь": "алаңы", "пл.": "алаңы",
+}
+
+
+def _kk_address_segment(seg, city_kz) -> str:
+    tokens = seg.split()
+    if not tokens:
+        return seg
+    kk = ADDRESS_WORDS.get(tokens[0].lower())
+    if kk is None:
+        return seg                       # нет служебного слова (номер дома и т.п.) — как есть
+    rest = " ".join(tokens[1:]).strip()
+    if kk == "қ.":                       # сегмент города — берём из city_kz (или переводим)
+        rest = (city_kz or kk_city(rest)).strip()
+    if not rest:
+        return kk
+    return f"{rest} {kk}"                 # казахский порядок: имя, затем служебное слово
+
+
+def kk_address(address_ru, city_kz="") -> str:
+    """«г. Алматы, ул. Абая, 10» → «Алматы қ., Абая көшесі, 10». Название улицы не
+    склоняется (остаётся как ввёл пользователь)."""
+    addr = str(address_ru or "").strip()
+    if not addr:
+        return ""
+    return ", ".join(_kk_address_segment(s.strip(), city_kz) for s in addr.split(",") if s.strip())

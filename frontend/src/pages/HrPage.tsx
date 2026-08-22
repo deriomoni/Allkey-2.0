@@ -277,6 +277,22 @@ export default function HrPage() {
     const kk = (draft.company.signer_position_kz ?? '').trim()
     if (ru && kk) personnelApi.savePositionTranslation(ru, kk).catch(() => {})
   }
+  // Авто-перевод наименования/адреса юрлица на казахский (по словарям), не перетирая
+  // уже введённое. Поля остаются редактируемыми.
+  async function lookupCompanyNameKk(nameRu: string) {
+    if (!nameRu.trim() || (draft.company.name_kk ?? '').trim()) return
+    try {
+      const res = await personnelApi.translateCompany(nameRu.trim(), '', '')
+      if (res.name_kk) setCompany({ name_kk: res.name_kk })
+    } catch { /* автоподстановка необязательна */ }
+  }
+  async function lookupCompanyAddressKz(addrRu: string) {
+    if (!addrRu.trim() || (draft.company.address_kz ?? '').trim()) return
+    try {
+      const res = await personnelApi.translateCompany('', addrRu.trim(), draft.company.city ?? '')
+      if (res.address_kz) setCompany({ address_kz: res.address_kz })
+    } catch { /* автоподстановка необязательна */ }
+  }
 
   const flash = (m: string) => { setNotice(m); setError(''); setTimeout(() => setNotice(''), 3000) }
   const fail = (e: unknown, fb: string) => setError(errText(e, fb))
@@ -564,12 +580,24 @@ export default function HrPage() {
             </select>
           </div>
         )}
-        <Field label="Наименование (рус)" value={c.name_ru} onChange={(v) => setCompany({ name_ru: v })} />
-        <Field label="Наименование (каз)" value={c.name_kk} onChange={(v) => setCompany({ name_kk: v })} placeholder="для казахской колонки ТД" />
+        <div className="form-group">
+          <label>Наименование (рус)</label>
+          <input value={c.name_ru ?? ''} placeholder="ТОО «Название»"
+            onChange={(ev) => setCompany({ name_ru: ev.target.value })}
+            onBlur={(ev) => lookupCompanyNameKk(ev.target.value)} />
+        </div>
+        <Field label="Наименование (каз)" value={c.name_kk} onChange={(v) => setCompany({ name_kk: v })}
+          placeholder="подставится автоматически, можно поправить" />
         <Field label="БИН" value={c.bin} onChange={(v) => setCompany({ bin: v })} placeholder="12 цифр" />
         <Field label="Город" value={c.city} onChange={(v) => setCompany({ city: v })} />
-        <Field label="Юридический адрес (рус)" value={c.legal_address} onChange={(v) => setCompany({ legal_address: v })} />
-        <Field label="Юридический адрес (каз)" value={c.address_kz} onChange={(v) => setCompany({ address_kz: v })} placeholder="для казахской колонки ТД" />
+        <div className="form-group">
+          <label>Юридический адрес (рус)</label>
+          <input value={c.legal_address ?? ''} placeholder="г. Алматы, ул. Абая, 10"
+            onChange={(ev) => setCompany({ legal_address: ev.target.value })}
+            onBlur={(ev) => lookupCompanyAddressKz(ev.target.value)} />
+        </div>
+        <Field label="Юридический адрес (каз)" value={c.address_kz} onChange={(v) => setCompany({ address_kz: v })}
+          placeholder="подставится автоматически, можно поправить" />
         <Field label="ФИО директора (им.п.)" value={c.director_fio_ru} onChange={(v) => setCompany({ director_fio_ru: v })} placeholder="Иванов Иван Иванович" />
         <div className="form-group">
           <label>Пол подписанта</label>

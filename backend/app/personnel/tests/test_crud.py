@@ -122,3 +122,22 @@ def test_position_translation_rejects_garbage(db):
     # настоящий казахский (есть қ/ы/…) → сохраняем
     run(crud.save_position_translation(s.PositionTranslationIn(position_ru="Снабженец", position_kk="Жабдықтаушы"), db=db, _u=FAKE_USER))
     assert run(crud.translate_position("Снабженец", db=db, _u=FAKE_USER)).position_kk == "Жабдықтаушы"
+
+
+def test_kk_company_name_and_address_transforms():
+    from app.personnel import kk_dictionaries as kkd
+    assert kkd.kk_company_name("ТОО «Астана Консалтинг»") == "«Астана Консалтинг» ЖШС"
+    assert kkd.kk_company_name("АО «Казпочта»") == "«Казпочта» АҚ"
+    assert kkd.kk_company_name("ИП Оспанов") == "Оспанов ЖК"
+    assert kkd.kk_company_name("Крестьянское хозяйство «Береке»") == "«Береке» Шаруа қожалығы"
+    assert kkd.kk_company_name("Нечто без ОПФ") == "Нечто без ОПФ"     # не распознано — как есть
+    # город берётся из city_kz (Уральск → Орал), улица не склоняется
+    assert kkd.kk_address("г. Алматы, ул. Абая, 10", "Алматы") == "Алматы қ., Абая көшесі, 10"
+    assert kkd.kk_address("г. Уральск, пр. Достык, д. 5", kkd.kk_city("Уральск")).startswith("Орал қ.")
+
+
+def test_translate_company_requisites_endpoint():
+    res = run(crud.translate_company_requisites(
+        name="ТОО «X»", address="г. Алматы, офис 3", city="Алматы", _u=FAKE_USER))
+    assert res.name_kk == "«X» ЖШС"
+    assert res.address_kz == "Алматы қ., 3 кеңсе"

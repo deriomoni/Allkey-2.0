@@ -19,6 +19,7 @@ from app.database import get_db
 from app.personnel import schemas as s
 from app.personnel.helpers.iin import is_valid_bin
 from app.personnel.models import Company, PositionTranslation
+from app.personnel import kk_dictionaries as kkd
 from app.services.dependencies import require_service
 from app.users.models import User
 
@@ -73,6 +74,25 @@ async def update_company(company_id: int, data: s.CompanyUpdate, db: Session = D
     db.commit()
     db.refresh(company)
     return company
+
+
+# --- Авто-перевод реквизитов юрлица на казахский (карточка компании) ------
+# Детерминированный перевод по словарям (ОПФ наименования, служебные слова адреса);
+# не персональные данные, поэтому запрос по значению допустим. Поля в форме остаются
+# редактируемыми — это лишь автоподстановка при вводе русского значения.
+
+@crud_router.get("/company/translate", response_model=s.CompanyTranslateOut)
+async def translate_company_requisites(
+    name: str = "", address: str = "", city: str = "",
+    _u: User = Depends(require_service(SERVICE_CODE)),
+):
+    """name/address — русские значения; city — русский город (для казахского города
+    в адресе). Возвращает наименование и адрес на казахском."""
+    city_kz = kkd.kk_city(city) if city else ""
+    return s.CompanyTranslateOut(
+        name_kk=kkd.kk_company_name(name) if name else "",
+        address_kz=kkd.kk_address(address, city_kz) if address else "",
+    )
 
 
 # --- Справочник должностей рус→каз (§4.2) ---------------------------------
