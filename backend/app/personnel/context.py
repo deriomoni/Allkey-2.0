@@ -123,6 +123,7 @@ def build_company_context(company) -> dict:
         "signer_position_dative": fio_h.inflect_phrase(position, fio_h.DATIVE, s_gender),
         "signer_fio_short": fio_h.fio_short(s_last, s_first, s_middle),
         "signer_fio_genitive": fio_h.fio_full(s_last, s_first, s_middle, fio_h.GENITIVE, s_gender),
+        "signer_fio_dative": fio_h.fio_full(s_last, s_first, s_middle, fio_h.DATIVE, s_gender),
         "signer_basis": company.acts_on_basis or "",
     }
 
@@ -415,6 +416,32 @@ def build_soglasie_context(company, employee, employment, consent) -> dict:
              "purpose": r.purpose, "scope": r.scope}
             for r in (consent.recipients or [])
         ],
+    }
+
+
+def build_zayavlenie_priem_context(company, employee, employment) -> dict:
+    """Заявление работника о приёме на работу. Бланк: работник ставит дату и подпись
+    от руки, поэтому единая нумерация/дата пакета к нему не применяются."""
+    comp = build_company_context(company)
+    emp = build_employee_context(employee)
+    months = employment.probation_months or 0
+    return {
+        "company": {
+            "name_full": comp["name_full"],
+            "signer_position_dative": comp["signer_position_dative"],
+            "signer_fio_dative": comp["signer_fio_dative"],
+        },
+        "employee": {
+            "fio_full": emp["fio_full"], "fio_genitive": emp["fio_genitive"], "iin": emp["iin"],
+            "address_actual": emp["address_actual"], "phone": emp["phone"],
+        },
+        "employment": {
+            "position": employment.position_ru,
+            "department": employment.department or "",
+            "start_date_words": _words(employment.start_date),
+            "probation_months": months,
+            "probation_months_words": ru_int_to_words(months) if months else "",
+        },
     }
 
 

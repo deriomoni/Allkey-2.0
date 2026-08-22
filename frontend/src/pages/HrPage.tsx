@@ -70,7 +70,7 @@ const EMPTY_DRAFT: Draft = {
     work_time_from: '09:00', work_time_to: '18:00', lunch_from: '13:00', lunch_to: '14:00',
     days_off: 'суббота, воскресенье', vacation_days: 24, ipn_deduction: 'base_30_mrp',
   },
-  documents: { td: true, prikaz: true, soglasie: true, zayavlenie: true, matotvet: false, akt: false, nekonkurencii: false },
+  documents: { zayavlenie_priem: true, prikaz: true, td: true, soglasie: true, zayavlenie: true, matotvet: false, akt: false, nekonkurencii: false },
   liability: { number: '', doc_date: null },
   act: { number: '', doc_date: null, basis: '', notes: '', commission: [] },
   inventory: [],
@@ -132,8 +132,9 @@ const inS: CSSProperties = { width: '100%', padding: '4px 6px' }
 // их шаблоны остаются в библиотеке для отдельной разовой генерации.
 // Обязательные — издаются на каждый приём, всегда в пакете (снять нельзя).
 const MANDATORY_DOCS: [string, string][] = [
-  ['td', 'Трудовой договор (двуязычный)'],
+  ['zayavlenie_priem', 'Заявление о приёме на работу (бланк)'],
   ['prikaz', 'Приказ о приёме на работу'],
+  ['td', 'Трудовой договор (двуязычный)'],
   ['soglasie', 'Согласие на обработку персональных данных'],
   ['zayavlenie', 'Заявление на налоговые вычеты (ИПН)'],
 ]

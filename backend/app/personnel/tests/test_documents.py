@@ -487,3 +487,8 @@ def test_trudovoy_weekly_hours_computed_from_day_and_days_off():
     eh = s.EmploymentIn(position_ru="менеджер", salary=150000, hours_per_day=Decimal("4"),
                         days_off="суббота, воскресенье", rate=Decimal("0.5"))
     assert build_trudovoy_context(company, employee, eh, contract)["employment"]["hours_per_week"] == "20"
+
+
+def test_package_zayavlenie_priem():
+    names = run(_zip_names(_pkg(["zayavlenie_priem"])))
+    assert len(names) == 1 and any("Заявлен" in n for n in names)

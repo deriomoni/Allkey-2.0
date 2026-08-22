@@ -23,7 +23,8 @@ from app.personnel.context import (
     build_order_context, build_deduction_application_context, build_prikaz_preview,
     build_matotvet_context, build_nekonkurencii_context, build_akt_context,
     build_perechen_context, build_trudovoy_context,
-    build_polozhenie_pd_context, build_prikaz_pd_context, build_soglasie_context, DEDUCTION_TEXTS,
+    build_polozhenie_pd_context, build_prikaz_pd_context, build_soglasie_context,
+    build_zayavlenie_priem_context, DEDUCTION_TEXTS,
 )
 from app.personnel.generator import render_template, render_bytes, build_zip, output_filename
 from app.personnel.helpers.iin import is_valid_iin, is_valid_bin, parse_iin
@@ -263,6 +264,10 @@ async def generate_package(
             )
             files.append((fname("ЗаявлениеВычеты", data.employment.application_date),
                           render_bytes("zayavlenie_vychety_ipn.docx", ctx)))
+        elif doc == "zayavlenie_priem":
+            ctx = build_zayavlenie_priem_context(data.company, emp, data.employment)
+            files.append((fname("ЗаявлениеПриём", None),
+                          render_bytes("zayavlenie_o_prieme.docx", ctx)))
         elif doc == "soglasie":
             need(data.consent, "Для согласия на обработку ПД нужны данные (consent)")
             ctx = build_soglasie_context(data.company, emp, data.employment, data.consent)
