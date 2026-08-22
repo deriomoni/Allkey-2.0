@@ -116,6 +116,14 @@ const num = (v: string | number | null | undefined): number => {
 }
 const fmt = (n: number): string => n.toLocaleString('ru-RU').replace(/,/g, ' ')
 
+// Рабочих дней в неделю по выходным: 2 выходных → 5, 1 → 6, иначе — пятидневка.
+const RU_DAYS = ['понедельник', 'вторник', 'среда', 'четверг', 'пятница', 'суббота', 'воскресенье']
+const workdaysOf = (daysOff: string | null | undefined): number => {
+  const t = (daysOff ?? '').toLowerCase()
+  const off = RU_DAYS.filter((d) => t.includes(d)).length
+  return off ? 7 - off : 5
+}
+
 const cellS: CSSProperties = { padding: '4px 6px', borderBottom: '1px solid #f1f5f9' }
 const inS: CSSProperties = { width: '100%', padding: '4px 6px' }
 
@@ -759,7 +767,6 @@ export default function HrPage() {
           </select>
         </div>
         <Field label="Испытательный срок, мес (0–3)" type="number" value={m.probation_months} onChange={(v) => setEmployment({ probation_months: Number(v) })} />
-        <Field label="Часов в неделю" type="number" value={m.hours_per_week} onChange={(v) => setEmployment({ hours_per_week: Number(v) })} />
         <Field label="Выходные" value={m.days_off} onChange={(v) => setEmployment({ days_off: v })} />
         <div style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>
           Номер и дата документов задаются один раз в разделе «Пакет документов» ниже.
@@ -831,11 +838,14 @@ export default function HrPage() {
             <Field label="Дата (единая для пакета)" type="date" value={draft.pkg.date} onChange={(v) => setPkg({ date: v })} />
           </div>
           <div style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>
-            Номер и дата подставляются во все документы. Дата — одна на пакет. Если у документа своя книга
-            нумерации, укажите его номер в блоке документа ниже — он перекроет номер пакета.
+            Один номер и одна дата на весь пакет — подставляются во все документы. Отдельный номер для
+            документа нужен редко (своя книга приказов/договоров) и спрятан под ссылкой в его блоке.
           </div>
-          <Field label="Приказ о приёме № (если своя книга)" value={m.order_number}
-            onChange={(v) => setEmployment({ order_number: v })} placeholder="иначе — номер пакета" />
+          <details style={{ marginTop: 8 }}>
+            <summary style={{ cursor: 'pointer', fontSize: 13, color: '#6b7280' }}>Изменить номер приказа о приёме</summary>
+            <Field label="Приказ о приёме №" value={m.order_number}
+              onChange={(v) => setEmployment({ order_number: v })} placeholder="иначе — номер пакета" />
+          </details>
         </div>
 
         {draft.documents.zayavlenie && (
@@ -883,7 +893,9 @@ export default function HrPage() {
                 {CONTRACT_KINDS.map(([val, label]) => <option key={val} value={val}>{label}</option>)}
               </select>
             </div>
-            <Field label="№ ТД (если своя книга; иначе — номер пакета)" value={draft.contract.number} onChange={(v) => setContract({ number: v })} />
+            <details><summary style={{ cursor: 'pointer', fontSize: 13, color: '#6b7280' }}>Изменить номер для этого документа</summary>
+              <Field label="№ трудового договора" value={draft.contract.number} onChange={(v) => setContract({ number: v })} placeholder="иначе — номер пакета" />
+            </details>
 
             {draft.contract.kind === 'fixed' && (
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -924,9 +936,24 @@ export default function HrPage() {
                 onChange={(v) => setEmployment({ workplace: v })} placeholder="по умолчанию — юр. адрес компании" />
               <Field label="Условия труда" value={m.conditions} onChange={(v) => setEmployment({ conditions: v })} placeholder="нормальными" />
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                <div className="form-group" style={{ flex: '1 1 120px' }}>
+                <div className="form-group" style={{ flex: '1 1 220px' }}>
                   <label>Часов в день</label>
                   <input type="number" value={m.hours_per_day ?? ''} onChange={(ev) => setEmployment({ hours_per_day: ev.target.value })} />
+                  {num(m.hours_per_day) > 0 && (() => {
+                    const wd = workdaysOf(m.days_off)
+                    const weekly = num(m.hours_per_day) * wd
+                    const rate = num(m.rate) || 1
+                    const norm = 40 * rate
+                    const mismatch = Math.abs(weekly - norm) > 0.01
+                    return (
+                      <div style={{ fontSize: 12, color: mismatch ? '#b45309' : '#6b7280', marginTop: 4 }}>
+                        В неделю: <strong>{fmt(weekly)} ч</strong> = {fmt(num(m.hours_per_day))} ч/день × {wd} раб. дн. (по выходным).
+                        {rate !== 1 && <> Норма при ставке {String(m.rate ?? '1')}: {fmt(norm)} ч.</>}
+                        {mismatch && <> ⚠ Не совпадает с нормой по ставке — проверьте часы в день.</>}
+                        <br />Это значение попадёт в трудовой договор.
+                      </div>
+                    )
+                  })()}
                 </div>
                 <div className="form-group" style={{ flex: '1 1 120px' }}>
                   <label>Дней отпуска</label>
@@ -946,7 +973,9 @@ export default function HrPage() {
         {draft.documents.nekonkurencii && (
           <div style={{ background: '#f8fafc', borderRadius: 8, padding: 14, marginBottom: 12 }}>
             <h4 style={{ marginBottom: 8 }}>Договор о неконкуренции</h4>
-            <Field label="№ (если своя книга; иначе — номер пакета)" value={draft.noncompete.number} onChange={(v) => setNonCompete({ number: v })} />
+            <details><summary style={{ cursor: 'pointer', fontSize: 13, color: '#6b7280' }}>Изменить номер для этого документа</summary>
+              <Field label="№ договора о неконкуренции" value={draft.noncompete.number} onChange={(v) => setNonCompete({ number: v })} placeholder="иначе — номер пакета" />
+            </details>
             <Field label="Срок неконкуренции" value={draft.noncompete.term_noncompete}
               onChange={(v) => setNonCompete({ term_noncompete: v })} placeholder="6 (шесть) месяцев" />
             <Field label="Срок непереманивания" value={draft.noncompete.term_nonsolicit}
@@ -967,14 +996,18 @@ export default function HrPage() {
         {(draft.documents.matotvet || draft.documents.akt) && (
           <div style={{ background: '#f8fafc', borderRadius: 8, padding: 14, marginBottom: 12 }}>
             <h4 style={{ marginBottom: 8 }}>Реквизиты договора о матответственности</h4>
-            <Field label="№ (если своя книга; иначе — номер пакета)" value={draft.liability.number} onChange={(v) => setLiability({ number: v })} />
+            <details><summary style={{ cursor: 'pointer', fontSize: 13, color: '#6b7280' }}>Изменить номер для этого документа</summary>
+              <Field label="№ договора о матответственности" value={draft.liability.number} onChange={(v) => setLiability({ number: v })} placeholder="иначе — номер пакета" />
+            </details>
           </div>
         )}
 
         {draft.documents.akt && (
           <div style={{ background: '#f8fafc', borderRadius: 8, padding: 14, marginBottom: 12 }}>
             <h4 style={{ marginBottom: 8 }}>Акт приёма-передачи</h4>
-            <Field label="№ акта (если своя книга; иначе — номер пакета)" value={draft.act.number} onChange={(v) => setAct({ number: v })} />
+            <details><summary style={{ cursor: 'pointer', fontSize: 13, color: '#6b7280' }}>Изменить номер для этого документа</summary>
+              <Field label="№ акта приёма-передачи" value={draft.act.number} onChange={(v) => setAct({ number: v })} placeholder="иначе — номер пакета" />
+            </details>
             <Field label="Основание (напр. «приказ № 14 от 17.08.2026»; пусто — не выводится)"
               value={draft.act.basis} onChange={(v) => setAct({ basis: v })} />
             <Field label="Особые отметки" value={draft.act.notes} onChange={(v) => setAct({ notes: v })} />

@@ -57,6 +57,26 @@ def _num(value) -> str:
     return str(int(f)) if f == int(f) else str(value)
 
 
+_RU_DAYS = ("понедельник", "вторник", "среда", "четверг", "пятница", "суббота", "воскресенье")
+
+
+def _workdays_per_week(days_off) -> int:
+    """Рабочих дней в неделю по выходным: 2 выходных → 5, 1 → 6. Выходные не указаны —
+    считаем стандартную пятидневку."""
+    off = sum(1 for d in _RU_DAYS if d in (days_off or "").lower())
+    return 7 - off if off else 5
+
+
+def _weekly_hours(employment) -> str:
+    """Часов в неделю = часов в день × число рабочих дней. Выводится, не хранится
+    отдельным полем (при неполной ставке часы в день уже уменьшены — расчёт согласован)."""
+    hpd = getattr(employment, "hours_per_day", None)
+    if hpd in (None, ""):
+        return ""
+    weekly = Decimal(str(hpd)) * _workdays_per_week(getattr(employment, "days_off", ""))
+    return _num(weekly)
+
+
 def format_id_document(employee) -> str:
     """'удостоверение личности № 012345678, выдано МВД РК 15.03.2015'."""
     kind = "удостоверение личности" if getattr(employee, "document_type", "") == "id_card" else "паспорт"
@@ -471,7 +491,7 @@ def build_trudovoy_context(company, employee, employment, contract) -> dict:
             "probation_months": months,
             "probation_months_words": ru_int_to_words(months) if months else "",
             "probation_months_words_kz": kk_int_to_words(months) if months else "",
-            "hours_per_day": _num(employment.hours_per_day), "hours_per_week": _num(employment.hours_per_week),
+            "hours_per_day": _num(employment.hours_per_day), "hours_per_week": _weekly_hours(employment),
             "work_from": employment.work_time_from or "", "work_to": employment.work_time_to or "",
             "lunch_from": employment.lunch_from or "", "lunch_to": employment.lunch_to or "",
             "days_off": employment.days_off or "", "days_off_kz": kkd.kk_days_off(employment.days_off or ""),

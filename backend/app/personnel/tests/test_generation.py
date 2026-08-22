@@ -92,12 +92,13 @@ def test_render_prikaz_fills_all_placeholders():
         "ознакомить работника под роспись",
         "трудовой договор № 15 от 05.08.2026",
         "заявление Климова Василия Александровича от 04.08.2026",
-        "Петрова А.А.",
     ]:
         assert needle in text, f"missing in rendered doc: {needle!r}"
 
     # Оклад и режим работы в приказе БОЛЬШЕ НЕ печатаются (место — в ТД/ПВТР).
     assert "тенге" not in text and "рабочая неделя" not in text
+    # Строка «Исполнитель» из приказа убрана.
+    assert "Исполнитель" not in text
 
 
 def test_render_without_probation_uses_else_branch():

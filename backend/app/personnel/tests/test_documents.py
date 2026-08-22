@@ -468,3 +468,22 @@ def test_prikaz_department_phrase_and_empty():
     without = build_order_context(company, employee,
                                   s.EmploymentIn(position_ru="менеджер", department="", salary=300000))
     assert without["employment"]["department"] == ""      # пусто → строка не выводится, без «Основное»
+
+
+def test_trudovoy_weekly_hours_computed_from_day_and_days_off():
+    from app.personnel.context import build_trudovoy_context
+    company = s.CompanyBase(name_ru="ТОО", bin="150640001237", director_fio_ru="Иванов Иван Иванович")
+    employee = s.EmployeeIn(last_name="Оспан", first_name="Ер", iin="950313300574", gender="male")
+    contract = s.ContractIn(number="1", doc_date=date(2026, 8, 5), kind="indefinite")
+    # 8 ч/день, 2 выходных → 5 раб. дней → 40 ч/нед
+    e2 = s.EmploymentIn(position_ru="менеджер", salary=300000, hours_per_day=Decimal("8"),
+                        days_off="суббота, воскресенье")
+    assert build_trudovoy_context(company, employee, e2, contract)["employment"]["hours_per_week"] == "40"
+    # 1 выходной → 6 раб. дней → 48 ч/нед
+    e1 = s.EmploymentIn(position_ru="менеджер", salary=300000, hours_per_day=Decimal("8"),
+                        days_off="воскресенье")
+    assert build_trudovoy_context(company, employee, e1, contract)["employment"]["hours_per_week"] == "48"
+    # неполная ставка: 4 ч/день × 5 → 20 ч/нед (согласовано с 0.5)
+    eh = s.EmploymentIn(position_ru="менеджер", salary=150000, hours_per_day=Decimal("4"),
+                        days_off="суббота, воскресенье", rate=Decimal("0.5"))
+    assert build_trudovoy_context(company, employee, eh, contract)["employment"]["hours_per_week"] == "20"
