@@ -65,7 +65,7 @@ class CompanyBase(BaseModel):
     director_gender: str = "male"
     signatory_position: str = "Директор"
     acts_on_basis: str = "Устава"
-    # Manual Kazakh translations for the bilingual трудовой договор (proofread before sale).
+    # Manual Kazakh translations for the bilingual трудовой договор.
     address_kz: str = ""
     signer_position_kz: str = ""
     state_registration_date: Optional[date] = None

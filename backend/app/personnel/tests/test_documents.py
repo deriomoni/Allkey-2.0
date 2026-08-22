@@ -447,3 +447,24 @@ def test_parse_inventory_explicit_mapping():
     )
     assert resp.status == "parsed" and len(resp.items) == 1
     assert resp.items[0].name == "Ноутбук" and resp.items[0].price == Decimal("350000")
+
+
+def test_generation_rejects_invalid_iin():
+    # ИИН 745820400487: месяц рождения «58» не существует → пакет не формируется.
+    req = _pkg(["prikaz"])
+    req.employee = req.employee.model_copy(update={"iin": "745820400487"})
+    with pytest.raises(HTTPException) as exc:
+        run(R.generate_package(req, user=FAKE_USER))
+    assert exc.value.status_code == 400
+
+
+def test_prikaz_department_phrase_and_empty():
+    from app.personnel.context import build_order_context
+    company = s.CompanyBase(name_ru="ТОО", bin="150640001237", director_fio_ru="Иванов Иван Иванович")
+    employee = s.EmployeeIn(last_name="Оспан", first_name="Ербол", iin="950313300574", gender="male")
+    with_dept = build_order_context(company, employee,
+                                    s.EmploymentIn(position_ru="менеджер", department="Отдел продаж", salary=300000))
+    assert with_dept["employment"]["department"] == "подразделение «Отдел продаж»"
+    without = build_order_context(company, employee,
+                                  s.EmploymentIn(position_ru="менеджер", department="", salary=300000))
+    assert without["employment"]["department"] == ""      # пусто → строка не выводится, без «Основное»

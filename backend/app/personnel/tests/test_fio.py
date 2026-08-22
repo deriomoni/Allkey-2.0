@@ -122,3 +122,12 @@ def test_consonant_surname_gender_sensitive():
 def test_short_form():
     assert fio_short("Климов", "Василий", "Александрович") == "Климов В.А."
     assert fio_short("Климов", "Василий") == "Климов В."
+
+
+def test_yo_alignment_keeps_user_spelling():
+    # Пользователь ввёл «Семенова» (е). Склонение не должно возвращать «ё»:
+    # написание падежей должно совпадать с введённым.
+    assert "ё" not in fio_full("Семенова", "Ольга", "", "accusative", "female")
+    assert fio_full("Семенова", "", "", "accusative", "female") == "Семенову"
+    # А если пользователь ввёл «ё» — оно сохраняется.
+    assert fio_full("Артём", "", "", "genitive", "male").startswith("Артём")

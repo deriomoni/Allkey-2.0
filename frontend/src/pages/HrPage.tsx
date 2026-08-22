@@ -170,10 +170,17 @@ function errText(e: unknown, fallback: string): string {
   return fallback
 }
 
+// Общий номер пакета — поле «Номер пакета», а если оно пустое, номер приказа
+// (пользователь мог вписать его как основной). Так единый номер попадает во ВСЕ
+// документы, включая № трудового договора, чем бы его ни задали.
+function packageNumber(d: Draft): string {
+  return (d.pkg.number ?? '').trim() || (d.employment.order_number ?? '').trim()
+}
+
 // Единая нумерация пакета: № приказа/ТД перекрываются, если у клиента своя книга;
 // дата одна на весь пакет, во всех датах документов.
 function pkgEmployment(d: Draft): Partial<PersonnelEmployment> {
-  const n = (d.pkg.number ?? '').trim()
+  const n = packageNumber(d)
   const date = d.pkg.date
   return {
     ...d.employment,
@@ -314,6 +321,7 @@ export default function HrPage() {
   }
 
   async function download() {
+    if (iin && !iin.valid) { setError('ИИН работника не прошёл проверку — исправьте ИИН перед формированием'); return }
     setBusy(true); setError('')
     try { await personnelApi.generatePrikaz(body(draft)) }
     catch (e) { fail(e, 'Не удалось сформировать приказ') } finally { setBusy(false) }
@@ -421,6 +429,7 @@ export default function HrPage() {
   const invTotal = draft.inventory.reduce((sum, r) => sum + num(r.qty) * num(r.price), 0)
 
   async function generatePackage() {
+    if (iin && !iin.valid) { setError('ИИН работника не прошёл проверку — исправьте ИИН перед формированием'); return }
     // Ровно семь разрешённых: 4 обязательных всегда + отмеченные из 3 дополнительных.
     // Любые посторонние ключи из старого черновика игнорируются.
     const documents = [
@@ -439,17 +448,13 @@ export default function HrPage() {
       setError('Для срочного договора укажите срок (число + единица) или дату окончания')
       return
     }
-    if (draft.documents.soglasie && draft.consent.recipients.length === 0) {
-      setError('Для согласия на обработку ПД добавьте хотя бы одного получателя данных')
-      return
-    }
     const hasSocial = draft.deductions.some((k) => k === 'social_882' || k === 'social_5000')
     if (draft.documents.zayavlenie && hasSocial && !draft.socialDocument.trim()) {
       setError('Для социального вычета укажите подтверждающий документ')
       return
     }
     // Единая нумерация: № по документу перекрывается, иначе — номер пакета; дата одна.
-    const pkgNum = (draft.pkg.number ?? '').trim()
+    const pkgNum = packageNumber(draft)
     const pkgDate = draft.pkg.date
     const b: PackageBody = {
       company: draft.company, employee: draft.employee, employment: pkgEmployment(draft), documents,
@@ -511,6 +516,11 @@ export default function HrPage() {
         <strong>Данные не сохраняются на сервере.</strong> Сервис не хранит персональные данные ваших
         сотрудников — заполненная форма живёт только в этом браузере. Скачайте документы до закрытия
         страницы. Черновик можно сохранить файлом (кнопка ниже) и загрузить позже.
+      </div>
+
+      <div style={{ background: '#f8fafc', border: '1px solid #e5e7eb', color: '#374151', padding: '12px 16px', borderRadius: 8, marginBottom: 16, fontSize: 14 }}>
+        Документы формируются по типовым шаблонам и подлежат проверке работодателем. При необходимости
+        они могут быть дополнены или изменены с учётом специфики деятельности.
       </div>
 
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
@@ -815,10 +825,9 @@ export default function HrPage() {
 
             <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px dashed #cbd5e1' }}>
               <strong style={{ fontSize: 14 }}>Режим и место работы</strong>
-              <p style={{ fontSize: 12, color: '#b45309', margin: '4px 0 10px' }}>
+              <p style={{ fontSize: 12, color: '#6b7280', margin: '4px 0 10px' }}>
                 Казахская колонка ТД заполняется автоматически: ФИО — из русского, реквизиты юрлица — из карточки
-                компании, должность — из справочника, числа и даты — хелперами. Казахский текст не вычитан юристом —
-                проверьте перед подписанием.
+                компании, должность — из справочника, числа и даты — хелперами.
               </p>
               <Field label="Место работы (если отличается от юр. адреса)" value={m.workplace}
                 onChange={(v) => setEmployment({ workplace: v })} placeholder="по умолчанию — юр. адрес компании" />

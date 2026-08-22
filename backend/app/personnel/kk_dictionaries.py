@@ -4,9 +4,8 @@ These cover CLOSED, mechanical translations so the accountant doesn't translate
 them by hand: city names, days-off, working-conditions and the basis-of-authority
 noun. Free-text fields (ФИО, должность, адрес, workplace) stay manual.
 
-Everything here is data — extend the dicts, no logic change. The Kazakh column of
-the generated document must still be proofread by a native speaker before sale
-(see the module README).
+Everything here is data — extend the dicts, no logic change. The Kazakh texts are
+proofread by a native speaker.
 """
 from __future__ import annotations
 

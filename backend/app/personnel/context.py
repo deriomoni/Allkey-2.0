@@ -148,7 +148,10 @@ def build_employment_context(employment) -> dict:
         probation_end = _short(add_months(employment.start_date, months) - _one_day())
     return {
         "position": employment.position_ru,
-        "department": employment.department or "",
+        # «в подразделение «Отдел продаж»» — либо ничего, если поле пустое (шаблон:
+        # «{{ position }}{% if employment.department %} в {{ employment.department }}{% endif %}»).
+        # Значение по умолчанию НЕ подставляем.
+        "department": (lambda d: f"подразделение «{d}»" if d else "")((employment.department or "").strip()),
         "start_date_words": _words(employment.start_date),
         "start_date_short": _short(employment.start_date),
         "salary_figures": format_figures(salary),

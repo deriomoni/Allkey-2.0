@@ -56,7 +56,13 @@ def _morph():
 
 def _match_case(sample: str, inflected: str) -> str:
     """Restore capitalization: pymorphy returns lowercase; names may be hyphenated
-    (Абдул-Керим), so capitalize each hyphen-separated part."""
+    (Абдул-Керим), so capitalize each hyphen-separated part.
+
+    Также выравниваем ё/е к исходному написанию: pymorphy нормализует «е» в «ё»
+    и возвращает «семёнову» там, где пользователь написал «Семенова». Написание
+    должно совпадать с введённым — если в исходном слове нет ё, убираем ё из формы."""
+    if "ё" not in sample.lower():
+        inflected = inflected.replace("ё", "е")
     if sample[:1].isupper():
         return "-".join(part.capitalize() for part in inflected.split("-"))
     return inflected

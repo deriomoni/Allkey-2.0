@@ -58,6 +58,15 @@ def _docx_response(document, filename: str) -> StreamingResponse:
     )
 
 
+def _require_valid_iin(employee) -> None:
+    """Документ не формируется с некорректным ИИН: контрольная сумма + существующая
+    дата рождения (напр. месяц «58» отклоняется). Проверяем только при непустом ИИН."""
+    iin = (getattr(employee, "iin", "") or "").strip()
+    if iin and not is_valid_iin(iin):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="ИИН не прошёл проверку: неверная контрольная сумма или несуществующая дата рождения")
+
+
 _SOCIAL_DEDUCTIONS = {"social_882", "social_5000"}
 
 
@@ -148,6 +157,7 @@ async def generate_prikaz(
     """Render «Приказ о приёме на работу» .docx from the posted data (§4.4).
 
     Fully stateless: nothing is read from or written to the database."""
+    _require_valid_iin(data.employee)
     context = build_order_context(
         data.company, data.employee, data.employment,
         hr_responsible_fio=data.hr_responsible_fio or user.full_name,
@@ -166,6 +176,7 @@ async def generate_zayavlenie_vychety(
     _user: User = Depends(require_service(SERVICE_CODE)),
 ):
     """Render «Заявление о применении налоговых вычетов» .docx from the posted data (§4.5)."""
+    _require_valid_iin(data.employee)
     unknown = [k for k in data.deductions if k not in DEDUCTION_TEXTS]
     if unknown:
         raise HTTPException(
@@ -194,9 +205,9 @@ async def generate_trudovoy(
     data: TrudovoyRequest,
     _user: User = Depends(require_service(SERVICE_CODE)),
 ):
-    """Render the bilingual «Трудовой договор» (+ Приложение №1 об окладе) .docx
-    from the posted data (§4.2). Kazakh number/date/term forms are computed; the
-    Kazakh column must be proofread before client use (see README)."""
+    """Render the bilingual «Трудовой договор» .docx from the posted data (§4.2).
+    Kazakh number/date/term forms are computed; text is proofread (see README)."""
+    _require_valid_iin(data.employee)
     context = build_trudovoy_context(data.company, data.employee, data.employment, data.contract)
     document = render_template("trudovoy_dogovor.docx", context)
     filename = output_filename(
@@ -217,6 +228,7 @@ async def generate_package(
     inputs is a 400 rather than a silently empty file."""
     if not data.documents:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Не выбран ни один документ")
+    _require_valid_iin(data.employee)
 
     emp = data.employee
 
