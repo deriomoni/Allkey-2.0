@@ -1012,6 +1012,82 @@ export const personnelApi = {
   },
 }
 
+// ─── Договор с самозанятым (автосоставитель) ───────────────────────────────
+// Модуль stateless: вся форма уходит в теле запроса, сервер ничего не хранит.
+// ИИН/БИН — только в body (правило о персональных данных).
+
+export interface SelfEmployedOked {
+  code: string
+  name: string
+  kind: 'works' | 'services' | 'rent'
+  title: string
+  default_subject: string
+  notice_days: number
+}
+
+export interface SelfEmployedCustomer {
+  org_form: 'ТОО' | 'АО' | 'ИП'
+  name: string
+  bin: string
+  position: string
+  position_gen?: string | null
+  head_name: string
+  head_name_gen?: string | null
+  basis_gen: string
+  address: string
+  iik: string
+  bank: string
+  bik: string
+  phone: string
+  email: string
+}
+
+export interface SelfEmployedExecutor {
+  full_name: string
+  iin: string
+  status: 'citizen' | 'kandas'
+  address: string
+  iik: string
+  bank: string
+  bik: string
+  phone: string
+}
+
+export interface SelfEmployedBody {
+  oked: string
+  number: string
+  city: string
+  contract_date: string
+  valid_from?: string | null
+  valid_to: string
+  amount: number
+  payment_days: number
+  payment_method: 'cashless' | 'any'
+  rent_period: 'month' | 'term'
+  subject?: string | null
+  customer: SelfEmployedCustomer
+  executor: SelfEmployedExecutor
+}
+
+export const selfEmployedApi = {
+  getOkeds: async (): Promise<SelfEmployedOked[]> => (await api.get('/api/selfemployed/okeds')).data,
+
+  // Предупреждения формы (предел 300 МРП, даты, ИИН/БИН) — не блокируют генерацию.
+  check: async (body: SelfEmployedBody): Promise<{ warnings: string[] }> =>
+    (await api.post('/api/selfemployed/check', body)).data,
+
+  generate: async (body: SelfEmployedBody): Promise<void> =>
+    postForDownload('/api/selfemployed/generate', body, 'Договор.docx'),
+
+  // Проверки ИИН/БИН — хелперы кадрового модуля, но свой эндпоинт: /personnel
+  // закрыт сервисом 'hr', которого у сотрудника с доступом к договору может не быть.
+  validateIin: async (iin: string): Promise<IinCheck> =>
+    (await api.post('/api/selfemployed/validate/iin', { iin })).data,
+
+  validateBin: async (bin: string): Promise<{ valid: boolean }> =>
+    (await api.post('/api/selfemployed/validate/bin', { bin })).data,
+}
+
 // ─── Помогайка по форме 101.04 (внутренняя бета) ───────────────────────────
 // Пока только /meta: версия справочника и константы года. Движок расчёта —
 // следующая фаза, налоговая логика живёт на бэкенде и на фронт не дублируется.
