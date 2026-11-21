@@ -17,12 +17,15 @@ from app.f10104.router import router as f10104_router
 from app.rates.router import router as rates_router
 from app.changelog.router import router as changelog_router, seed_changelog
 from app.database import SessionLocal
+from app.operations.router import router as ops_router, ext_router as ops_ext_router
+from app.operations.access import OpsGateMiddleware, ensure_admin_from_env
 # Import models so they are registered with Base.metadata
 import app.licenses.models  # noqa: F401
 import app.settings.models  # noqa: F401
 import app.services.models  # noqa: F401
 import app.personnel.models  # noqa: F401
 import app.changelog.models  # noqa: F401
+import app.operations.models  # noqa: F401  (ops_companies, ops_company_reports, user_roles)
 
 # Create database tables
 Base.metadata.create_all(bind=engine)
@@ -39,6 +42,8 @@ async def lifespan(app: FastAPI):
         seed_services(db)
         seed_changelog(db)
         seed_positions(db)
+        # Роль admin модуля «Операции» — только OPS_ADMIN_USER_ID (ТЗ 1.1).
+        ensure_admin_from_env(db)
     finally:
         db.close()
     # Startup: launch background cleanup
@@ -62,6 +67,10 @@ cors_origins = [o.strip() for o in cors_env.split(",") if o.strip()] if cors_env
     "http://127.0.0.1:5173",
 ]
 
+# Гейт /api/ops/* (404 всем, кроме admin модуля). Добавлен до CORS, чтобы CORS был
+# внешним слоем и ответы гейта тоже получали CORS-заголовки.
+app.add_middleware(OpsGateMiddleware)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,
@@ -72,6 +81,7 @@ app.add_middleware(
 
 # Include routers
 app.include_router(auth_router)
+app.include_router(ops_ext_router)
 app.include_router(users_router)
 app.include_router(reconciliation_router)
 app.include_router(licenses_router)
@@ -84,6 +94,8 @@ app.include_router(f10104_router)
 # Курсы НБ РК — общий сервис, доступен любому аутентифицированному пользователю.
 app.include_router(rates_router)
 app.include_router(changelog_router)
+# Модуль «Операции», этап A — реестр компаний. Весь /api/ops/* за OpsGateMiddleware.
+app.include_router(ops_router)
 
 
 @app.get("/")
