@@ -2,6 +2,7 @@ export interface Ctx {
   apiUrl: string
   getToken: () => string | null
   basePath: string
+  view?: 'page' | 'settings'
 }
 
 export interface CompanyRow {
@@ -62,6 +63,21 @@ export interface Status {
   repo_configured: boolean
 }
 
+export interface OpsAdmin {
+  user_id: number
+  email: string | null
+  full_name: string | null
+  is_active: boolean
+  granted_by: string | null
+  granted_at: string | null
+  is_env_admin: boolean
+}
+export interface AdminsInfo {
+  items: OpsAdmin[]
+  env_admin_user_id: number | null
+  visible_to_non_admin: boolean
+}
+
 export interface PreviewCell { period: string; raw: string; status: string }
 export interface PreviewRow {
   row_id: string
@@ -103,6 +119,7 @@ export function makeApi(ctx: Ctx) {
   }
   return {
     status: () => req<Status>('/status'),
+    admins: () => req<AdminsInfo>('/admins'),
     companies: () => req<{ items: CompanyRow[] }>('/companies').then((d) => d.items),
     company: (id: number) => req<CompanyDetail>(`/companies/${id}`),
     sync: () => req<SyncResult>('/companies/sync', { method: 'POST' }),

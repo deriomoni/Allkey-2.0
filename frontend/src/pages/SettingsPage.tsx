@@ -2,9 +2,10 @@ import { useState, useEffect } from 'react'
 import { useAuth } from '../auth/AuthContext'
 import { licensesApi, settingsApi, LicensePlan } from '../api/client'
 import { Navigate } from 'react-router-dom'
+import { ExtensionMount } from '../components/ExtensionHost'
 
 export default function SettingsPage() {
-  const { user } = useAuth()
+  const { user, extensions } = useAuth()
   const [activeTab, setActiveTab] = useState<'plans' | 'contacts'>('plans')
 
   // Plans state
@@ -139,6 +140,11 @@ export default function SettingsPage() {
       <h1 style={{ marginBottom: 24 }}>Настройки</h1>
 
       {error && <div className="error-message">{error}</div>}
+
+      {/* Блоки разделов, разрешённых сервером этому пользователю (код приходит с сервера). */}
+      {extensions.filter((x) => x.settings).map((x) => (
+        <ExtensionMount key={x.key} ext={x} view="settings" />
+      ))}
 
       <div className="settings-tabs">
         <button

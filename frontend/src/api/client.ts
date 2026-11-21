@@ -99,6 +99,8 @@ export interface Extension {
   title: string
   path: string
   bundle: string
+  // Раздел рисует свой блок на странице «Настройки»
+  settings?: boolean
 }
 
 export const extensionsApi = {
