@@ -40,6 +40,7 @@ ROUTE_PERMISSIONS: dict[str, Set[str]] = {
     "ops_reports_import_preview": {"admin"},
     "ops_reports_import_commit": {"admin"},
     "ops_ui_bundle": {"admin"},
+    "ops_list_admins": {"admin"},
 }
 
 # Белый список полей карточки по ролям (п. 4). None — все поля.
@@ -170,12 +171,31 @@ async def require_ops_admin(
     return current_user
 
 
+def _admin_rows(db: Session):
+    return db.query(UserRoleAssignment).filter(
+        UserRoleAssignment.role == "admin",
+        UserRoleAssignment.company_id.is_(None),
+    )
+
+
 def ensure_admin_from_env(db: Session) -> None:
-    """Выдать роль admin модуля пользователю OPS_ADMIN_USER_ID. Идемпотентно, только добавляет."""
+    """Привести роль admin «из .env» в соответствие с OPS_ADMIN_USER_ID (при старте).
+
+    * OPS_ADMIN_USER_ID получает роль (granted_by='env'), если её у него нет.
+    * Роль, выданная ранее через .env другому id, снимается автоматически — так смена
+      OPS_ADMIN_USER_ID не оставляет за прежним владельцем доступ.
+    * Роль, выданная явно через CLI (granted_by='cli'), не трогается: её снимает только
+      `revoke-admin`.
+    """
     uid = get_ops_settings().ops_admin_user_id
-    if not uid:
-        return
-    grant_admin(db, uid, granted_by="env")
+    stale = [r for r in _admin_rows(db).filter(UserRoleAssignment.granted_by == "env").all() if r.user_id != uid]
+    for r in stale:
+        logger.info("ops: admin role revoked from user_id %s (OPS_ADMIN_USER_ID changed)", r.user_id)
+        db.delete(r)
+    if stale:
+        db.commit()
+    if uid:
+        grant_admin(db, uid, granted_by="env")
 
 
 def grant_admin(db: Session, user_id: int, granted_by: str) -> bool:
@@ -183,13 +203,40 @@ def grant_admin(db: Session, user_id: int, granted_by: str) -> bool:
     if user is None:
         logger.warning("ops: admin grant skipped — user_id %s not found", user_id)
         return False
-    exists = db.query(UserRoleAssignment).filter(
-        UserRoleAssignment.user_id == user_id,
-        UserRoleAssignment.role == "admin",
-        UserRoleAssignment.company_id.is_(None),
-    ).first()
+    exists = _admin_rows(db).filter(UserRoleAssignment.user_id == user_id).first()
     if exists is None:
         db.add(UserRoleAssignment(user_id=user_id, role="admin", company_id=None, granted_by=granted_by))
         db.commit()
         logger.info("ops: admin role granted to user_id %s (%s)", user_id, granted_by)
+    elif granted_by == "cli" and exists.granted_by != "cli":
+        # Явная выдача сильнее .env: после неё смена OPS_ADMIN_USER_ID роль не снимет.
+        exists.granted_by = "cli"
+        db.commit()
+        logger.info("ops: admin role of user_id %s pinned by cli", user_id)
     return True
+
+
+def revoke_admin(db: Session, user_id: int) -> bool:
+    """Снять роль admin модуля. Если это OPS_ADMIN_USER_ID — при следующем старте вернётся."""
+    n = _admin_rows(db).filter(UserRoleAssignment.user_id == user_id).delete()
+    db.commit()
+    if n:
+        logger.info("ops: admin role revoked from user_id %s (cli)", user_id)
+    return bool(n)
+
+
+def list_admins(db: Session) -> list:
+    env_uid = get_ops_settings().ops_admin_user_id
+    out = []
+    for r in _admin_rows(db).order_by(UserRoleAssignment.created_at).all():
+        u = db.query(User).filter(User.id == r.user_id).first()
+        out.append({
+            "user_id": r.user_id,
+            "email": u.email if u else None,
+            "full_name": u.full_name if u else None,
+            "is_active": bool(u and u.is_active),
+            "granted_by": r.granted_by,
+            "granted_at": r.created_at.isoformat() if r.created_at else None,
+            "is_env_admin": r.user_id == env_uid,
+        })
+    return out

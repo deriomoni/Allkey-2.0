@@ -69,7 +69,7 @@ def env(monkeypatch):
     db.close()
 
 
-OPS_GETS = ["/api/ops/companies", "/api/ops/companies/1", "/api/ops/status", "/api/ops/ui/bundle.js", "/api/ops/nope", "/api/ops"]
+OPS_GETS = ["/api/ops/companies", "/api/ops/admins", "/api/ops/companies/1", "/api/ops/status", "/api/ops/ui/bundle.js", "/api/ops/nope", "/api/ops"]
 
 
 @pytest.mark.parametrize("who", [None, "employee", "other_admin", "viewer"])
@@ -95,6 +95,8 @@ def test_owner_sees_registry(env):
     r = client.get("/api/ops/companies", headers=hdr(users["owner"]))
     assert r.status_code == 200
     assert r.json()["items"][0]["bin"] == SECRET_BIN
+    adm = client.get("/api/ops/admins", headers=hdr(users["owner"])).json()
+    assert [a["email"] for a in adm["items"]] == ["owner@t.kz"]
     ext = client.get("/users/me/extensions", headers=hdr(users["owner"])).json()
     assert [e["key"] for e in ext] == ["ops"]
 

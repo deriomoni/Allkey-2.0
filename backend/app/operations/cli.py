@@ -3,6 +3,7 @@
     python -m app.operations.cli sync                 # валидатор + синхронизация карточек
     python -m app.operations.cli sync --skip-validator
     python -m app.operations.cli grant-admin --user-id 1
+    python -m app.operations.cli revoke-admin --user-id 1
     python -m app.operations.cli admins               # кому выдана роль admin модуля
 
 Выводит только счётчики и ошибки валидатора — без названий компаний.
@@ -13,8 +14,8 @@ import sys
 from app.database import Base, SessionLocal, engine
 import app.users.models  # noqa: F401
 from app.operations import models  # noqa: F401
-from app.operations.access import grant_admin
-from app.operations.models import UserRoleAssignment
+from app.operations.access import grant_admin, list_admins, revoke_admin
+from app.operations.config import get_ops_settings
 from app.operations.sync import sync_companies
 
 
@@ -25,6 +26,8 @@ def main(argv=None) -> int:
     s.add_argument("--skip-validator", action="store_true")
     g = sub.add_parser("grant-admin")
     g.add_argument("--user-id", type=int, required=True)
+    rv = sub.add_parser("revoke-admin")
+    rv.add_argument("--user-id", type=int, required=True)
     sub.add_parser("admins")
     args = ap.parse_args(argv)
 
@@ -46,9 +49,16 @@ def main(argv=None) -> int:
             return 0
         if args.cmd == "grant-admin":
             return 0 if grant_admin(db, args.user_id, granted_by="cli") else 1
+        if args.cmd == "revoke-admin":
+            ok = revoke_admin(db, args.user_id)
+            print("Роль снята." if ok else "У пользователя не было роли admin модуля.")
+            if ok and get_ops_settings().ops_admin_user_id == args.user_id:
+                print("Внимание: это OPS_ADMIN_USER_ID — при следующем старте роль вернётся. Смените id в .env.")
+            return 0 if ok else 1
         if args.cmd == "admins":
-            for r in db.query(UserRoleAssignment).filter(UserRoleAssignment.role == "admin").all():
-                print(f"user_id={r.user_id} granted_by={r.granted_by} at={r.created_at}")
+            for a in list_admins(db):
+                env = " [OPS_ADMIN_USER_ID]" if a["is_env_admin"] else ""
+                print(f"user_id={a['user_id']} {a['email']} granted_by={a['granted_by']} at={a['granted_at']}{env}")
             return 0
     finally:
         db.close()

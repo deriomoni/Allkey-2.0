@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 
 from app.auth.dependencies import get_current_user
 from app.database import get_db
-from app.operations.access import effective_roles, filter_fields, is_ops_admin, require_ops_admin
+from app.operations.access import effective_roles, filter_fields, is_ops_admin, list_admins, require_ops_admin
 from app.operations.config import get_ops_settings
 from app.operations.models import OpsCompany, OpsCompanyReport
 from app.operations.reports_import import commit_rows, match_rows, parse_workbook
@@ -121,6 +121,17 @@ def status(user: User = Depends(require_ops_admin), db: Session = Depends(get_db
     }
 
 
+@router.get("/admins", name="ops_list_admins")
+def admins(user: User = Depends(require_ops_admin), db: Session = Depends(get_db)):
+    """Кто сейчас имеет роль admin модуля — для блока в «Настройках»."""
+    s = get_ops_settings()
+    return {
+        "items": list_admins(db),
+        "env_admin_user_id": s.ops_admin_user_id,
+        "visible_to_non_admin": s.ops_registry_visible_to_non_admin,
+    }
+
+
 @router.post("/reports/import/preview", name="ops_reports_import_preview")
 async def import_preview(
     file: UploadFile = File(...), user: User = Depends(require_ops_admin), db: Session = Depends(get_db)
@@ -182,4 +193,8 @@ ext_router = APIRouter(prefix="/users", tags=["users"])
 def my_extensions(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     if not is_ops_admin(db, user):
         return []
-    return [{"key": "ops", "title": "Компании", "path": "/x/ops", "bundle": "/api/ops/ui/bundle.js"}]
+    return [{
+        "key": "ops", "title": "Компании", "path": "/x/ops", "bundle": "/api/ops/ui/bundle.js",
+        # Бандл умеет рисовать блок для страницы «Настройки» (список admin модуля).
+        "settings": True,
+    }]
