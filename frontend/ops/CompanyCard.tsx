@@ -1,0 +1,174 @@
+import { ReactNode, useEffect, useMemo, useState } from 'react'
+import { Api, CompanyDetail, REGIME, REPORT_STATUS } from './api'
+
+const FEATURES: Record<string, string> = {
+  has_employees: 'есть сотрудники',
+  has_import: 'импорт (таможенные КБК)',
+  has_transport: 'транспорт',
+  has_property: 'имущество',
+  has_land: 'земля',
+  has_emissions: 'эмиссии',
+  has_nonresident_payments: 'выплаты нерезидентам (101.04)',
+  has_cash_register: 'касса ОФД',
+  is_forwarder: 'экспедитор',
+}
+
+const ONEC_KIND: Record<string, string> = { cloud: 'облачная', local: 'локальная', none: 'нет базы' }
+
+function yn(v: unknown) {
+  return v === true ? 'да' : v === false ? 'нет' : '—'
+}
+
+function Row({ k, children }: { k: string; children: ReactNode }) {
+  return (
+    <div className="opsx-kv">
+      <div className="opsx-k">{k}</div>
+      <div className="opsx-v">{children === null || children === undefined || children === '' ? <span className="opsx-muted">—</span> : children}</div>
+    </div>
+  )
+}
+
+export default function CompanyCard({ api, id, onBack }: { api: Api; id: number; onBack: () => void }) {
+  const [c, setC] = useState<CompanyDetail | null>(null)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    api.company(id).then(setC).catch((e) => setError(e.status === 404 ? 'Компания не найдена' : e.message))
+  }, [id])
+
+  const periods = useMemo(() => {
+    if (!c) return [] as string[]
+    return Array.from(new Set(c.reports.map((r) => r.period)))
+  }, [c])
+  const forms = useMemo(() => {
+    if (!c) return [] as string[]
+    return Array.from(new Set(c.reports.map((r) => r.form))).sort()
+  }, [c])
+
+  if (error) return <div><button className="opsx-link" onClick={onBack}>← К списку</button><div className="opsx-alert opsx-alert-err">{error}</div></div>
+  if (!c) return <div className="opsx-muted">Загрузка…</div>
+
+  const card = c.card || {}
+  const tax = card.tax || {}
+  const features = tax.features || {}
+  const resp = card.responsible || {}
+  const banks: any[] = Array.isArray(card.banks) ? card.banks : []
+  const portals = card.systems?.portals || {}
+
+  return (
+    <div>
+      <button className="opsx-link" onClick={onBack}>← К списку компаний</button>
+      <div className="opsx-head">
+        <div>
+          <h1>{c.name}</h1>
+          <div className="opsx-muted">
+            <span className="opsx-mono">{c.bin || 'БИН не указан'}</span> · {c.slug}
+            {' '}{c.active ? <span className="opsx-pill opsx-pill-on">активна</span> : <span className="opsx-pill">архив</span>}
+          </div>
+        </div>
+        <div className="opsx-actions">
+          {c.drive.root_url && <a className="opsx-btn opsx-btn-primary" href={c.drive.root_url} target="_blank" rel="noreferrer">Папка на Диске ↗</a>}
+          {c.drive.agent_url && <a className="opsx-btn" href={c.drive.agent_url} target="_blank" rel="noreferrer">_agent ↗</a>}
+        </div>
+      </div>
+
+      {!c.active && (
+        <div className="opsx-alert opsx-alert-warn">
+          <b>Архивная карточка.</b> Причина: {c.inactive_reason || 'не указана'}
+          {c.inactive_since && <> · с {new Date(c.inactive_since).toLocaleDateString('ru-RU')}</>}
+        </div>
+      )}
+
+      <div className="opsx-grid">
+        <section className="opsx-card">
+          <h2>Реквизиты</h2>
+          <Row k="Название">{c.name}</Row>
+          <Row k="БИН"><span className="opsx-mono">{c.bin}</span></Row>
+          <Row k="Режим">{tax.regime ? REGIME[tax.regime] || tax.regime : null}</Row>
+          <Row k="Плательщик НДС">{yn(tax.vat_payer)}</Row>
+          <Row k="Astana Hub">{yn(tax.astana_hub)}</Row>
+          <Row k="СЭЗ">{tax.sez}</Row>
+          <Row k="Бухгалтер">{card.accountant}</Row>
+          <Row k="Ответственный">
+            {[resp.name, resp.email, resp.whatsapp, resp.telegram].filter(Boolean).join(' · ')}
+          </Row>
+          <Row k="Ведём с">{card.since}</Row>
+          <Row k="Алиасы">
+            {c.aliases.length ? <div className="opsx-chips">{c.aliases.map((a) => <span key={a} className="opsx-chip">{a}</span>)}</div> : null}
+          </Row>
+        </section>
+
+        <section className="opsx-card">
+          <h2>1С</h2>
+          <Row k="База">{c.onec.kind ? ONEC_KIND[c.onec.kind] || c.onec.kind : null}</Row>
+          <Row k="Адрес">{c.onec.url ? <a href={c.onec.url} target="_blank" rel="noreferrer" className="opsx-break">{c.onec.url}</a> : null}</Row>
+          <Row k="Заметка">{c.onec.note}</Row>
+          <Row k="Логин агента">{c.onec.login}</Row>
+          <Row k="Запуск">{c.onec.run_on === 'server' ? 'на сервере' : c.onec.run_on === 'manual' ? 'вручную' : c.onec.run_on}</Row>
+          <Row k="Период закрыт по">{c.onec.closed_through}</Row>
+          <h2 className="opsx-h2-gap">Google Диск</h2>
+          <Row k="Папка">{c.drive.folder_name}</Row>
+          <Row k="Папка на Диске">{c.drive.root_url ? <a href={c.drive.root_url} target="_blank" rel="noreferrer">открыть ↗</a> : <span className="opsx-muted">id папки не заполнен</span>}</Row>
+          <Row k="_agent">{c.drive.agent_url ? <a href={c.drive.agent_url} target="_blank" rel="noreferrer">открыть ↗</a> : <span className="opsx-muted">id папки не заполнен</span>}</Row>
+        </section>
+      </div>
+
+      <section className="opsx-card">
+        <h2>Признаки</h2>
+        <div className="opsx-chips">
+          {Object.keys({ ...FEATURES, ...features }).map((k) => (
+            <span key={k} className={'opsx-chip ' + (features[k] ? 'opsx-chip-on' : 'opsx-chip-off')}>
+              {features[k] ? '✓ ' : ''}{FEATURES[k] || k}
+            </span>
+          ))}
+        </div>
+        <div className="opsx-sub-grid">
+          <Row k="Банки">
+            {banks.length ? banks.map((b, i) => <div key={i}>{[b.bank, b.currency, b.iban].filter(Boolean).join(' · ')}</div>) : null}
+          </Row>
+          <Row k="Кассы ОФД">{Array.isArray(card.cash_registers) && card.cash_registers.length ? card.cash_registers.length : null}</Row>
+          <Row k="Порталы">
+            {['knp', 'esf', 'stat'].filter((p) => portals[p]).map((p) => p.toUpperCase()).join(', ')}
+          </Row>
+        </div>
+      </section>
+
+      <section className="opsx-card">
+        <h2>Формы</h2>
+        {c.reports.length === 0 ? (
+          <div className="opsx-muted">Статусов форм пока нет. Их загружает «Импорт отчётов».</div>
+        ) : (
+          <div className="opsx-table-wrap">
+            <table className="opsx-table opsx-table-compact">
+              <thead>
+                <tr><th>Форма</th>{periods.map((p) => <th key={p}>{p}</th>)}</tr>
+              </thead>
+              <tbody>
+                {forms.map((f) => (
+                  <tr key={f}>
+                    <td className="opsx-mono">{f}</td>
+                    {periods.map((p) => {
+                      const r = c.reports.find((x) => x.form === f && x.period === p)
+                      if (!r) return <td key={p} className="opsx-muted">·</td>
+                      return (
+                        <td key={p} title={r.raw_value || ''}>
+                          <span className={`opsx-st opsx-st-${r.status}`}>{REPORT_STATUS[r.status] || r.status}</span>
+                          {r.evidence_url && <> <a href={r.evidence_url} target="_blank" rel="noreferrer">файл</a></>}
+                        </td>
+                      )
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      <details className="opsx-card">
+        <summary>Карточка целиком (client.yaml)</summary>
+        <pre className="opsx-pre">{JSON.stringify(card, null, 2)}</pre>
+      </details>
+    </div>
+  )
+}

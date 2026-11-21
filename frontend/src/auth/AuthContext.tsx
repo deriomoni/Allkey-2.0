@@ -1,9 +1,10 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react'
-import { authApi, usersApi, servicesApi, User, Service } from '../api/client'
+import { authApi, usersApi, servicesApi, extensionsApi, User, Service, Extension } from '../api/client'
 
 interface AuthContextType {
   user: User | null
   services: Service[]
+  extensions: Extension[]
   isAuthenticated: boolean
   loading: boolean
   login: (email: string, password: string) => Promise<void>
@@ -17,15 +18,18 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined)
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [services, setServices] = useState<Service[]>([])
+  const [extensions, setExtensions] = useState<Extension[]>([])
   const [loading, setLoading] = useState(true)
 
   const loadSession = async () => {
-    const [userData, serviceList] = await Promise.all([
+    const [userData, serviceList, extensionList] = await Promise.all([
       usersApi.getMe(),
       servicesApi.getMe().catch(() => [] as Service[]),
+      extensionsApi.getMe().catch(() => [] as Extension[]),
     ])
     setUser(userData)
     setServices(serviceList)
+    setExtensions(extensionList)
   }
 
   useEffect(() => {
@@ -56,6 +60,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     localStorage.removeItem('token')
     setUser(null)
     setServices([])
+    setExtensions([])
   }
 
   const refreshUser = async () => {
@@ -67,6 +72,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       value={{
         user,
         services,
+        extensions,
         isAuthenticated: !!user,
         loading,
         login,

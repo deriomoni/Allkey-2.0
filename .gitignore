@@ -46,3 +46,6 @@ postgres_data/
 Thumbs.db
 
 server.txt
+
+# Отдельный бандл модуля «Операции» (npm run build:ops)
+dist-ops/

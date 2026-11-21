@@ -14,7 +14,7 @@ const GUEST_SERVICES = [
 ]
 
 export default function Layout() {
-  const { user, services, isAuthenticated, logout, refreshUser } = useAuth()
+  const { user, services, extensions, isAuthenticated, logout, refreshUser } = useAuth()
   const [showAuth, setShowAuth] = useState(false)
   const [showPurchase, setShowPurchase] = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
@@ -109,6 +109,11 @@ export default function Layout() {
                 Обновления
               </NavLink>
             )}
+            {isAuthenticated && extensions.map((x) => (
+              <NavLink key={x.key} to={x.path} className={({ isActive }) => isActive ? 'active' : ''} onClick={() => setMobileMenuOpen(false)}>
+                {x.title}
+              </NavLink>
+            ))}
             {isAuthenticated && user?.role === 'admin' && (
               <>
                 <NavLink to="/users" className={({ isActive }) => isActive ? 'active' : ''} onClick={() => setMobileMenuOpen(false)}>

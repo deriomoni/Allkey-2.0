@@ -92,6 +92,28 @@ export interface Service {
   status: 'beta' | 'production'
 }
 
+// Дополнительные разделы, которые сервер разрешил показать текущему пользователю.
+// Основная сборка о них ничего не знает: заголовок, путь и бандл приходят с сервера.
+export interface Extension {
+  key: string
+  title: string
+  path: string
+  bundle: string
+}
+
+export const extensionsApi = {
+  getMe: async (): Promise<Extension[]> => {
+    const response = await api.get('/users/me/extensions')
+    return Array.isArray(response.data) ? response.data : []
+  },
+  loadBundle: async (url: string): Promise<string> => {
+    const response = await api.get(url, { responseType: 'text', transformResponse: (d) => d })
+    return response.data
+  },
+}
+
+export { API_URL }
+
 export interface ServiceOverride {
   user_id: number
   allow: boolean

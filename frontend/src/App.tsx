@@ -14,6 +14,7 @@ import UsersPage from './pages/UsersPage'
 import SettingsPage from './pages/SettingsPage'
 import AccessPage from './pages/AccessPage'
 import ChangelogPage from './pages/ChangelogPage'
+import ExtensionHost from './components/ExtensionHost'
 
 function ProtectedRoute({ children, service, staffOnly }: { children: React.ReactNode; service?: string; staffOnly?: boolean }) {
   const { isAuthenticated, loading, services, user } = useAuth()
@@ -56,6 +57,7 @@ function App() {
           <Route path="changelog" element={<ProtectedRoute staffOnly><div className="container"><ChangelogPage /></div></ProtectedRoute>} />
           <Route path="users" element={<ProtectedRoute><UsersPage /></ProtectedRoute>} />
           <Route path="access" element={<ProtectedRoute><AccessPage /></ProtectedRoute>} />
+          <Route path="x/:key/*" element={<ProtectedRoute><ExtensionHost /></ProtectedRoute>} />
           <Route path="settings" element={<ProtectedRoute><div className="container"><SettingsPage /></div></ProtectedRoute>} />
         </Route>
       </Routes>
