@@ -10,6 +10,9 @@ class Settings(BaseSettings):
 
     class Config:
         env_file = ".env"
+        # .env общий для модулей (напр. OPS_* модуля «Операции»): чужие ключи
+        # не должны ронять запуск всего бэкенда.
+        extra = "ignore"
 
 
 @lru_cache()
