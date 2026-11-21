@@ -73,6 +73,8 @@ def test_sync_creates_and_is_idempotent(db, tmp_path, monkeypatch):
     assert a.card_json["systems"]["onec"]["closed_through"] == "2025-12-31"
     b = db.query(OpsCompany).filter_by(slug="beta").one()
     assert b.active is False and b.inactive_reason == "клиент ушёл" and str(b.inactive_since) == "2026-10-01"
+    # name пустой → показываем папку на Диске
+    assert sync_mod.card_to_columns("x", {"name": "", "systems": {"drive": {"folder_name": "ТОО Икс"}}})["name"] == "ТОО Икс"
     r2 = sync_mod.sync_companies(db)
     assert r2.ok and r2.created == 0 and r2.updated == 0 and r2.unchanged == 2
 

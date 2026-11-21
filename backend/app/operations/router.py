@@ -46,6 +46,7 @@ def _list_item(c: OpsCompany) -> dict:
         "id": c.id,
         "slug": c.slug,
         "name": c.name,
+        "name_official": bool(str((c.card_json or {}).get("name") or "").strip()),
         "bin": c.bin,
         "aliases": c.aliases or [],
         "folder_name": c.drive_folder_name,

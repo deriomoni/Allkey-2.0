@@ -110,7 +110,9 @@ def card_to_columns(slug: str, card: dict) -> dict:
     bin_ = card.get("bin")
     return {
         "slug": slug,
-        "name": _str(card.get("name")) or slug,
+        # 218 из 230 карточек пока без официального name (TODO в репозитории) —
+        # для отображения берём папку на Диске, затем slug. Признак — в API (name_official).
+        "name": _str(card.get("name")) or _str(drive.get("folder_name")) or slug,
         "bin": _str(bin_),
         "aliases": [str(a) for a in (card.get("aliases") or []) if a is not None],
         "card_json": _jsonable(card),

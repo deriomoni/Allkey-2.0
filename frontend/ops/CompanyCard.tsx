@@ -82,7 +82,7 @@ export default function CompanyCard({ api, id, onBack }: { api: Api; id: number;
       <div className="opsx-grid">
         <section className="opsx-card">
           <h2>Реквизиты</h2>
-          <Row k="Название">{c.name}</Row>
+          <Row k="Название">{c.name_official ? c.name : <span className="opsx-muted">не заполнено в карточке (показана папка на Диске)</span>}</Row>
           <Row k="БИН"><span className="opsx-mono">{c.bin}</span></Row>
           <Row k="Режим">{tax.regime ? REGIME[tax.regime] || tax.regime : null}</Row>
           <Row k="Плательщик НДС">{yn(tax.vat_payer)}</Row>

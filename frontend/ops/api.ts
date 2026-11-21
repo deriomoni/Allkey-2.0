@@ -8,6 +8,7 @@ export interface CompanyRow {
   id: number
   slug: string
   name: string
+  name_official: boolean
   bin: string | null
   aliases: string[]
   folder_name: string | null

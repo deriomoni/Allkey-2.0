@@ -125,6 +125,7 @@ export default function CompaniesList({ api, onOpen, onImport }: { api: Api; onO
                 <tr key={c.id} onClick={() => onOpen(c.id)} className={c.active ? '' : 'opsx-row-off'}>
                   <td>
                     <div className="opsx-name">{c.name}</div>
+                    {!c.name_official && <div className="opsx-sub">официальное название не заполнено · {c.slug}</div>}
                     {c.aliases.length > 0 && <div className="opsx-sub">{c.aliases.join(' · ')}</div>}
                   </td>
                   <td className="opsx-mono">{c.bin || '—'}</td>
