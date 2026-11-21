@@ -47,6 +47,7 @@ def _list_item(c: OpsCompany) -> dict:
         "slug": c.slug,
         "name": c.name,
         "name_official": bool(str((c.card_json or {}).get("name") or "").strip()),
+        "legal_name": c.legal_name,
         "bin": c.bin,
         "aliases": c.aliases or [],
         "folder_name": c.drive_folder_name,
@@ -55,6 +56,7 @@ def _list_item(c: OpsCompany) -> dict:
         "responsible": (resp.get("name") or "").strip() or accountant.strip() or None,
         "active": c.active,
         "missing_in_repo": c.missing_in_repo,
+        "drive_url": _drive_url(c.drive_root_folder_id),
     }
 
 

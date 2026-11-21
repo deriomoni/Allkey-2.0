@@ -17,6 +17,7 @@ from app.operations import models  # noqa: F401
 from app.operations.access import grant_admin, list_admins, revoke_admin
 from app.operations.config import get_ops_settings
 from app.operations.sync import sync_companies
+from app.operations.schema_sync import ensure_ops_schema
 
 
 def main(argv=None) -> int:
@@ -32,6 +33,7 @@ def main(argv=None) -> int:
     args = ap.parse_args(argv)
 
     Base.metadata.create_all(bind=engine)
+    ensure_ops_schema(engine)
     db = SessionLocal()
     try:
         if args.cmd == "sync":

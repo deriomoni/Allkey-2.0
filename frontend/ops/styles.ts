@@ -35,7 +35,10 @@ export const CSS = `
 .opsx-table tbody tr.opsx-row-static:hover { background:transparent; }
 .opsx-table-compact td, .opsx-table-compact th { padding:7px 10px; }
 .opsx-row-off td { color:#94a3b8; }
-.opsx-name { font-weight:500; }
+.opsx-name { font-weight:500; display:flex; align-items:center; gap:8px; }
+.opsx-drive { display:inline-flex; color:#94a3b8; padding:2px; border-radius:4px; }
+.opsx-drive:hover { color:#0f766e; background:#ccfbf1; }
+.opsx-legal { font-size:15px; color:#334155; margin:2px 0 4px; }
 .opsx-sub { font-size:12px; color:#94a3b8; margin-top:2px; }
 .opsx-pill { display:inline-block; font-size:12px; padding:2px 8px; border-radius:999px; background:#e2e8f0; color:#475569; margin-right:4px; }
 .opsx-pill-on { background:#ccfbf1; color:#0f766e; }

@@ -61,6 +61,7 @@ export default function CompanyCard({ api, id, onBack }: { api: Api; id: number;
       <div className="opsx-head">
         <div>
           <h1>{c.name}</h1>
+          {c.legal_name && <div className="opsx-legal">{c.legal_name}</div>}
           <div className="opsx-muted">
             <span className="opsx-mono">{c.bin || 'БИН не указан'}</span> · {c.slug}
             {' '}{c.active ? <span className="opsx-pill opsx-pill-on">активна</span> : <span className="opsx-pill">архив</span>}
@@ -82,6 +83,7 @@ export default function CompanyCard({ api, id, onBack }: { api: Api; id: number;
       <div className="opsx-grid">
         <section className="opsx-card">
           <h2>Реквизиты</h2>
+          <Row k="Наименование">{c.legal_name}</Row>
           <Row k="Название">{c.name_official ? c.name : <span className="opsx-muted">не заполнено в карточке (показана папка на Диске)</span>}</Row>
           <Row k="БИН"><span className="opsx-mono">{c.bin}</span></Row>
           <Row k="Режим">{tax.regime ? REGIME[tax.regime] || tax.regime : null}</Row>

@@ -10,6 +10,8 @@ export interface CompanyRow {
   slug: string
   name: string
   name_official: boolean
+  legal_name: string | null
+  drive_url: string | null
   bin: string | null
   aliases: string[]
   folder_name: string | null

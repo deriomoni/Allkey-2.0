@@ -43,7 +43,8 @@ export default function CompaniesList({ api, onOpen, onImport }: { api: Api; onO
     return items.filter((c) => {
       if (onlyActive && !c.active) return false
       if (!nq) return true
-      const hay = [c.name, c.folder_name || '', c.bin || '', ...c.aliases].map(norm)
+      // name — основной ключ; legal_name, прежние имена папок (aliases) и БИН — чтобы находилось и по ним.
+      const hay = [c.name, c.legal_name || '', c.bin || '', ...c.aliases].map(norm)
       return hay.some((h) => h.includes(nq))
     })
   }, [items, q, onlyActive])
@@ -92,7 +93,7 @@ export default function CompaniesList({ api, onOpen, onImport }: { api: Api; onO
       <div className="opsx-filters">
         <input
           className="opsx-input"
-          placeholder="Поиск по названию, алиасам, папке, БИН"
+          placeholder="Поиск по названию, прежнему имени папки, БИН"
           value={q}
           onChange={(e) => setQ(e.target.value)}
         />
@@ -124,7 +125,24 @@ export default function CompaniesList({ api, onOpen, onImport }: { api: Api; onO
               {filtered.map((c) => (
                 <tr key={c.id} onClick={() => onOpen(c.id)} className={c.active ? '' : 'opsx-row-off'}>
                   <td>
-                    <div className="opsx-name">{c.name}</div>
+                    <div className="opsx-name">
+                      {c.name}
+                      {c.drive_url && (
+                        <a
+                          className="opsx-drive"
+                          href={c.drive_url}
+                          target="_blank"
+                          rel="noreferrer"
+                          title="Папка на Диске"
+                          aria-label="Папка на Диске"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+                          </svg>
+                        </a>
+                      )}
+                    </div>
                     {!c.name_official && <div className="opsx-sub">официальное название не заполнено · {c.slug}</div>}
                     {c.aliases.length > 0 && <div className="opsx-sub">{c.aliases.join(' · ')}</div>}
                   </td>

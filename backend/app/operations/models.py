@@ -24,7 +24,10 @@ class OpsCompany(Base):
 
     id = Column(Integer, primary_key=True)
     slug = Column(String, unique=True, nullable=False, index=True)
+    # name — отображаемое («Abyroi T ТОО»), legal_name — как в документах
+    # («Товарищество с ограниченной ответственностью "Abyroi T"»).
     name = Column(String, nullable=False)
+    legal_name = Column(String, nullable=True)
     bin = Column(String(12), nullable=True)
     aliases = Column(TextList, nullable=True)
     card_json = Column(JsonType, nullable=False)
