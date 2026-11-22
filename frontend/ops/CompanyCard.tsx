@@ -38,7 +38,17 @@ export default function CompanyCard({ api, id, onBack }: { api: Api; id: number;
 
   const periods = useMemo(() => {
     if (!c) return [] as string[]
-    return Array.from(new Set(c.reports.map((r) => r.period)))
+    // хронологически: 2024-Q1 < 2024-H1 < 2024-Q3 < 2024 (год целиком — после кварталов)
+    const key = (p: string) => {
+      const m = p.match(/(\d{4})(?:-(Q|H)(\d))?/)
+      if (!m) return [9999, 99, p] as const
+      const sub = m[2] === 'Q' ? Number(m[3]) * 2 : m[2] === 'H' ? Number(m[3]) * 4 : 10
+      return [Number(m[1]), sub, p] as const
+    }
+    return Array.from(new Set(c.reports.map((r) => r.period))).sort((a, b) => {
+      const x = key(a), y = key(b)
+      return x[0] - y[0] || x[1] - y[1] || String(x[2]).localeCompare(String(y[2]))
+    })
   }, [c])
   const forms = useMemo(() => {
     if (!c) return [] as string[]
