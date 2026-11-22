@@ -20,6 +20,7 @@ export interface CompanyRow {
   responsible: string | null
   active: boolean
   missing_in_repo: boolean
+  suspected_count?: number
 }
 
 export interface Report {
@@ -33,7 +34,21 @@ export interface Report {
   updated_at: string | null
 }
 
+export interface ObligationFlag {
+  idx: number
+  form: string
+  status: 'suspected' | 'confirmed' | 'dismissed'
+  period: string | null
+  trigger: string[]
+  source: string | null
+  raised_at: string | null
+  decided_by: string | null
+  decided_at: string | null
+  reason: string | null
+}
+
 export interface CompanyDetail extends CompanyRow {
+  obligations: ObligationFlag[]
   card: any
   onec: { kind: string | null; url: string | null; login: string | null; note: string | null; run_on: string | null; closed_through: string | null }
   inactive_reason: string | null
@@ -125,6 +140,15 @@ export function makeApi(ctx: Ctx) {
     companies: () => req<{ items: CompanyRow[] }>('/companies').then((d) => d.items),
     company: (id: number) => req<CompanyDetail>(`/companies/${id}`),
     sync: () => req<SyncResult>('/companies/sync', { method: 'POST' }),
+    raiseObligation: (id: number, body: { form: string; period: string; trigger: string[] }) =>
+      req<{ ok: boolean; commit: string }>(`/companies/${id}/obligations`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+      }),
+    decideObligation: (id: number, f: ObligationFlag, action: 'confirm' | 'dismiss', reason?: string) =>
+      req<{ ok: boolean; commit: string }>(`/companies/${id}/obligations/${f.idx}/${action}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ form: f.form, period: f.period, reason }),
+      }),
     importPreview: (file: File) => {
       const fd = new FormData()
       fd.append('file', file)
@@ -153,6 +177,14 @@ export const REPORT_STATUS: Record<string, string> = {
   accepted: 'принят',
   rejected: 'отклонён',
   not_required: 'не требуется',
+}
+
+export const OBLIGATION_SOURCE: Record<string, string> = {
+  'bank-align': 'скилл bank-align',
+  'subconto-analysis': 'скилл subconto-analysis',
+  'knp-watch': 'скилл knp-watch',
+  employee: 'сотрудник',
+  admin: 'админ',
 }
 
 export const MATCH_BY: Record<string, string> = {

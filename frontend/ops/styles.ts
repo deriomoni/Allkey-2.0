@@ -64,5 +64,27 @@ export const CSS = `
 .opsx-st-rejected { background:#fee2e2; color:#991b1b; }
 .opsx-st-due { background:#fef3c7; color:#92400e; }
 .opsx-st-not_required { background:#f1f5f9; color:#94a3b8; }
+.opsx-pill-susp { background:#ffedd5; color:#9a3412; font-weight:600; }
+.opsx-block-head { display:flex; justify-content:space-between; align-items:center; gap:12px; }
+.opsx-block-head h2 { margin:0; }
+.opsx .opsx-h3 { font-size:13px; font-weight:600; text-transform:uppercase; letter-spacing:.03em; color:#64748b; margin:16px 0 8px; }
+.opsx-flag { display:flex; justify-content:space-between; gap:16px; padding:10px 12px; border-radius:6px; border:1px solid #e2e8f0; margin-bottom:8px; }
+.opsx-flag-susp { border-left:4px solid #f97316; background:#fffaf5; }
+.opsx-flag-conf { border-left:4px solid #0d9488; }
+.opsx-flag-off { border-left:4px solid #cbd5e1; color:#64748b; }
+.opsx-flag-main { min-width:0; }
+.opsx-flag-actions { display:flex; gap:8px; align-items:flex-start; flex-shrink:0; }
+.opsx-trigger { font-size:13px; margin-top:3px; word-break:break-word; }
+.opsx-trigger-list { margin:3px 0 0 18px; }
+.opsx-dismiss { display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
+.opsx-obl-form { border:1px dashed #cbd5e1; border-radius:8px; padding:12px; margin:12px 0; display:flex; flex-direction:column; gap:8px; }
+.opsx-obl-form label { display:flex; flex-direction:column; gap:4px; font-size:13px; color:#475569; }
+.opsx-obl-row { display:flex; gap:12px; flex-wrap:wrap; }
+.opsx-input-sm { min-width:0; width:200px; padding:6px 10px; }
+.opsx-textarea { min-width:0; width:100%; font-family:inherit; }
+.opsx-history { margin-top:12px; }
+.opsx-history summary { cursor:pointer; color:#64748b; font-size:13px; margin-bottom:8px; }
+.opsx-basis { font-size:12px; color:#0f766e; margin-top:2px; max-width:420px; }
+@media (max-width: 860px) { .opsx-flag { flex-direction:column; } }
 .opsx-sticky { position:sticky; bottom:0; background:#f8fafc; padding:12px 0; justify-content:flex-end; }
 `

@@ -11,6 +11,7 @@ export default function CompaniesList({ api, onOpen, onImport }: { api: Api; onO
   const [status, setStatus] = useState<Status | null>(null)
   const [q, setQ] = useState('')
   const [onlyActive, setOnlyActive] = useState(true)
+  const [onlySuspected, setOnlySuspected] = useState(false)
   const [error, setError] = useState('')
   const [syncing, setSyncing] = useState(false)
   const [sync, setSync] = useState<SyncResult | null>(null)
@@ -42,12 +43,13 @@ export default function CompaniesList({ api, onOpen, onImport }: { api: Api; onO
     const nq = norm(q)
     return items.filter((c) => {
       if (onlyActive && !c.active) return false
+      if (onlySuspected && !c.suspected_count) return false
       if (!nq) return true
       // name — основной ключ; legal_name, прежние имена папок (aliases) и БИН — чтобы находилось и по ним.
       const hay = [c.name, c.legal_name || '', c.bin || '', ...c.aliases].map(norm)
       return hay.some((h) => h.includes(nq))
     })
-  }, [items, q, onlyActive])
+  }, [items, q, onlyActive, onlySuspected])
 
   return (
     <div>
@@ -101,6 +103,10 @@ export default function CompaniesList({ api, onOpen, onImport }: { api: Api; onO
           <input type="checkbox" checked={onlyActive} onChange={(e) => setOnlyActive(e.target.checked)} />
           только активные
         </label>
+        <label className="opsx-check">
+          <input type="checkbox" checked={onlySuspected} onChange={(e) => setOnlySuspected(e.target.checked)} />
+          есть подозрения{items && <> ({items.filter((c) => c.suspected_count).length})</>}
+        </label>
         {items && <span className="opsx-muted">Показано {filtered.length}</span>}
       </div>
 
@@ -127,6 +133,11 @@ export default function CompaniesList({ api, onOpen, onImport }: { api: Api; onO
                   <td>
                     <div className="opsx-name">
                       {c.name}
+                      {!!c.suspected_count && (
+                        <span className="opsx-pill opsx-pill-susp" title="Подозрения на обязательство по сдаче формы">
+                          {c.suspected_count} подозр.
+                        </span>
+                      )}
                       {c.drive_url && (
                         <a
                           className="opsx-drive"

@@ -22,7 +22,7 @@ bin: "000000000000"
 tax:
   regime: general
   vat_payer: true
-  forms: []
+  forms: []   # формы
 
 # --- Обязательства ---
 obligation_flags: []
@@ -76,6 +76,7 @@ def test_raise_merge_confirm_dismiss(repo):
     assert f["status"] == "confirmed" and f["decided_by"] == "owner@example.com" and f["decided_at"]
     assert c["tax"]["forms"] == [{"form": "101.04", "period": "2026-Q4", "basis": [T1, T2]}]
     assert c["tax"]["regime"] == "general" and c["banks"] == []
+    assert "  forms:   # формы" in (repo / "clients" / "acme" / "client.yaml").read_text(encoding="utf-8")
 
     with pytest.raises(obl.ObligationError):
         obl.confirm_flag("acme", 0, "101.04", "2026-Q4", "owner@example.com")  # уже решён

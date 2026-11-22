@@ -74,7 +74,8 @@ def _replace_block(text: str, key_re: str, key_line: str, items: list, item_inde
             continue
         break
     body = _dump_list(items, item_indent)
-    head = " " * key_indent + (key_line if body else key_line + " []")
+    m = re.search(r"\s+#.*$", lines[start])  # комментарий в строке ключа сохраняем
+    head = " " * key_indent + (key_line if body else key_line + " []") + (m.group(0) if m else "")
     return "\n".join(lines[:start] + [head] + body + lines[end:])
 
 

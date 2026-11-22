@@ -1,5 +1,6 @@
 import { ReactNode, useEffect, useMemo, useState } from 'react'
 import { Api, CompanyDetail, REGIME, REPORT_STATUS } from './api'
+import ObligationsBlock from './ObligationsBlock'
 
 const FEATURES: Record<string, string> = {
   has_employees: 'есть сотрудники',
@@ -32,9 +33,8 @@ export default function CompanyCard({ api, id, onBack }: { api: Api; id: number;
   const [c, setC] = useState<CompanyDetail | null>(null)
   const [error, setError] = useState('')
 
-  useEffect(() => {
-    api.company(id).then(setC).catch((e) => setError(e.status === 404 ? 'Компания не найдена' : e.message))
-  }, [id])
+  const load = () => api.company(id).then(setC).catch((e) => setError(e.status === 404 ? 'Компания не найдена' : e.message))
+  useEffect(() => { load() }, [id])
 
   const periods = useMemo(() => {
     if (!c) return [] as string[]
@@ -42,7 +42,16 @@ export default function CompanyCard({ api, id, onBack }: { api: Api; id: number;
   }, [c])
   const forms = useMemo(() => {
     if (!c) return [] as string[]
-    return Array.from(new Set(c.reports.map((r) => r.form))).sort()
+    const confirmedForms = c.obligations.filter((f) => f.status === 'confirmed').map((f) => f.form)
+    return Array.from(new Set([...c.reports.map((r) => r.form), ...confirmedForms])).sort()
+  }, [c])
+  // Подтверждённые обязательства: форма → основания (basis), показываются рядом с формой.
+  const basis = useMemo(() => {
+    const m: Record<string, string[]> = {}
+    for (const f of c?.obligations || []) {
+      if (f.status === 'confirmed') m[f.form] = [...(m[f.form] || []), ...f.trigger.map((t) => (f.period ? `${f.period}: ${t}` : t))]
+    }
+    return m
   }, [c])
 
   if (error) return <div><button className="opsx-link" onClick={onBack}>← К списку</button><div className="opsx-alert opsx-alert-err">{error}</div></div>
@@ -79,6 +88,8 @@ export default function CompanyCard({ api, id, onBack }: { api: Api; id: number;
           {c.inactive_since && <> · с {new Date(c.inactive_since).toLocaleDateString('ru-RU')}</>}
         </div>
       )}
+
+      <ObligationsBlock api={api} c={c} onChanged={async () => { await load() }} />
 
       <div className="opsx-grid">
         <section className="opsx-card">
@@ -137,7 +148,7 @@ export default function CompanyCard({ api, id, onBack }: { api: Api; id: number;
 
       <section className="opsx-card">
         <h2>Формы</h2>
-        {c.reports.length === 0 ? (
+        {forms.length === 0 ? (
           <div className="opsx-muted">Статусов форм пока нет. Их загружает «Импорт отчётов».</div>
         ) : (
           <div className="opsx-table-wrap">
@@ -148,7 +159,10 @@ export default function CompanyCard({ api, id, onBack }: { api: Api; id: number;
               <tbody>
                 {forms.map((f) => (
                   <tr key={f}>
-                    <td className="opsx-mono">{f}</td>
+                    <td>
+                      <span className="opsx-mono">{f}</span>
+                      {basis[f] && basis[f].map((b, i) => <div key={i} className="opsx-basis">основание: {b}</div>)}
+                    </td>
                     {periods.map((p) => {
                       const r = c.reports.find((x) => x.form === f && x.period === p)
                       if (!r) return <td key={p} className="opsx-muted">·</td>
