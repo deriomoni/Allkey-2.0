@@ -41,6 +41,9 @@ ROUTE_PERMISSIONS: dict[str, Set[str]] = {
     "ops_reports_import_commit": {"admin"},
     "ops_ui_bundle": {"admin"},
     "ops_list_admins": {"admin"},
+    "ops_obligation_create": {"admin"},
+    "ops_obligation_confirm": {"admin"},
+    "ops_obligation_dismiss": {"admin"},
 }
 
 # Белый список полей карточки по ролям (п. 4). None — все поля.

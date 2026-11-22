@@ -20,7 +20,7 @@ import yaml
 from sqlalchemy.orm import Session
 
 from app.operations.config import get_ops_settings
-from app.operations.models import OpsCompany
+from app.operations.models import OpsCompany, OpsObligationFlag
 
 logger = logging.getLogger("app.operations")
 
@@ -136,6 +136,30 @@ def card_to_columns(slug: str, card: dict) -> dict:
     }
 
 
+def _triggers(v) -> List[str]:
+    if isinstance(v, str):
+        return [v] if v.strip() else []
+    if isinstance(v, list):
+        return [str(x) for x in v if str(x).strip()]
+    return []
+
+
+def sync_flags(db: Session, company: OpsCompany, card: dict) -> None:
+    """Пересобрать флаги обязательств компании по карточке (карточка — источник правды)."""
+    db.query(OpsObligationFlag).filter(OpsObligationFlag.company_id == company.id).delete()
+    for i, f in enumerate(card.get("obligation_flags") or []):
+        if not isinstance(f, dict):
+            continue
+        db.add(OpsObligationFlag(
+            company_id=company.id, idx=i,
+            form=_str(f.get("form")) or "?", status=_str(f.get("status")) or "suspected",
+            period=_str(f.get("period")), trigger_json=_triggers(f.get("trigger")),
+            source=_str(f.get("source")), raised_at=_str(f.get("raised_at")),
+            decided_by=_str(f.get("decided_by")), decided_at=_str(f.get("decided_at")),
+            reason=_str(f.get("reason")),
+        ))
+
+
 def load_cards(root: Path) -> List[tuple[str, dict]]:
     cards = []
     for p in sorted((root / "clients").glob("*/client.yaml")):
@@ -174,7 +198,9 @@ def sync_companies(db: Session, skip_validator: bool = False) -> SyncResult:
         seen.add(slug)
         obj = existing.get(slug)
         if obj is None:
-            db.add(OpsCompany(**cols, synced_at=now))
+            obj = OpsCompany(**cols, synced_at=now)
+            db.add(obj)
+            db.flush()
             res.created += 1
         else:
             changed = any(getattr(obj, k) != v for k, v in cols.items())
@@ -185,6 +211,7 @@ def sync_companies(db: Session, skip_validator: bool = False) -> SyncResult:
             else:
                 res.unchanged += 1
             obj.synced_at = now
+        sync_flags(db, obj, card)
         res.total += 1
         if cols["active"]:
             res.active += 1
@@ -201,3 +228,17 @@ def sync_companies(db: Session, skip_validator: bool = False) -> SyncResult:
         res.total, res.created, res.updated, res.unchanged, res.missing_in_repo,
     )
     return res
+
+
+def sync_one(db: Session, slug: str) -> OpsCompany:
+    """Пересинхронизировать одну карточку (после записи решения в репозиторий)."""
+    root = repo_path()
+    with open(root / "clients" / slug / "client.yaml", encoding="utf-8") as f:
+        card = yaml.safe_load(f) or {}
+    obj = db.query(OpsCompany).filter(OpsCompany.slug == slug).one()
+    for k, v in card_to_columns(slug, card).items():
+        setattr(obj, k, v)
+    obj.synced_at = dt.datetime.now(dt.timezone.utc)
+    sync_flags(db, obj, card)
+    db.commit()
+    return obj

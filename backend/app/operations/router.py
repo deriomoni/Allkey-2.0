@@ -20,7 +20,9 @@ from app.auth.dependencies import get_current_user
 from app.database import get_db
 from app.operations.access import effective_roles, filter_fields, is_ops_admin, list_admins, require_ops_admin
 from app.operations.config import get_ops_settings
-from app.operations.models import OpsCompany, OpsCompanyReport
+from app.operations.models import OpsCompany, OpsCompanyReport, OpsObligationFlag
+from app.operations import obligations as obl
+from app.operations.sync import sync_one
 from app.operations.reports_import import commit_rows, match_rows, parse_workbook
 from app.operations.sync import sync_companies
 from app.users.models import User
@@ -64,7 +66,20 @@ def _list_item(c: OpsCompany) -> dict:
 def list_companies(user: User = Depends(require_ops_admin), db: Session = Depends(get_db)):
     roles = effective_roles(db, user)
     items = db.query(OpsCompany).order_by(OpsCompany.active.desc(), OpsCompany.name).all()
-    return {"items": [filter_fields(_list_item(c), roles) for c in items]}
+    suspected = dict(
+        db.query(OpsObligationFlag.company_id, func.count(OpsObligationFlag.id))
+        .filter(OpsObligationFlag.status == "suspected")
+        .group_by(OpsObligationFlag.company_id).all()
+    )
+    return {"items": [filter_fields(_list_item(c) | {"suspected_count": suspected.get(c.id, 0)}, roles) for c in items]}
+
+
+def _flag(f: OpsObligationFlag) -> dict:
+    return {
+        "idx": f.idx, "form": f.form, "status": f.status, "period": f.period,
+        "trigger": f.trigger_json or [], "source": f.source, "raised_at": f.raised_at,
+        "decided_by": f.decided_by, "decided_at": f.decided_at, "reason": f.reason,
+    }
 
 
 @router.get("/companies/{company_id}", name="ops_get_company")
@@ -102,8 +117,66 @@ def get_company(company_id: int, user: User = Depends(require_ops_admin), db: Se
             for r in reports
         ],
         "synced_at": _iso(c.synced_at),
+        "obligations": [
+            _flag(f) for f in db.query(OpsObligationFlag)
+            .filter(OpsObligationFlag.company_id == c.id).order_by(OpsObligationFlag.idx).all()
+        ],
     }
     return filter_fields(data, effective_roles(db, user))
+
+
+class ObligationIn(BaseModel):
+    form: str
+    period: str
+    trigger: List[str]
+
+
+class DecisionIn(BaseModel):
+    form: str
+    period: str
+    reason: Optional[str] = None
+
+
+def _company_or_404(db: Session, company_id: int) -> OpsCompany:
+    c = db.query(OpsCompany).filter(OpsCompany.id == company_id).first()
+    if c is None:
+        raise HTTPException(status_code=404, detail="Not Found")
+    return c
+
+
+def _decision(db: Session, c: OpsCompany, fn) -> dict:
+    try:
+        sha = fn()
+    except obl.ObligationError as e:
+        raise HTTPException(status_code=e.status, detail=str(e))
+    sync_one(db, c.slug)
+    return {"ok": True, "commit": sha}
+
+
+def _user_label(user: User) -> str:
+    return user.email
+
+
+@router.post("/companies/{company_id}/obligations", name="ops_obligation_create")
+def obligation_create(company_id: int, body: ObligationIn, user: User = Depends(require_ops_admin),
+                      db: Session = Depends(get_db)):
+    c = _company_or_404(db, company_id)
+    return _decision(db, c, lambda: obl.raise_flag(c.slug, body.form, body.period, body.trigger, _user_label(user)))
+
+
+@router.post("/companies/{company_id}/obligations/{idx}/confirm", name="ops_obligation_confirm")
+def obligation_confirm(company_id: int, idx: int, body: DecisionIn, user: User = Depends(require_ops_admin),
+                       db: Session = Depends(get_db)):
+    c = _company_or_404(db, company_id)
+    return _decision(db, c, lambda: obl.confirm_flag(c.slug, idx, body.form, body.period, _user_label(user)))
+
+
+@router.post("/companies/{company_id}/obligations/{idx}/dismiss", name="ops_obligation_dismiss")
+def obligation_dismiss(company_id: int, idx: int, body: DecisionIn, user: User = Depends(require_ops_admin),
+                       db: Session = Depends(get_db)):
+    c = _company_or_404(db, company_id)
+    return _decision(db, c, lambda: obl.dismiss_flag(c.slug, idx, body.form, body.period, body.reason or "",
+                                                     _user_label(user)))
 
 
 @router.post("/companies/sync", name="ops_sync_companies")

@@ -78,6 +78,30 @@ class OpsCompanyReport(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
 
+class OpsObligationFlag(Base):
+    """Подозрение на обязательство по сдаче формы — проекция client.yaml → obligation_flags.
+
+    Источник правды — карточка; таблица пересобирается при синхронизации. idx — позиция
+    флага в списке карточки (по нему UI адресует решение).
+    """
+
+    __tablename__ = "ops_obligation_flags"
+
+    id = Column(Integer, primary_key=True)
+    company_id = Column(Integer, ForeignKey("ops_companies.id", ondelete="CASCADE"), nullable=False, index=True)
+    idx = Column(Integer, nullable=False)
+    form = Column(String, nullable=False)
+    status = Column(String, nullable=False)  # suspected | confirmed | dismissed
+    period = Column(String, nullable=True)
+    trigger_json = Column(JsonType, nullable=True)  # список оснований
+    source = Column(String, nullable=True)
+    raised_at = Column(String, nullable=True)
+    decided_by = Column(String, nullable=True)
+    decided_at = Column(String, nullable=True)
+    reason = Column(Text, nullable=True)
+    synced_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
 class UserRoleAssignment(Base):
     """Роли модуля «Операции». Это не users.role и не лицензии."""
 

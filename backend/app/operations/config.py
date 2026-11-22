@@ -18,6 +18,9 @@ class OpsSettings(BaseSettings):
     arty_ops_path: str = ""
     # user_id владельца, которому при старте выдаётся роль admin модуля. Больше никому.
     ops_admin_user_id: Optional[int] = None
+    # Решения по обязательствам коммитятся в клон arty-ops от имени системы; пушить ли сразу.
+    # Локально — false (коммит остаётся в клоне), на сервере включает владелец.
+    ops_repo_push: bool = False
     # Собранный отдельный бандл фронта модуля (npm run build:ops).
     ops_ui_bundle_path: str = str(_REPO_ROOT / "frontend" / "dist-ops" / "ops.js")
 
