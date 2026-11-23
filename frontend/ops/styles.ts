@@ -104,4 +104,17 @@ export const CSS = `
 .opsx-switch-note { margin-left:8px; font-size:12px; }
 .opsx-service-text { margin-top:8px; font-size:13px; }
 .opsx-service-gap { margin:12px 0 0; }
+.opsx-facets { margin-top:-4px; }
+.opsx-facet { position:relative; }
+.opsx-facet-btn { padding:7px 12px; border:1px solid #cbd5e1; border-radius:6px; background:#fff; cursor:pointer; font-size:13px; color:#334155; max-width:320px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.opsx-facet-btn:hover { border-color:#0d9488; }
+.opsx-facet-on { border-color:#0d9488; background:#f0fdfa; color:#0f766e; font-weight:500; }
+.opsx-facet-sum { color:inherit; }
+.opsx-facet-pop { position:absolute; top:calc(100% + 4px); left:0; z-index:20; min-width:220px; background:#fff; border:1px solid #e2e8f0; border-radius:8px; box-shadow:0 8px 24px rgba(15,23,42,.12); padding:6px; }
+.opsx-facet-item { display:flex; align-items:center; gap:8px; padding:6px 8px; border-radius:6px; cursor:pointer; font-size:13px; }
+.opsx-facet-item:hover { background:#f1f5f9; }
+.opsx-facet-label { flex:1; }
+.opsx-facet-count { color:#64748b; font-variant-numeric:tabular-nums; }
+.opsx-facet-clear { margin:4px 8px 2px; font-size:13px; }
+.opsx-facet-empty { padding:6px 8px; font-size:13px; }
 `

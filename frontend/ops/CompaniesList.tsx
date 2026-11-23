@@ -1,5 +1,20 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Api, CompanyRow, REGIME, Status } from './api'
+import { ColumnFilter, Facet, FacetSelection, matchesFacets, readSelection, writeSelection } from './ColumnFilter'
+
+// Фильтры по столбцам. «Статус КГД» — добавить сюда записью, когда появится столбец.
+const FACETS: Facet<CompanyRow>[] = [
+  {
+    key: 'regime', label: 'Режим',
+    value: (c) => c.tax_regime || 'none',
+    labels: { general: REGIME.general, simplified: REGIME.simplified, retail: REGIME.retail, none: 'не установлен' },
+  },
+  {
+    key: 'vat', label: 'НДС',
+    value: (c) => (c.vat_payer === true ? 'yes' : c.vat_payer === false ? 'no' : 'none'),
+    labels: { yes: 'да', no: 'нет', none: 'не установлен' },
+  },
+]
 
 // Поиск — только на клиенте: названия не уходят в URL и в access-логи сервера.
 function norm(s: string) {
@@ -24,6 +39,13 @@ export default function CompaniesList({ api, onOpen }: { api: Api; onOpen: (id: 
   const [onlySuspected, setOnlySuspected] = useState(false)
   // ТЗ 1.1 п. 9: скрытые компании видит только admin; в списке — по фильтру, по умолчанию выключен.
   const [showHidden, setShowHidden] = useState(false)
+  const [facetSel, setFacetSel] = useState<FacetSelection>(() => readSelection(FACETS))
+  const setFacet = (key: string, next: Set<string>) => {
+    const sel = { ...facetSel, [key]: next }
+    writeSelection(FACETS, sel)
+    setFacetSel(sel)
+  }
+  const anyFacet = FACETS.some((f) => facetSel[f.key]?.size)
   const [busyId, setBusyId] = useState<number | null>(null)
   const [error, setError] = useState('')
 
@@ -52,7 +74,8 @@ export default function CompaniesList({ api, onOpen }: { api: Api; onOpen: (id: 
   const base = useMemo(() => (items || []).filter((c) => showHidden || !c.hidden), [items, showHidden])
   const hiddenCount = useMemo(() => (items || []).filter((c) => c.hidden).length, [items])
 
-  const filtered = useMemo(() => {
+  // Все фильтры, кроме фильтров по столбцам: вкладка, подозрения, поиск.
+  const prefiltered = useMemo(() => {
     const nq = norm(q)
     return base.filter((c) => {
       if (tab === 'active' ? !c.active : c.active) return false
@@ -63,6 +86,8 @@ export default function CompaniesList({ api, onOpen }: { api: Api; onOpen: (id: 
       return hay.some((h) => h.includes(nq))
     })
   }, [base, q, tab, onlySuspected])
+
+  const filtered = useMemo(() => prefiltered.filter((c) => matchesFacets(c, FACETS, facetSel)), [prefiltered, facetSel])
 
   const counts = useMemo(() => ({
     active: base.filter((c) => c.active).length,
@@ -113,6 +138,26 @@ export default function CompaniesList({ api, onOpen }: { api: Api; onOpen: (id: 
         {items && <span className="opsx-muted">Показано {filtered.length}</span>}
       </div>
 
+      <div className="opsx-filters opsx-facets">
+        {FACETS.map((f) => (
+          <ColumnFilter
+            key={f.key}
+            facet={f}
+            // счётчики — по строкам, прошедшим все остальные фильтры, кроме этого столбца
+            rows={prefiltered.filter((c) => matchesFacets(c, FACETS, facetSel, f.key))}
+            selected={facetSel[f.key] || new Set()}
+            onChange={(next) => setFacet(f.key, next)}
+          />
+        ))}
+        {anyFacet && (
+          <button type="button" className="opsx-link opsx-link-inline" onClick={() => {
+            const sel = Object.fromEntries(FACETS.map((f) => [f.key, new Set<string>()]))
+            writeSelection(FACETS, sel)
+            setFacetSel(sel)
+          }}>Сбросить фильтры</button>
+        )}
+      </div>
+
       {!items && !error && <div className="opsx-muted">Загрузка…</div>}
       {items && items.length === 0 && (
         <div className="opsx-alert">Реестр пуст. Загрузите карточки в разделе «Служебное» → «Синхронизировать».</div>
@@ -124,8 +169,8 @@ export default function CompaniesList({ api, onOpen }: { api: Api; onOpen: (id: 
               <tr>
                 <th>Название</th>
                 <th>БИН</th>
-                <th>Режим</th>
-                <th>НДС</th>
+                <th>Режим{facetSel.regime?.size ? ' •' : ''}</th>
+                <th>НДС{facetSel.vat?.size ? ' •' : ''}</th>
                 <th>Папка на Диске</th>
                 <th>Скрытая</th>
               </tr>
