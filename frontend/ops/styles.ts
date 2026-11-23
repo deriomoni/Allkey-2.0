@@ -87,4 +87,10 @@ export const CSS = `
 .opsx-basis { font-size:12px; color:#0f766e; margin-top:2px; max-width:420px; }
 @media (max-width: 860px) { .opsx-flag { flex-direction:column; } }
 .opsx-sticky { position:sticky; bottom:0; background:#f8fafc; padding:12px 0; justify-content:flex-end; }
+.opsx-tabs { display:flex; gap:4px; border-bottom:1px solid #e2e8f0; margin-bottom:14px; }
+.opsx-tab { background:none; border:none; border-bottom:2px solid transparent; padding:9px 14px; font-size:14px; font-weight:500; color:#64748b; cursor:pointer; margin-bottom:-1px; }
+.opsx-tab:hover { color:#0f766e; }
+.opsx-tab-on { color:#0f766e; border-bottom-color:#0d9488; }
+.opsx-drive-link { display:inline-flex; align-items:center; gap:6px; color:#0f766e; text-decoration:none; white-space:nowrap; padding:3px 8px; border-radius:6px; border:1px solid #ccfbf1; background:#f0fdfa; font-size:13px; }
+.opsx-drive-link:hover { background:#ccfbf1; }
 `

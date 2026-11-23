@@ -10,7 +10,16 @@ export default function CompaniesList({ api, onOpen, onImport }: { api: Api; onO
   const [items, setItems] = useState<CompanyRow[] | null>(null)
   const [status, setStatus] = useState<Status | null>(null)
   const [q, setQ] = useState('')
-  const [onlyActive, setOnlyActive] = useState(true)
+  // Живые и архив — отдельными вкладками; вкладка в URL (?tab=archive), без названий компаний.
+  const [tab, setTabState] = useState<'active' | 'archive'>(
+    () => (new URLSearchParams(window.location.search).get('tab') === 'archive' ? 'archive' : 'active'))
+  const setTab = (t: 'active' | 'archive') => {
+    const u = new URL(window.location.href)
+    if (t === 'archive') u.searchParams.set('tab', 'archive')
+    else u.searchParams.delete('tab')
+    window.history.replaceState(null, '', u.pathname + u.search)
+    setTabState(t)
+  }
   const [onlySuspected, setOnlySuspected] = useState(false)
   const [error, setError] = useState('')
   const [syncing, setSyncing] = useState(false)
@@ -42,14 +51,19 @@ export default function CompaniesList({ api, onOpen, onImport }: { api: Api; onO
     if (!items) return []
     const nq = norm(q)
     return items.filter((c) => {
-      if (onlyActive && !c.active) return false
+      if (tab === 'active' ? !c.active : c.active) return false
       if (onlySuspected && !c.suspected_count) return false
       if (!nq) return true
       // name — основной ключ; legal_name, прежние имена папок (aliases) и БИН — чтобы находилось и по ним.
       const hay = [c.name, c.legal_name || '', c.bin || '', ...c.aliases].map(norm)
       return hay.some((h) => h.includes(nq))
     })
-  }, [items, q, onlyActive, onlySuspected])
+  }, [items, q, tab, onlySuspected])
+
+  const counts = useMemo(() => ({
+    active: (items || []).filter((c) => c.active).length,
+    archive: (items || []).filter((c) => !c.active).length,
+  }), [items])
 
   return (
     <div>
@@ -92,6 +106,15 @@ export default function CompaniesList({ api, onOpen, onImport }: { api: Api; onO
       )}
       {error && <div className="opsx-alert opsx-alert-err">{error}</div>}
 
+      <div className="opsx-tabs">
+        <button className={`opsx-tab ${tab === 'active' ? 'opsx-tab-on' : ''}`} onClick={() => setTab('active')}>
+          Живые{items && <> ({counts.active})</>}
+        </button>
+        <button className={`opsx-tab ${tab === 'archive' ? 'opsx-tab-on' : ''}`} onClick={() => setTab('archive')}>
+          Архив{items && <> ({counts.archive})</>}
+        </button>
+      </div>
+
       <div className="opsx-filters">
         <input
           className="opsx-input"
@@ -99,10 +122,6 @@ export default function CompaniesList({ api, onOpen, onImport }: { api: Api; onO
           value={q}
           onChange={(e) => setQ(e.target.value)}
         />
-        <label className="opsx-check">
-          <input type="checkbox" checked={onlyActive} onChange={(e) => setOnlyActive(e.target.checked)} />
-          только активные
-        </label>
         <label className="opsx-check">
           <input type="checkbox" checked={onlySuspected} onChange={(e) => setOnlySuspected(e.target.checked)} />
           есть подозрения{items && <> ({items.filter((c) => c.suspected_count).length})</>}
@@ -124,7 +143,7 @@ export default function CompaniesList({ api, onOpen, onImport }: { api: Api; onO
                 <th>Режим</th>
                 <th>НДС</th>
                 <th>Ответственный</th>
-                <th>Активна</th>
+                <th>Папка на Диске</th>
               </tr>
             </thead>
             <tbody>
@@ -138,21 +157,6 @@ export default function CompaniesList({ api, onOpen, onImport }: { api: Api; onO
                           {c.suspected_count} подозр.
                         </span>
                       )}
-                      {c.drive_url && (
-                        <a
-                          className="opsx-drive"
-                          href={c.drive_url}
-                          target="_blank"
-                          rel="noreferrer"
-                          title="Папка на Диске"
-                          aria-label="Папка на Диске"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
-                          </svg>
-                        </a>
-                      )}
                     </div>
                     {!c.name_official && <div className="opsx-sub">официальное название не заполнено · {c.slug}</div>}
                     {c.aliases.length > 0 && <div className="opsx-sub">{c.aliases.join(' · ')}</div>}
@@ -162,7 +166,23 @@ export default function CompaniesList({ api, onOpen, onImport }: { api: Api; onO
                   <td>{c.vat_payer === true ? 'да' : c.vat_payer === false ? 'нет' : '—'}</td>
                   <td>{c.responsible || <span className="opsx-muted">—</span>}</td>
                   <td>
-                    {c.active ? <span className="opsx-pill opsx-pill-on">активна</span> : <span className="opsx-pill">архив</span>}
+                    {c.drive_url ? (
+                      <a
+                        className="opsx-drive-link"
+                        href={c.drive_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        title={c.folder_name ? `Папка «${c.folder_name}» на Google Диске` : 'Папка на Google Диске'}
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                          <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+                        </svg>
+                        Открыть ↗
+                      </a>
+                    ) : (
+                      <span className="opsx-pill opsx-pill-warn">не привязана</span>
+                    )}
                     {c.missing_in_repo && <span className="opsx-pill opsx-pill-warn">нет в репо</span>}
                   </td>
                 </tr>
