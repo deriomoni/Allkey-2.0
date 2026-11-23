@@ -29,7 +29,9 @@ FLAT = {
     "residency": "Резидент", "oked": "53200", "okedName": "Прочая почтовая и курьерская деятельность",
     "okedDate": "2019-09-10", "vatInfo": "Нет данных", "vatDate": None, "taxMode": "Общеустановленный порядок",
     "taxModeDate": "2026-01-01", "inactive": "Нет данных", "bankrupt": "Нет данных", "regAddressAbsent": "Нет данных",
-    "taxDebt": 0.0, "taxDebt1": 0.0, "taxDebt2": 0.0, "taxDebt3": 0.0, "taxDebt4": 0.0,
+    "taxDebt": -120.5, "taxDebt1": 0.0, "taxDebt2": 0.0, "taxDebt3": 0.0, "taxDebt4": 0.0,
+    "statistics": [{"year": 2025, "workersCount": 2, "taxIn": 1.0, "knn": "2.7", "knnAvg": "2.3", "vatAmount": 0.0},
+                   {"year": 2026, "workersCount": 1, "taxIn": 1.0, "knn": "0.0", "knnAvg": "0.0", "vatAmount": 0.0}],
 }
 # Вид из инструкции КГД ({ru, kk})
 NESTED = {
@@ -78,8 +80,11 @@ def test_request_shape(http):
 
 def test_normalize_flat_mbi():
     n = kgd.normalize(FLAT)
-    assert (n["regime"], n["tax_mode_date"], n["vat_payer"], n["has_debt"]) == ("general", "2026-01-01", False, False)
+    assert (n["regime"], n["ogd_reg_date"], n["vat_payer"]) == ("general", "2026-01-01", False)
     assert n["risks"] == {} and n["status"] == "нет признаков риска"
+    # переплата — не задолженность
+    assert (n["has_debt"], n["overpayment"]) == (False, True)
+    assert n["headcount"] == {2025: 2, 2026: 1} and n["knn"][2025] == {"knn": "2.7", "knn_avg": "2.3"}
 
 
 def test_normalize_nested_with_risk_and_debt():
@@ -90,7 +95,8 @@ def test_normalize_nested_with_risk_and_debt():
 
 
 @pytest.mark.parametrize("info,date,expected", [
-    ("Нет данных", None, False), ("", None, False), ("Плательщик НДС", "2025-03-05", True),
+    ("Нет данных", None, False), ("", None, False), ("Плательщик НДС", "2025-03-05", True), ("Да", "2025-03-05", True),
+    ("Да", None, True),
     ("Снят с учёта по НДС", "2024-01-01", False), ("что-то новое", None, None),
 ])
 def test_vat_mapping(info, date, expected):

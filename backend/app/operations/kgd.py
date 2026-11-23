@@ -85,7 +85,7 @@ def vat_payer(vat_info: Optional[str], vat_date: Optional[str]) -> Optional[bool
         return False
     if "снят" in s or "не является" in s:
         return False
-    if "плательщик" in s or "состоит" in s or "постановк" in s:
+    if s == "да" or "плательщик" in s or "состоит" in s or "постановк" in s:
         return True
     return None  # незнакомая формулировка — решает человек
 
@@ -96,6 +96,7 @@ def normalize(raw: dict) -> dict:
     vat_info = _ru(raw.get("vatInfo"))
     risks = {k: _ru(raw.get(k)) for k in RISK_FIELDS if _has_value(raw.get(k))}
     debts = {k: float(raw.get(k) or 0) for k in DEBT_FIELDS if raw.get(k) is not None}
+    stats = [s for s in (raw.get("statistics") or []) if isinstance(s, dict) and s.get("year")]
     return {
         "xin": raw.get("xin"),
         "actuality": raw.get("actuality"),
@@ -106,14 +107,20 @@ def normalize(raw: dict) -> dict:
         "oked_name": _ru(raw.get("okedName")),
         "oked_date": raw.get("okedDate"),
         "tax_mode": tax_mode,
-        "tax_mode_date": raw.get("taxModeDate"),
+        # taxModeDate — дата постановки в текущем ОГД (указание владельца 23.11.2026),
+        # НЕ дата перехода на режим: как дату режима не использовать.
+        "ogd_reg_date": raw.get("taxModeDate"),
         "regime": regime_code(tax_mode),
         "vat_info": vat_info,
         "vat_date": raw.get("vatDate"),
         "vat_payer": vat_payer(vat_info, raw.get("vatDate")),
         "risks": {k: {"label": RISK_FIELDS[k], "value": v} for k, v in risks.items()},
         "tax_debt": debts,
+        # Отрицательная задолженность — переплата, не сигнал.
         "has_debt": any(v > 0 for v in debts.values()),
+        "overpayment": any(v < 0 for v in debts.values()),
+        "headcount": {int(s["year"]): s.get("workersCount") for s in stats},
+        "knn": {int(s["year"]): {"knn": s.get("knn"), "knn_avg": s.get("knnAvg")} for s in stats},
         # Явного статуса («действующий / ликвидация») API не отдаёт — выводим из признаков риска.
         "status": "бездействующий" if "inactive" in risks else ("есть признаки риска" if risks else "нет признаков риска"),
     }
