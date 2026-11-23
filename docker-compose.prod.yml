@@ -29,6 +29,17 @@ services:
       ALGORITHM: HS256
       ACCESS_TOKEN_EXPIRE_MINUTES: 1440
       CORS_ORIGINS: https://allkey.kz
+      # Модуль «Операции» (раздел «Компании»): значения — в .env сервера, не в репозитории.
+      # KGD_API_TOKEN на сервер не переносится — проверка КГД работает только локально.
+      OPS_ADMIN_USER_ID: ${OPS_ADMIN_USER_ID}
+      OPS_REGISTRY_VISIBLE_TO_NON_ADMIN: ${OPS_REGISTRY_VISIBLE_TO_NON_ADMIN:-false}
+      ARTY_OPS_PATH: /arty-ops
+      OPS_UI_BUNDLE_PATH: /ops-ui/ops.js
+    volumes:
+      # клон allkey-ops на сервере (карточки; решения из UI коммитятся в него от системы)
+      - /root/arty-ops:/arty-ops
+      # отдельный бандл раздела (npm run build:ops) — отдаётся только через /api/ops/ui/bundle.js
+      - ./frontend/dist-ops:/ops-ui:ro
     depends_on:
       db:
         condition: service_healthy

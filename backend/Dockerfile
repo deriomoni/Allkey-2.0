@@ -3,8 +3,10 @@ FROM python:3.11-slim
 WORKDIR /app
 
 # Install system dependencies
+# git — модуль «Операции» коммитит решения в клон allkey-ops (/arty-ops)
 RUN apt-get update && apt-get install -y \
     gcc \
+    git \
     libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
