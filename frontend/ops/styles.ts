@@ -63,6 +63,7 @@ export const CSS = `
 .opsx-st-submitted { background:#e0f2fe; color:#075985; }
 .opsx-st-rejected { background:#fee2e2; color:#991b1b; }
 .opsx-st-due { background:#fef3c7; color:#92400e; }
+.opsx-st-clarify { background:#ffedd5; color:#9a3412; }
 .opsx-st-not_required { background:#f1f5f9; color:#94a3b8; }
 .opsx-pill-susp { background:#ffedd5; color:#9a3412; font-weight:600; }
 .opsx-block-head { display:flex; justify-content:space-between; align-items:center; gap:12px; }
@@ -87,4 +88,24 @@ export const CSS = `
 .opsx-basis { font-size:12px; color:#0f766e; margin-top:2px; max-width:420px; }
 @media (max-width: 860px) { .opsx-flag { flex-direction:column; } }
 .opsx-sticky { position:sticky; bottom:0; background:#f8fafc; padding:12px 0; justify-content:flex-end; }
+.opsx-tabs { display:flex; gap:4px; border-bottom:1px solid #e2e8f0; margin-bottom:16px; }
+.opsx-tab { background:none; border:none; border-bottom:2px solid transparent; padding:9px 14px; font-size:14px; font-weight:500; color:#64748b; cursor:pointer; margin-bottom:-1px; }
+.opsx-tab:hover { color:#0f766e; }
+.opsx-tab-on { color:#0f766e; border-bottom-color:#0d9488; }
+.opsx-counters { display:flex; gap:12px; flex-wrap:wrap; margin-bottom:16px; }
+.opsx-counter { display:flex; flex-direction:column; align-items:flex-start; gap:2px; min-width:150px; padding:12px 16px; background:#fff; border:1px solid #e2e8f0; border-radius:8px; cursor:pointer; color:#475569; font-size:13px; text-align:left; }
+.opsx-counter:hover { border-color:#0d9488; }
+.opsx-counter-n { font-size:24px; font-weight:700; color:#0f172a; line-height:1.1; }
+.opsx-counter-warn .opsx-counter-n { color:#c2410c; }
+.opsx-counter-on { border-color:#0d9488; box-shadow:0 0 0 2px #99f6e4; }
+.opsx-filter { min-width:0; width:auto; max-width:220px; padding:7px 10px; }
+.opsx-link-inline { margin:0; }
+.opsx-btn-sm { padding:5px 10px; font-size:13px; }
+.opsx-nowrap { white-space:nowrap; }
+.opsx-plan td { font-size:13px; }
+.opsx-wide { min-width:220px; max-width:340px; }
+.opsx-cell-link { color:#0f172a; text-decoration:none; font-weight:500; }
+.opsx-cell-link:hover { color:#0f766e; text-decoration:underline; }
+.opsx-decide { margin-top:6px; display:flex; flex-direction:column; gap:6px; }
+.opsx-decide-btns { margin-top:6px; }
 `

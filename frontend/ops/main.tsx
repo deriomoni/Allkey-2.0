@@ -5,6 +5,7 @@ import { createRoot, Root } from 'react-dom/client'
 import { makeApi, Ctx } from './api'
 import OpsApp from './OpsApp'
 import AdminsPanel from './AdminsPanel'
+import ReportsScreen from './ReportsScreen'
 import { CSS } from './styles'
 
 const roots = new WeakMap<HTMLElement, Root>()
@@ -20,7 +21,11 @@ export function mount(el: HTMLElement, ctx: Ctx) {
   const root = createRoot(host)
   roots.set(el, root)
   const api = makeApi(ctx)
-  root.render(ctx.view === 'settings' ? <AdminsPanel api={api} /> : <OpsApp api={api} basePath={ctx.basePath} />)
+  // Экран «Отчёты» — тот же бандл, отдельный раздел (/x/ops-reports).
+  const page = ctx.basePath.endsWith('/ops-reports')
+    ? <ReportsScreen api={api} basePath={ctx.basePath} />
+    : <OpsApp api={api} basePath={ctx.basePath} />
+  root.render(ctx.view === 'settings' ? <AdminsPanel api={api} /> : page)
 }
 
 export function unmount(el: HTMLElement) {

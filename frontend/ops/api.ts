@@ -112,6 +112,48 @@ export interface Preview {
   companies: { id: number; name: string; active: boolean }[]
 }
 
+export interface PlanRow {
+  id: number
+  company_id: number
+  company: string
+  slug: string
+  bin: string | null
+  regime: string | null
+  vat: string | null
+  form: string
+  period: string
+  period_code: string
+  due_date: string | null
+  status: string
+  plan_status: string | null
+  clarify_reason: string | null
+  basis: string | null
+  info_source: string | null
+  registry_sheet: string
+  decision: 'confirmed' | 'not_required' | null
+  decision_basis: string | null
+  decided_by: string | null
+  decided_at: string | null
+}
+export interface PlanCounters {
+  total: number
+  due: number
+  clarify: number
+  not_required: number
+  companies: number
+  companies_without_forms: number
+  companies_without_forms_ids: number[]
+}
+export interface PlanLoadResult {
+  created: number
+  updated: number
+  conflicts_with_history: number
+  unknown_company: number
+  invalid: number
+}
+export interface Discrepancy { company_slug: string; company: string; discrepancy: string; source: string }
+export interface PlanFilter { period?: string; form?: string; status?: string; regime?: string; without_forms?: boolean }
+
 export class ApiError extends Error {
   constructor(public status: number, message: string) {
     super(message)
@@ -134,7 +176,41 @@ export function makeApi(ctx: Ctx) {
     }
     return r.json()
   }
+  // Файл (xlsx) — тем же запросом с токеном, затем сохранение через ссылку.
+  async function download(path: string, fallbackName: string) {
+    const headers = new Headers()
+    const token = ctx.getToken()
+    if (token) headers.set('Authorization', `Bearer ${token}`)
+    const r = await fetch(ctx.apiUrl + '/api/ops' + path, { headers })
+    if (!r.ok) throw new ApiError(r.status, `Ошибка ${r.status}`)
+    const m = /filename="([^"]+)"/.exec(r.headers.get('Content-Disposition') || '')
+    const url = URL.createObjectURL(await r.blob())
+    const a = document.createElement('a')
+    a.href = url
+    a.download = m ? m[1] : fallbackName
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
+  }
   return {
+    plan: () => req<{ items: PlanRow[]; counters: PlanCounters }>('/reports/plan'),
+    loadPlan: () => req<PlanLoadResult>('/reports/plan/load', { method: 'POST' }),
+    decide: (id: number, decision: 'confirmed' | 'not_required', basis: string) =>
+      req<{ ok: boolean; status: string; proposal_id: number }>(`/reports/${id}/decision`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ decision, basis }),
+      }),
+    discrepancies: () => req<{ file: string | null; items: Discrepancy[] }>('/reports/discrepancies'),
+    exportPlan: (kind: 'registry' | 'flat', f: PlanFilter) => {
+      const q = new URLSearchParams()
+      if (f.period) q.set('period', f.period)
+      if (f.form) q.set('form', f.form)
+      if (f.status) q.set('status', f.status)
+      if (f.regime) q.set('regime', f.regime)
+      if (f.without_forms) q.set('without_forms', 'true')
+      const qs = q.toString()
+      return download(`/reports/export/${kind}${qs ? '?' + qs : ''}`, `reports-plan-${kind}.xlsx`)
+    },
     status: () => req<Status>('/status'),
     admins: () => req<AdminsInfo>('/admins'),
     companies: () => req<{ items: CompanyRow[] }>('/companies').then((d) => d.items),
@@ -177,6 +253,7 @@ export const REPORT_STATUS: Record<string, string> = {
   accepted: 'принят',
   rejected: 'отклонён',
   not_required: 'не требуется',
+  clarify: 'уточнить',
 }
 
 export const OBLIGATION_SOURCE: Record<string, string> = {
