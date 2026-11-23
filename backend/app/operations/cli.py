@@ -35,6 +35,7 @@ def main(argv=None) -> int:
     kf.add_argument("--out", required=True, help="файл JSON (вне репозиториев)")
     kf.add_argument("--bins", default="", help="только эти БИН через запятую")
     kf.add_argument("--delay", type=float, default=0.4)
+    kf.add_argument("--from-file", default="", help="не ходить в КГД: пересчитать normalized по сохранённому файлу")
     args = ap.parse_args(argv)
 
     Base.metadata.create_all(bind=engine)
@@ -55,7 +56,9 @@ def main(argv=None) -> int:
                   f"пропало из репозитория {r.missing_in_repo}")
             return 0
         if args.cmd == "kgd-fetch":
-            from app.operations.kgd_batch import fetch_all
+            from app.operations.kgd_batch import fetch_all, renormalize
+            if args.from_file:
+                return renormalize(args.from_file, args.out)
             return fetch_all(args.out, [b for b in args.bins.split(",") if b.strip()], args.delay)
         if args.cmd == "grant-admin":
             return 0 if grant_admin(db, args.user_id, granted_by="cli") else 1

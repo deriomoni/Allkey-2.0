@@ -13,7 +13,7 @@ import time
 from pathlib import Path
 from typing import List
 
-from app.operations.kgd import KgdError, fetch_raw
+from app.operations.kgd import KgdError, fetch_raw, normalize
 from app.operations.sync import load_cards, repo_path
 
 
@@ -28,6 +28,17 @@ def active_cards_in_order(root: Path):
     return [(slug, b) for _, slug, b in sorted(cards)]
 
 
+def renormalize(src: str, out: str) -> int:
+    """Пересчитать normalized по сохранённым raw (без запросов в КГД)."""
+    data = json.loads(Path(src).read_text(encoding="utf-8"))
+    for it in data.get("items", []):
+        if it.get("ok"):
+            it["normalized"] = normalize(it["raw"])
+    Path(out).write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
+    print(f"КГД: пересчитано {sum(1 for i in data.get('items', []) if i.get('ok'))}")
+    return 0
+
+
 def fetch_all(out: str, only_bins: List[str], delay: float = 0.4) -> int:
     root = repo_path()
     todo = active_cards_in_order(root)
@@ -40,7 +51,8 @@ def fetch_all(out: str, only_bins: List[str], delay: float = 0.4) -> int:
             err += 1
             continue
         try:
-            items.append({"slug": slug, "bin": b, "ok": True, "raw": fetch_raw(b)})
+            raw = fetch_raw(b)
+            items.append({"slug": slug, "bin": b, "ok": True, "raw": raw, "normalized": normalize(raw)})
             ok += 1
         except KgdError as e:
             items.append({"slug": slug, "bin": b, "ok": False, "error": str(e)})
