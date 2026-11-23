@@ -93,4 +93,15 @@ export const CSS = `
 .opsx-tab-on { color:#0f766e; border-bottom-color:#0d9488; }
 .opsx-drive-link { display:inline-flex; align-items:center; gap:6px; color:#0f766e; text-decoration:none; white-space:nowrap; padding:3px 8px; border-radius:6px; border:1px solid #ccfbf1; background:#f0fdfa; font-size:13px; }
 .opsx-drive-link:hover { background:#ccfbf1; }
+.opsx-pill-hidden { background:#1e293b; color:#f8fafc; }
+.opsx-row-hidden td { background:#f8fafc; }
+.opsx-switch { position:relative; width:38px; height:22px; border-radius:999px; border:none; background:#cbd5e1; cursor:pointer; padding:0; vertical-align:middle; transition:background .15s; }
+.opsx-switch:disabled { opacity:.6; cursor:wait; }
+.opsx-switch-on { background:#1e293b; }
+.opsx-switch-knob { position:absolute; top:3px; left:3px; width:16px; height:16px; border-radius:50%; background:#fff; transition:left .15s; box-shadow:0 1px 2px rgba(0,0,0,.2); }
+.opsx-switch-on .opsx-switch-knob { left:19px; }
+.opsx-switch:focus-visible { outline:2px solid #0d9488; outline-offset:2px; }
+.opsx-switch-note { margin-left:8px; font-size:12px; }
+.opsx-service-text { margin-top:8px; font-size:13px; }
+.opsx-service-gap { margin:12px 0 0; }
 `

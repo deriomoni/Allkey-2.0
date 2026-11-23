@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Api, CompanyRow, REGIME, Status, SyncResult } from './api'
+import { Api, CompanyRow, REGIME, Status } from './api'
 
 // Поиск — только на клиенте: названия не уходят в URL и в access-логи сервера.
 function norm(s: string) {
   return s.toLowerCase().replace(/ё/g, 'е').replace(/[«»"'“”]/g, '').replace(/\s+/g, ' ').trim()
 }
 
-export default function CompaniesList({ api, onOpen, onImport }: { api: Api; onOpen: (id: number) => void; onImport: () => void }) {
+// Синхронизация карточек и импорт отчётов — в разделе «Служебное» (/x/ops-service), не здесь.
+export default function CompaniesList({ api, onOpen }: { api: Api; onOpen: (id: number) => void }) {
   const [items, setItems] = useState<CompanyRow[] | null>(null)
   const [status, setStatus] = useState<Status | null>(null)
   const [q, setQ] = useState('')
@@ -21,9 +22,10 @@ export default function CompaniesList({ api, onOpen, onImport }: { api: Api; onO
     setTabState(t)
   }
   const [onlySuspected, setOnlySuspected] = useState(false)
+  // ТЗ 1.1 п. 9: скрытые компании видит только admin; в списке — по фильтру, по умолчанию выключен.
+  const [showHidden, setShowHidden] = useState(false)
+  const [busyId, setBusyId] = useState<number | null>(null)
   const [error, setError] = useState('')
-  const [syncing, setSyncing] = useState(false)
-  const [sync, setSync] = useState<SyncResult | null>(null)
 
   const load = () => {
     setError('')
@@ -33,24 +35,26 @@ export default function CompaniesList({ api, onOpen, onImport }: { api: Api; onO
   }
   useEffect(load, [])
 
-  const runSync = async () => {
-    setSyncing(true)
-    setSync(null)
+  const toggleHidden = async (c: CompanyRow) => {
+    setBusyId(c.id)
+    setError('')
     try {
-      const r = await api.sync()
-      setSync(r)
-      if (r.ok) load()
+      const r = await api.setHidden(c.id, !c.hidden)
+      setItems((xs) => xs && xs.map((x) => (x.id === c.id ? { ...x, hidden: r.hidden } : x)))
+      api.status().then(setStatus).catch(() => {})
     } catch (e: any) {
       setError(e.message)
     } finally {
-      setSyncing(false)
+      setBusyId(null)
     }
   }
 
+  const base = useMemo(() => (items || []).filter((c) => showHidden || !c.hidden), [items, showHidden])
+  const hiddenCount = useMemo(() => (items || []).filter((c) => c.hidden).length, [items])
+
   const filtered = useMemo(() => {
-    if (!items) return []
     const nq = norm(q)
-    return items.filter((c) => {
+    return base.filter((c) => {
       if (tab === 'active' ? !c.active : c.active) return false
       if (onlySuspected && !c.suspected_count) return false
       if (!nq) return true
@@ -58,12 +62,12 @@ export default function CompaniesList({ api, onOpen, onImport }: { api: Api; onO
       const hay = [c.name, c.legal_name || '', c.bin || '', ...c.aliases].map(norm)
       return hay.some((h) => h.includes(nq))
     })
-  }, [items, q, tab, onlySuspected])
+  }, [base, q, tab, onlySuspected])
 
   const counts = useMemo(() => ({
-    active: (items || []).filter((c) => c.active).length,
-    archive: (items || []).filter((c) => !c.active).length,
-  }), [items])
+    active: base.filter((c) => c.active).length,
+    archive: base.filter((c) => !c.active).length,
+  }), [base])
 
   return (
     <div>
@@ -73,37 +77,13 @@ export default function CompaniesList({ api, onOpen, onImport }: { api: Api; onO
           {status && (
             <div className="opsx-muted">
               Активных <b>{status.active}</b> · архивных <b>{status.inactive}</b> · всего {status.total}
+              {status.hidden !== undefined && <> · из них скрытых {status.hidden}</>}
               {status.last_synced_at && <> · синхронизировано {new Date(status.last_synced_at).toLocaleString('ru-RU')}</>}
             </div>
           )}
         </div>
-        <div className="opsx-actions">
-          <button className="opsx-btn" onClick={onImport}>Импорт отчётов</button>
-          <button className="opsx-btn opsx-btn-primary" onClick={runSync} disabled={syncing}>
-            {syncing ? 'Проверка и синхронизация…' : 'Синхронизировать'}
-          </button>
-        </div>
       </div>
 
-      {sync && !sync.ok && (
-        <div className="opsx-alert opsx-alert-err">
-          <b>Синхронизация не выполнена.</b>
-          {sync.error && <div>{sync.error}</div>}
-          {!sync.validator_ok && (
-            <>
-              <div>Валидатор карточек нашёл ошибки — исправьте их в репозитории arty-ops и повторите:</div>
-              <ul>{sync.validator_errors.map((e, i) => <li key={i}><code>{e}</code></li>)}</ul>
-            </>
-          )}
-        </div>
-      )}
-      {sync && sync.ok && (
-        <div className="opsx-alert opsx-alert-ok">
-          Валидатор: ошибок нет. Синхронизировано {sync.total} карточек (активных {sync.active}, архивных {sync.inactive}):
-          новых {sync.created}, изменено {sync.updated}, без изменений {sync.unchanged}
-          {sync.missing_in_repo > 0 && <>, пропали из репозитория {sync.missing_in_repo}</>}.
-        </div>
-      )}
       {error && <div className="opsx-alert opsx-alert-err">{error}</div>}
 
       <div className="opsx-tabs">
@@ -124,14 +104,18 @@ export default function CompaniesList({ api, onOpen, onImport }: { api: Api; onO
         />
         <label className="opsx-check">
           <input type="checkbox" checked={onlySuspected} onChange={(e) => setOnlySuspected(e.target.checked)} />
-          есть подозрения{items && <> ({items.filter((c) => c.suspected_count).length})</>}
+          есть подозрения{items && <> ({base.filter((c) => c.suspected_count).length})</>}
+        </label>
+        <label className="opsx-check" title="Скрытые компании видит только администратор">
+          <input type="checkbox" checked={showHidden} onChange={(e) => setShowHidden(e.target.checked)} />
+          показать скрытые{items && <> ({hiddenCount})</>}
         </label>
         {items && <span className="opsx-muted">Показано {filtered.length}</span>}
       </div>
 
       {!items && !error && <div className="opsx-muted">Загрузка…</div>}
       {items && items.length === 0 && (
-        <div className="opsx-alert">Реестр пуст. Нажмите «Синхронизировать», чтобы загрузить карточки из arty-ops.</div>
+        <div className="opsx-alert">Реестр пуст. Загрузите карточки в разделе «Служебное» → «Синхронизировать».</div>
       )}
       {items && items.length > 0 && (
         <div className="opsx-table-wrap">
@@ -142,16 +126,18 @@ export default function CompaniesList({ api, onOpen, onImport }: { api: Api; onO
                 <th>БИН</th>
                 <th>Режим</th>
                 <th>НДС</th>
-                <th>Ответственный</th>
                 <th>Папка на Диске</th>
+                <th>Скрытая</th>
               </tr>
             </thead>
             <tbody>
               {filtered.map((c) => (
-                <tr key={c.id} onClick={() => onOpen(c.id)} className={c.active ? '' : 'opsx-row-off'}>
+                <tr key={c.id} onClick={() => onOpen(c.id)}
+                  className={[c.active ? '' : 'opsx-row-off', c.hidden ? 'opsx-row-hidden' : ''].join(' ')}>
                   <td>
                     <div className="opsx-name">
                       {c.name}
+                      {c.hidden && <span className="opsx-pill opsx-pill-hidden">скрытая</span>}
                       {!!c.suspected_count && (
                         <span className="opsx-pill opsx-pill-susp" title="Подозрения на обязательство по сдаче формы">
                           {c.suspected_count} подозр.
@@ -164,7 +150,6 @@ export default function CompaniesList({ api, onOpen, onImport }: { api: Api; onO
                   <td className="opsx-mono">{c.bin || '—'}</td>
                   <td>{c.tax_regime ? REGIME[c.tax_regime] || c.tax_regime : '—'}</td>
                   <td>{c.vat_payer === true ? 'да' : c.vat_payer === false ? 'нет' : '—'}</td>
-                  <td>{c.responsible || <span className="opsx-muted">—</span>}</td>
                   <td>
                     {c.drive_url ? (
                       <a
@@ -184,6 +169,23 @@ export default function CompaniesList({ api, onOpen, onImport }: { api: Api; onO
                       <span className="opsx-pill opsx-pill-warn">не привязана</span>
                     )}
                     {c.missing_in_repo && <span className="opsx-pill opsx-pill-warn">нет в репо</span>}
+                  </td>
+                  <td onClick={(e) => e.stopPropagation()}>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={c.hidden}
+                      aria-label={c.hidden ? 'Скрытая — открыть для сотрудников' : 'Сделать скрытой'}
+                      title={c.hidden
+                        ? 'Скрытая: видит только администратор. Нажмите, чтобы открыть (правка карточки коммитом)'
+                        : 'Сделать скрытой: сотрудники не увидят компанию нигде (правка карточки коммитом)'}
+                      className={`opsx-switch ${c.hidden ? 'opsx-switch-on' : ''}`}
+                      disabled={busyId !== null}
+                      onClick={() => toggleHidden(c)}
+                    >
+                      <span className="opsx-switch-knob" />
+                    </button>
+                    {busyId === c.id && <span className="opsx-muted opsx-switch-note">сохраняем…</span>}
                   </td>
                 </tr>
               ))}

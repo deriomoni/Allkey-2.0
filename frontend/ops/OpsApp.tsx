@@ -2,17 +2,14 @@ import { useEffect, useState } from 'react'
 import { Api } from './api'
 import CompaniesList from './CompaniesList'
 import CompanyCard from './CompanyCard'
-import ReportsImport from './ReportsImport'
 
-type View = { kind: 'list' } | { kind: 'card'; id: number } | { kind: 'import' }
+type View = { kind: 'list' } | { kind: 'card'; id: number }
 
-// Навигация внутри раздела — через ?c=<id> и ?view=import, без роутера основного приложения.
+// Навигация внутри раздела — через ?c=<id>, без роутера основного приложения.
+// Синхронизация и импорт отчётов — в разделе «Служебное» (ServiceScreen, /x/ops-service).
 function readView(): View {
-  const q = new URLSearchParams(window.location.search)
-  const c = Number(q.get('c'))
-  if (c) return { kind: 'card', id: c }
-  if (q.get('view') === 'import') return { kind: 'import' }
-  return { kind: 'list' }
+  const c = Number(new URLSearchParams(window.location.search).get('c'))
+  return c ? { kind: 'card', id: c } : { kind: 'list' }
 }
 
 export default function OpsApp({ api, basePath }: { api: Api; basePath: string }) {
@@ -25,19 +22,11 @@ export default function OpsApp({ api, basePath }: { api: Api; basePath: string }
   }, [])
 
   const go = (v: View) => {
-    const q = v.kind === 'card' ? `?c=${v.id}` : v.kind === 'import' ? '?view=import' : ''
-    window.history.pushState(null, '', basePath + q)
+    window.history.pushState(null, '', basePath + (v.kind === 'card' ? `?c=${v.id}` : ''))
     setView(v)
     window.scrollTo(0, 0)
   }
 
   if (view.kind === 'card') return <CompanyCard api={api} id={view.id} onBack={() => go({ kind: 'list' })} />
-  if (view.kind === 'import') return <ReportsImport api={api} onBack={() => go({ kind: 'list' })} />
-  return (
-    <CompaniesList
-      api={api}
-      onOpen={(id) => go({ kind: 'card', id })}
-      onImport={() => go({ kind: 'import' })}
-    />
-  )
+  return <CompaniesList api={api} onOpen={(id) => go({ kind: 'card', id })} />
 }

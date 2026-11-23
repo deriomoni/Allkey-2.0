@@ -20,6 +20,7 @@ export interface CompanyRow {
   responsible: string | null
   active: boolean
   missing_in_repo: boolean
+  hidden: boolean
   suspected_count?: number
 }
 
@@ -78,6 +79,7 @@ export interface Status {
   inactive: number
   last_synced_at: string | null
   repo_configured: boolean
+  hidden?: number  // только у admin
 }
 
 export interface OpsAdmin {
@@ -140,6 +142,10 @@ export function makeApi(ctx: Ctx) {
     companies: () => req<{ items: CompanyRow[] }>('/companies').then((d) => d.items),
     company: (id: number) => req<CompanyDetail>(`/companies/${id}`),
     sync: () => req<SyncResult>('/companies/sync', { method: 'POST' }),
+    setHidden: (id: number, hidden: boolean) =>
+      req<{ ok: boolean; hidden: boolean; commit: string }>(`/companies/${id}/hidden`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ hidden }),
+      }),
     raiseObligation: (id: number, body: { form: string; period: string; trigger: string[] }) =>
       req<{ ok: boolean; commit: string }>(`/companies/${id}/obligations`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
