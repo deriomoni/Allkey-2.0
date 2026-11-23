@@ -3,6 +3,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Optional
 
+from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # backend/app/operations/config.py → корень репозитория Allkey
@@ -23,6 +24,9 @@ class OpsSettings(BaseSettings):
     ops_repo_push: bool = False
     # Собранный отдельный бандл фронта модуля (npm run build:ops).
     ops_ui_bundle_path: str = str(_REPO_ROOT / "frontend" / "dist-ops" / "ops.js")
+    # API КГД «Сведения по контрагентам». Токен — только локально (backend/.env), на сервер не переносится.
+    kgd_api_token: Optional[SecretStr] = None
+    kgd_api_url: str = "https://kgd.gov.kz/services/isnaportal/public/get-sur-data"
 
 
 @lru_cache()

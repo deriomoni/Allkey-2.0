@@ -20,6 +20,7 @@ from app.database import SessionLocal
 from app.operations.router import router as ops_router, ext_router as ops_ext_router
 from app.operations.access import OpsGateMiddleware, ensure_admin_from_env
 from app.operations.schema_sync import ensure_ops_schema
+from app.operations.kgd import install_log_mask as ops_kgd_log_mask
 # Import models so they are registered with Base.metadata
 import app.licenses.models  # noqa: F401
 import app.settings.models  # noqa: F401
@@ -38,6 +39,7 @@ async def lifespan(app: FastAPI):
     # (create_all adds new tables but not new columns to existing ones).
     ensure_personnel_schema(engine)
     ensure_ops_schema(engine)
+    ops_kgd_log_mask()
     # Startup: seed the service registry / migrate roles (idempotent)
     db = SessionLocal()
     try:

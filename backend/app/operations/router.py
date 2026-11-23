@@ -26,6 +26,7 @@ from app.operations.config import get_ops_settings
 from app.operations.models import OpsCompany, OpsCompanyReport, OpsObligationFlag
 from app.operations import obligations as obl
 from app.operations import card_edit
+from app.operations import kgd
 from app.operations.sync import sync_one
 from app.operations.reports_import import commit_rows, match_rows, parse_workbook
 from app.operations.sync import sync_companies
@@ -201,6 +202,15 @@ def company_set_hidden(company_id: int, body: HiddenIn, user: User = Depends(req
         raise HTTPException(status_code=e.status, detail=str(e))
     c = sync_one(db, c.slug)
     return {"ok": True, "hidden": bool(c.hidden), "commit": sha}
+
+
+@router.get("/kgd/check", name="ops_kgd_check")
+def kgd_check(bin: str, user: User = Depends(require_ops_admin)):
+    """API КГД «Сведения по контрагентам» по БИН/ИИН (только admin; БИН в access-логе маскируется)."""
+    try:
+        return kgd.check(bin)
+    except kgd.KgdError as e:
+        raise HTTPException(status_code=e.status, detail=str(e))
 
 
 @router.post("/companies/sync", name="ops_sync_companies")

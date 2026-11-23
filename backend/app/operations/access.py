@@ -45,6 +45,7 @@ ROUTE_PERMISSIONS: dict[str, Set[str]] = {
     "ops_obligation_confirm": {"admin"},
     "ops_obligation_dismiss": {"admin"},
     "ops_company_set_hidden": {"admin"},
+    "ops_kgd_check": {"admin"},
 }
 
 # ТЗ 1.1 п. 9 — скрытые компании. Маршруты, чьи обработчики фильтруют скрытые компании

@@ -4,6 +4,7 @@
     python -m app.operations.cli sync --skip-validator
     python -m app.operations.cli grant-admin --user-id 1
     python -m app.operations.cli revoke-admin --user-id 1
+    python -m app.operations.cli kgd-fetch --out PATH   # API КГД по всем живым карточкам → JSON вне репозитория
     python -m app.operations.cli admins               # кому выдана роль admin модуля
 
 Выводит только счётчики и ошибки валидатора — без названий компаний.
@@ -30,6 +31,10 @@ def main(argv=None) -> int:
     rv = sub.add_parser("revoke-admin")
     rv.add_argument("--user-id", type=int, required=True)
     sub.add_parser("admins")
+    kf = sub.add_parser("kgd-fetch")
+    kf.add_argument("--out", required=True, help="файл JSON (вне репозиториев)")
+    kf.add_argument("--bins", default="", help="только эти БИН через запятую")
+    kf.add_argument("--delay", type=float, default=0.4)
     args = ap.parse_args(argv)
 
     Base.metadata.create_all(bind=engine)
@@ -49,6 +54,9 @@ def main(argv=None) -> int:
                   f"новых {r.created}, изменено {r.updated}, без изменений {r.unchanged}, "
                   f"пропало из репозитория {r.missing_in_repo}")
             return 0
+        if args.cmd == "kgd-fetch":
+            from app.operations.kgd_batch import fetch_all
+            return fetch_all(args.out, [b for b in args.bins.split(",") if b.strip()], args.delay)
         if args.cmd == "grant-admin":
             return 0 if grant_admin(db, args.user_id, granted_by="cli") else 1
         if args.cmd == "revoke-admin":
