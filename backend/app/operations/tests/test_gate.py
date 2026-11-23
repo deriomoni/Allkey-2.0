@@ -69,7 +69,9 @@ def env(monkeypatch):
     db.close()
 
 
-OPS_GETS = ["/api/ops/companies", "/api/ops/admins", "/api/ops/companies/1", "/api/ops/status", "/api/ops/ui/bundle.js", "/api/ops/nope", "/api/ops"]
+OPS_GETS = ["/api/ops/companies", "/api/ops/admins", "/api/ops/companies/1", "/api/ops/status", "/api/ops/ui/bundle.js", "/api/ops/nope", "/api/ops",
+            "/api/ops/reports/plan", "/api/ops/reports/discrepancies", "/api/ops/reports/export/flat",
+            "/api/ops/reports/export/registry"]
 
 
 @pytest.mark.parametrize("who", [None, "employee", "other_admin", "viewer"])
@@ -80,8 +82,10 @@ def test_non_admin_gets_404_everywhere(env, who):
         r = client.get(path, headers=headers)
         assert r.status_code == 404, (who, path)
         assert SECRET_NAME not in r.text and SECRET_BIN not in r.text
-    for path in ["/api/ops/companies/sync", "/api/ops/reports/import/commit"]:
+    for path in ["/api/ops/companies/sync", "/api/ops/reports/import/commit", "/api/ops/reports/plan/load"]:
         assert client.post(path, headers=headers, json={"rows": []}).status_code == 404
+    r = client.post("/api/ops/reports/1/decision", headers=headers, json={"decision": "confirmed", "basis": "xxx"})
+    assert r.status_code == 404
 
 
 def test_users_role_admin_alone_is_not_enough(env):
@@ -98,7 +102,7 @@ def test_owner_sees_registry(env):
     adm = client.get("/api/ops/admins", headers=hdr(users["owner"])).json()
     assert [a["email"] for a in adm["items"]] == ["owner@t.kz"]
     ext = client.get("/users/me/extensions", headers=hdr(users["owner"])).json()
-    assert [e["key"] for e in ext] == ["ops"]
+    assert [e["key"] for e in ext] == ["ops", "ops-reports"]
 
 
 def test_extensions_empty_for_non_admin(env):

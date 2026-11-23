@@ -77,6 +77,38 @@ class OpsCompanyReport(Base):
     evidence_drive_file_id = Column(String, nullable=True)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
+    # --- Строки плана (source='plan', reports/plan-2026.csv из arty-ops). Для истории — NULL.
+    # status у плана: due («ожидается»), clarify («уточнить»); после решения — due | not_required.
+    due_date = Column(String, nullable=True)        # срок сдачи как в плане, ДД.ММ.ГГГГ
+    plan_json = Column(JsonType, nullable=True)     # period_raw, clarify_reason, basis, info_source,
+    #                                                 regime, vat, registry_sheet, plan_status, plan_file
+    decision = Column(String, nullable=True)        # confirmed | not_required (решение по «уточнить»)
+    decision_basis = Column(Text, nullable=True)
+    decided_by = Column(String, nullable=True)
+    decided_at = Column(DateTime(timezone=True), nullable=True)
+
+
+class OpsCardProposal(Base):
+    """Предложение правки карточки (ТЗ, ops_card_proposals). Карточку само не меняет:
+    применяет admin отдельным шагом, система коммитит от своего имени."""
+
+    __tablename__ = "ops_card_proposals"
+
+    id = Column(Integer, primary_key=True)
+    company_id = Column(Integer, ForeignKey("ops_companies.id", ondelete="CASCADE"), nullable=False, index=True)
+    proposed_by = Column(String, nullable=False)
+    field_path = Column(String, nullable=False)     # напр. tax.forms
+    old_value = Column(JsonType, nullable=True)
+    new_value = Column(JsonType, nullable=True)
+    comment = Column(Text, nullable=True)
+    status = Column(String, nullable=False, default="pending")  # pending | accepted | rejected
+    decided_by = Column(String, nullable=True)
+    decided_at = Column(DateTime(timezone=True), nullable=True)
+    commit_sha = Column(String, nullable=True)
+    # Откуда предложение: report:<id> — решение по строке «уточнить» на экране «Отчёты».
+    origin = Column(String, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
 
 class OpsObligationFlag(Base):
     """Подозрение на обязательство по сдаче формы — проекция client.yaml → obligation_flags.

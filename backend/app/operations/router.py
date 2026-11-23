@@ -22,6 +22,7 @@ from app.operations.access import effective_roles, filter_fields, is_ops_admin, 
 from app.operations.config import get_ops_settings
 from app.operations.models import OpsCompany, OpsCompanyReport, OpsObligationFlag
 from app.operations import obligations as obl
+from app.operations import plan as plan_mod
 from app.operations.sync import sync_one
 from app.operations.reports_import import commit_rows, match_rows, parse_workbook
 from app.operations.sync import sync_companies
@@ -247,6 +248,58 @@ def import_commit(body: CommitBody, user: User = Depends(require_ops_admin), db:
     return commit_rows(db, [r.model_dump() for r in body.rows])
 
 
+# --- Экран «Отчёты»: план из allkey-ops, решения по «уточнить», экспорт -----------------
+
+def _plan_error(fn):
+    try:
+        return fn()
+    except plan_mod.PlanError as e:
+        raise HTTPException(status_code=e.status, detail=str(e))
+
+
+@router.get("/reports/plan", name="ops_reports_plan")
+def reports_plan(user: User = Depends(require_ops_admin), db: Session = Depends(get_db)):
+    items = plan_mod.plan_items(db)
+    return {"items": items, "counters": plan_mod.counters(items)}
+
+
+@router.post("/reports/plan/load", name="ops_reports_plan_load")
+def reports_plan_load(user: User = Depends(require_ops_admin), db: Session = Depends(get_db)):
+    return _plan_error(lambda: plan_mod.load_plan_from_repo(db))
+
+
+class PlanDecisionIn(BaseModel):
+    decision: str  # confirmed | not_required
+    basis: str
+
+
+@router.post("/reports/{report_id}/decision", name="ops_reports_decision")
+def reports_decision(report_id: int, body: PlanDecisionIn, user: User = Depends(require_ops_admin),
+                     db: Session = Depends(get_db)):
+    return _plan_error(lambda: plan_mod.decide(db, report_id, body.decision, body.basis, _user_label(user)))
+
+
+@router.get("/reports/discrepancies", name="ops_reports_discrepancies")
+def reports_discrepancies(user: User = Depends(require_ops_admin)):
+    return _plan_error(plan_mod.read_discrepancies)
+
+
+XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+
+@router.get("/reports/export/{kind}", name="ops_reports_export")
+def reports_export(kind: str, period: Optional[str] = None, form: Optional[str] = None,
+                   status: Optional[str] = None, regime: Optional[str] = None, without_forms: bool = False,
+                   user: User = Depends(require_ops_admin), db: Session = Depends(get_db)):
+    if kind not in ("registry", "flat"):
+        raise HTTPException(status_code=404, detail="Not Found")
+    items = plan_mod.apply_filters(plan_mod.plan_items(db), period, form, status, regime, without_forms)
+    data = plan_mod.export_registry(items) if kind == "registry" else plan_mod.export_flat(items)
+    name = f"reports-plan-{kind}-{dt.date.today().isoformat()}.xlsx"
+    return Response(content=data, media_type=XLSX,
+                    headers={"Content-Disposition": f'attachment; filename="{name}"', "Cache-Control": "no-store"})
+
+
 @router.get("/ui/bundle.js", name="ops_ui_bundle")
 def ui_bundle(user: User = Depends(require_ops_admin)):
     """Отдельный бандл фронта модуля: отдаётся только admin (через тот же гейт)."""
@@ -272,4 +325,7 @@ def my_extensions(user: User = Depends(get_current_user), db: Session = Depends(
         "key": "ops", "title": "Компании", "path": "/x/ops", "bundle": "/api/ops/ui/bundle.js",
         # Бандл умеет рисовать блок для страницы «Настройки» (список admin модуля).
         "settings": True,
+    }, {
+        # Экран «Отчёты» — тот же бандл, вид выбирается по basePath.
+        "key": "ops-reports", "title": "Отчёты", "path": "/x/ops-reports", "bundle": "/api/ops/ui/bundle.js",
     }]

@@ -4,6 +4,7 @@
     python -m app.operations.cli sync --skip-validator
     python -m app.operations.cli grant-admin --user-id 1
     python -m app.operations.cli revoke-admin --user-id 1
+    python -m app.operations.cli load-plan            # reports/plan-2026.csv → ops_company_reports (source=plan)
     python -m app.operations.cli admins               # кому выдана роль admin модуля
 
 Выводит только счётчики и ошибки валидатора — без названий компаний.
@@ -30,6 +31,7 @@ def main(argv=None) -> int:
     rv = sub.add_parser("revoke-admin")
     rv.add_argument("--user-id", type=int, required=True)
     sub.add_parser("admins")
+    sub.add_parser("load-plan")
     args = ap.parse_args(argv)
 
     Base.metadata.create_all(bind=engine)
@@ -48,6 +50,17 @@ def main(argv=None) -> int:
             print(f"OK: всего {r.total} (активных {r.active}, архивных {r.inactive}); "
                   f"новых {r.created}, изменено {r.updated}, без изменений {r.unchanged}, "
                   f"пропало из репозитория {r.missing_in_repo}")
+            return 0
+        if args.cmd == "load-plan":
+            from app.operations.plan import PlanError, load_plan_from_repo
+            try:
+                r = load_plan_from_repo(db)
+            except PlanError as e:
+                print(f"План не загружен: {e}")
+                return 1
+            print(f"OK: новых {r['created']}, обновлено {r['updated']}, совпало с историей (пропущено) "
+                  f"{r['conflicts_with_history']}, компания не найдена {r['unknown_company']}, "
+                  f"некорректных {r['invalid']}")
             return 0
         if args.cmd == "grant-admin":
             return 0 if grant_admin(db, args.user_id, granted_by="cli") else 1

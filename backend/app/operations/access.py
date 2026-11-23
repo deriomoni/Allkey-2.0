@@ -44,6 +44,11 @@ ROUTE_PERMISSIONS: dict[str, Set[str]] = {
     "ops_obligation_create": {"admin"},
     "ops_obligation_confirm": {"admin"},
     "ops_obligation_dismiss": {"admin"},
+    "ops_reports_plan": {"admin"},
+    "ops_reports_plan_load": {"admin"},
+    "ops_reports_decision": {"admin"},
+    "ops_reports_discrepancies": {"admin"},
+    "ops_reports_export": {"admin"},
 }
 
 # Белый список полей карточки по ролям (п. 4). None — все поля.
