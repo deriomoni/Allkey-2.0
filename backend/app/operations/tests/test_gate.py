@@ -98,7 +98,7 @@ def test_owner_sees_registry(env):
     adm = client.get("/api/ops/admins", headers=hdr(users["owner"])).json()
     assert [a["email"] for a in adm["items"]] == ["owner@t.kz"]
     ext = client.get("/users/me/extensions", headers=hdr(users["owner"])).json()
-    assert [e["key"] for e in ext] == ["ops"]
+    assert [e["key"] for e in ext] == ["ops", "ops-service"]
 
 
 def test_extensions_empty_for_non_admin(env):

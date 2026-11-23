@@ -132,6 +132,7 @@ def card_to_columns(slug: str, card: dict) -> dict:
         "active": card.get("active") is not False,
         "inactive_reason": _str(card.get("inactive_reason")),
         "inactive_since": _date(card.get("inactive_since")),
+        "hidden": card.get("hidden") is True,  # нет поля — false (ТЗ 1.1 п. 9)
         "missing_in_repo": False,
     }
 

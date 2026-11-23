@@ -18,10 +18,14 @@ from sqlalchemy.orm import Session
 
 from app.auth.dependencies import get_current_user
 from app.database import get_db
-from app.operations.access import effective_roles, filter_fields, is_ops_admin, list_admins, require_ops_admin
+from app.operations.access import (
+    company_visible, effective_roles, filter_fields, is_ops_admin, list_admins, require_ops_admin, sees_hidden,
+    visible_companies,
+)
 from app.operations.config import get_ops_settings
 from app.operations.models import OpsCompany, OpsCompanyReport, OpsObligationFlag
 from app.operations import obligations as obl
+from app.operations import card_edit
 from app.operations.sync import sync_one
 from app.operations.reports_import import commit_rows, match_rows, parse_workbook
 from app.operations.sync import sync_companies
@@ -58,6 +62,7 @@ def _list_item(c: OpsCompany) -> dict:
         "responsible": (resp.get("name") or "").strip() or accountant.strip() or None,
         "active": c.active,
         "missing_in_repo": c.missing_in_repo,
+        "hidden": bool(c.hidden),
         "drive_url": _drive_url(c.drive_root_folder_id),
     }
 
@@ -65,12 +70,13 @@ def _list_item(c: OpsCompany) -> dict:
 @router.get("/companies", name="ops_list_companies")
 def list_companies(user: User = Depends(require_ops_admin), db: Session = Depends(get_db)):
     roles = effective_roles(db, user)
-    items = db.query(OpsCompany).order_by(OpsCompany.active.desc(), OpsCompany.name).all()
-    suspected = dict(
-        db.query(OpsObligationFlag.company_id, func.count(OpsObligationFlag.id))
+    items = visible_companies(db, roles).order_by(OpsCompany.active.desc(), OpsCompany.name).all()
+    ids = {c.id for c in items}
+    suspected = {
+        cid: n for cid, n in db.query(OpsObligationFlag.company_id, func.count(OpsObligationFlag.id))
         .filter(OpsObligationFlag.status == "suspected")
-        .group_by(OpsObligationFlag.company_id).all()
-    )
+        .group_by(OpsObligationFlag.company_id).all() if cid in ids
+    }
     return {"items": [filter_fields(_list_item(c) | {"suspected_count": suspected.get(c.id, 0)}, roles) for c in items]}
 
 
@@ -84,7 +90,8 @@ def _flag(f: OpsObligationFlag) -> dict:
 
 @router.get("/companies/{company_id}", name="ops_get_company")
 def get_company(company_id: int, user: User = Depends(require_ops_admin), db: Session = Depends(get_db)):
-    c = db.query(OpsCompany).filter(OpsCompany.id == company_id).first()
+    roles = effective_roles(db, user)
+    c = visible_companies(db, roles).filter(OpsCompany.id == company_id).first()
     if c is None:
         raise HTTPException(status_code=404, detail="Not Found")
     reports = (
@@ -122,7 +129,7 @@ def get_company(company_id: int, user: User = Depends(require_ops_admin), db: Se
             .filter(OpsObligationFlag.company_id == c.id).order_by(OpsObligationFlag.idx).all()
         ],
     }
-    return filter_fields(data, effective_roles(db, user))
+    return filter_fields(data, roles)
 
 
 class ObligationIn(BaseModel):
@@ -137,9 +144,9 @@ class DecisionIn(BaseModel):
     reason: Optional[str] = None
 
 
-def _company_or_404(db: Session, company_id: int) -> OpsCompany:
+def _company_or_404(db: Session, company_id: int, user: Optional[User] = None) -> OpsCompany:
     c = db.query(OpsCompany).filter(OpsCompany.id == company_id).first()
-    if c is None:
+    if not company_visible(c, effective_roles(db, user) if user else set()):
         raise HTTPException(status_code=404, detail="Not Found")
     return c
 
@@ -160,23 +167,40 @@ def _user_label(user: User) -> str:
 @router.post("/companies/{company_id}/obligations", name="ops_obligation_create")
 def obligation_create(company_id: int, body: ObligationIn, user: User = Depends(require_ops_admin),
                       db: Session = Depends(get_db)):
-    c = _company_or_404(db, company_id)
+    c = _company_or_404(db, company_id, user)
     return _decision(db, c, lambda: obl.raise_flag(c.slug, body.form, body.period, body.trigger, _user_label(user)))
 
 
 @router.post("/companies/{company_id}/obligations/{idx}/confirm", name="ops_obligation_confirm")
 def obligation_confirm(company_id: int, idx: int, body: DecisionIn, user: User = Depends(require_ops_admin),
                        db: Session = Depends(get_db)):
-    c = _company_or_404(db, company_id)
+    c = _company_or_404(db, company_id, user)
     return _decision(db, c, lambda: obl.confirm_flag(c.slug, idx, body.form, body.period, _user_label(user)))
 
 
 @router.post("/companies/{company_id}/obligations/{idx}/dismiss", name="ops_obligation_dismiss")
 def obligation_dismiss(company_id: int, idx: int, body: DecisionIn, user: User = Depends(require_ops_admin),
                        db: Session = Depends(get_db)):
-    c = _company_or_404(db, company_id)
+    c = _company_or_404(db, company_id, user)
     return _decision(db, c, lambda: obl.dismiss_flag(c.slug, idx, body.form, body.period, body.reason or "",
                                                      _user_label(user)))
+
+
+class HiddenIn(BaseModel):
+    hidden: bool
+
+
+@router.post("/companies/{company_id}/hidden", name="ops_company_set_hidden")
+def company_set_hidden(company_id: int, body: HiddenIn, user: User = Depends(require_ops_admin),
+                       db: Session = Depends(get_db)):
+    """Переключатель «скрытая» (ТЗ 1.1 п. 9): правка hidden в client.yaml коммитом от системы."""
+    c = _company_or_404(db, company_id, user)
+    try:
+        sha = card_edit.set_hidden(c.slug, body.hidden, _user_label(user))
+    except obl.ObligationError as e:
+        raise HTTPException(status_code=e.status, detail=str(e))
+    c = sync_one(db, c.slug)
+    return {"ok": True, "hidden": bool(c.hidden), "commit": sha}
 
 
 @router.post("/companies/sync", name="ops_sync_companies")
@@ -186,10 +210,13 @@ def sync(user: User = Depends(require_ops_admin), db: Session = Depends(get_db))
 
 @router.get("/status", name="ops_sync_status")
 def status(user: User = Depends(require_ops_admin), db: Session = Depends(get_db)):
-    total = db.query(func.count(OpsCompany.id)).scalar() or 0
-    active = db.query(func.count(OpsCompany.id)).filter(OpsCompany.active.is_(True)).scalar() or 0
+    roles = effective_roles(db, user)
+    q = visible_companies(db, roles)
+    total = q.count()
+    active = q.filter(OpsCompany.active.is_(True)).count()
     last = db.query(func.max(OpsCompany.synced_at)).scalar()
-    return {
+    extra = {"hidden": db.query(OpsCompany).filter(OpsCompany.hidden.is_(True)).count()} if sees_hidden(roles) else {}
+    return extra | {
         "total": total, "active": active, "inactive": total - active,
         "last_synced_at": _iso(last),
         "repo_configured": bool((get_ops_settings().arty_ops_path or "").strip()),
@@ -272,4 +299,7 @@ def my_extensions(user: User = Depends(get_current_user), db: Session = Depends(
         "key": "ops", "title": "Компании", "path": "/x/ops", "bundle": "/api/ops/ui/bundle.js",
         # Бандл умеет рисовать блок для страницы «Настройки» (список admin модуля).
         "settings": True,
+    }, {
+        # Служебное: синхронизация карточек и импорт отчётов — тот же бандл, вид по basePath.
+        "key": "ops-service", "title": "Служебное", "path": "/x/ops-service", "bundle": "/api/ops/ui/bundle.js",
     }]

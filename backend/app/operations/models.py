@@ -53,6 +53,8 @@ class OpsCompany(Base):
     inactive_since = Column(Date, nullable=True)
     # Карточки из репозитория не удаляются; если папка пропала — только помечаем.
     missing_in_repo = Column(Boolean, nullable=False, default=False, server_default="false")
+    # ТЗ 1.1 п. 9: скрытую компанию видит только admin; для остальных ролей её нет в API.
+    hidden = Column(Boolean, nullable=False, default=False, server_default="false")
 
     synced_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())

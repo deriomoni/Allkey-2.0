@@ -44,6 +44,16 @@ ROUTE_PERMISSIONS: dict[str, Set[str]] = {
     "ops_obligation_create": {"admin"},
     "ops_obligation_confirm": {"admin"},
     "ops_obligation_dismiss": {"admin"},
+    "ops_company_set_hidden": {"admin"},
+}
+
+# ТЗ 1.1 п. 9 — скрытые компании. Маршруты, чьи обработчики фильтруют скрытые компании
+# через visible_companies()/company_visible(). Маршрут, открытый в ROUTE_PERMISSIONS
+# не-admin роли, но отсутствующий здесь, гейт закрывает (404): без фильтра — не открывать.
+HIDDEN_SAFE_ROUTES: Set[str] = {
+    "ops_list_companies",
+    "ops_get_company",
+    "ops_sync_status",
 }
 
 # Белый список полей карточки по ролям (п. 4). None — все поля.
@@ -78,6 +88,33 @@ def effective_roles(db: Session, user: User) -> Set[str]:
 
 def is_ops_admin(db: Session, user: User) -> bool:
     return "admin" in effective_roles(db, user)
+
+
+def sees_hidden(roles: Iterable[str]) -> bool:
+    """Скрытые компании (hidden=true) видит только admin модуля."""
+    return "admin" in set(roles)
+
+
+def visible_companies(db: Session, roles: Iterable[str]):
+    """Единственная точка выборки компаний для ответов API: не-admin скрытых не получает."""
+    from app.operations.models import OpsCompany
+
+    q = db.query(OpsCompany)
+    return q if sees_hidden(roles) else q.filter(OpsCompany.hidden.is_(False))
+
+
+def company_visible(company, roles: Iterable[str]) -> bool:
+    return company is not None and (sees_hidden(roles) or not company.hidden)
+
+
+def route_open_for(name: Optional[str], roles: Set[str]) -> bool:
+    """Default deny + п. 9: не-admin проходит только на маршруты, фильтрующие скрытые."""
+    allowed = ROUTE_PERMISSIONS.get(name or "", set())
+    if not roles or not (roles & allowed):
+        return False
+    if "admin" in roles & allowed:
+        return True
+    return (name or "") in HIDDEN_SAFE_ROUTES
 
 
 def filter_fields(data: dict, roles: Iterable[str]) -> dict:
@@ -142,8 +179,7 @@ class OpsGateMiddleware:
             db.close()
 
         name = _route_name(fastapi_app, scope) if fastapi_app is not None else None
-        allowed = ROUTE_PERMISSIONS.get(name or "", set())
-        if not roles or not (roles & allowed):
+        if not route_open_for(name, roles):
             await _send_json(send, 404, NOT_FOUND_BODY)
             return
 
