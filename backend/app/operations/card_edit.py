@@ -15,8 +15,9 @@ import re
 
 import yaml
 
-from app.operations.config import get_ops_settings
-from app.operations.obligations import SYSTEM_AUTHOR, ObligationError, _card_path, _git, _lock, _run_validator
+from app.operations.obligations import (
+    ObligationError, _card_path, _git, _lock, _run_validator, check_branch, commit_and_push,
+)
 from app.operations.sync import repo_path
 
 logger = logging.getLogger("app.operations")
@@ -54,6 +55,7 @@ def set_hidden(slug: str, value: bool, user_label: str) -> str:
     path = _card_path(root, slug)
     rel = path.relative_to(root).as_posix()
     with _lock:
+        check_branch(root)
         dirty = _git(root, "status", "--porcelain", "--", rel)
         if dirty.returncode != 0:
             raise ObligationError("Репозиторий arty-ops недоступен (git)", 500)
@@ -68,15 +70,7 @@ def set_hidden(slug: str, value: bool, user_label: str) -> str:
         if err:
             path.write_text(original, encoding="utf-8", newline="\n")
             raise ObligationError("Валидатор карточек отклонил изменение: " + err, 422)
-        name, email = SYSTEM_AUTHOR
         msg = f"hidden: {slug} — {'скрыта' if value else 'открыта'} (admin {user_label})"
-        commit = _git(root, "-c", f"user.name={name}", "-c", f"user.email={email}", "commit", "-q", "-m", msg, "--", rel)
-        if commit.returncode != 0:
-            path.write_text(original, encoding="utf-8", newline="\n")
-            raise ObligationError("Не удалось закоммитить карточку", 500)
-        sha = _git(root, "rev-parse", "--short", "HEAD").stdout.decode().strip()
-        if get_ops_settings().ops_repo_push:
-            if _git(root, "push", "-q").returncode != 0:
-                logger.warning("ops: hidden commit %s not pushed", sha)
+        sha = commit_and_push(root, path, rel, original, msg)
         logger.info("ops: hidden committed %s", sha)
         return sha

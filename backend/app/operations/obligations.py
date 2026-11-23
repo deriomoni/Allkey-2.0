@@ -109,6 +109,7 @@ def _apply(slug: str, mutate, message: str) -> str:
     path = _card_path(root, slug)
     rel = path.relative_to(root).as_posix()
     with _lock:
+        check_branch(root)
         dirty = _git(root, "status", "--porcelain", "--", rel)
         if dirty.returncode != 0:
             raise ObligationError("Репозиторий arty-ops недоступен (git)", 500)
@@ -132,19 +133,39 @@ def _apply(slug: str, mutate, message: str) -> str:
         if err:
             path.write_text(original, encoding="utf-8", newline="\n")
             raise ObligationError("Валидатор карточек отклонил изменение: " + err, 422)
-        name, email = SYSTEM_AUTHOR
-        commit = _git(root, "-c", f"user.name={name}", "-c", f"user.email={email}",
-                      "commit", "-q", "-m", message, "--", rel)
-        if commit.returncode != 0:
-            path.write_text(original, encoding="utf-8", newline="\n")
-            raise ObligationError("Не удалось закоммитить карточку", 500)
-        sha = _git(root, "rev-parse", "--short", "HEAD").stdout.decode().strip()
-        if get_ops_settings().ops_repo_push:
-            push = _git(root, "push", "-q")
-            if push.returncode != 0:
-                logger.warning("ops: obligation commit %s not pushed", sha)
+        sha = commit_and_push(root, path, rel, original, message)
         logger.info("ops: obligation decision committed %s", sha)
         return sha
+
+
+def check_branch(root: Path) -> None:
+    """Решения из панели пишутся только в ветку OPS_REPO_BRANCH (на сервере — prod-decisions)."""
+    want = (get_ops_settings().ops_repo_branch or "").strip()
+    if not want:
+        return
+    cur = _git(root, "rev-parse", "--abbrev-ref", "HEAD")
+    if cur.returncode != 0:
+        raise ObligationError("Репозиторий arty-ops недоступен (git)", 500)
+    if cur.stdout.decode().strip() != want:
+        raise ObligationError(f"Клон allkey-ops не на ветке {want} — решения пишутся только в неё", 409)
+
+
+def commit_and_push(root: Path, path: Path, rel: str, original: str, message: str) -> str:
+    """Коммит от системы; при OPS_REPO_PUSH — push в origin/<OPS_REPO_BRANCH> сразу после коммита.
+    Неудачный push коммит не отменяет: он уйдёт со следующим push (в лог — только sha)."""
+    name, email = SYSTEM_AUTHOR
+    commit = _git(root, "-c", f"user.name={name}", "-c", f"user.email={email}", "commit", "-q", "-m", message, "--", rel)
+    if commit.returncode != 0:
+        path.write_text(original, encoding="utf-8", newline="\n")
+        raise ObligationError("Не удалось закоммитить карточку", 500)
+    sha = _git(root, "rev-parse", "--short", "HEAD").stdout.decode().strip()
+    s = get_ops_settings()
+    if s.ops_repo_push:
+        branch = (s.ops_repo_branch or "").strip()
+        args = ["push", "-q", "origin", f"HEAD:refs/heads/{branch}"] if branch else ["push", "-q"]
+        if _git(root, *args).returncode != 0:
+            logger.warning("ops: commit %s not pushed", sha)
+    return sha
 
 
 def _today() -> dt.date:

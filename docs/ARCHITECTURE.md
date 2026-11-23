@@ -241,6 +241,18 @@ ssh <сервер> "cd /root/co-founder-reconciliation-tool && git status -sb &&
 5. прогнать один сквозной кейс на проде;
 6. проверить, что прежние разделы на месте.
 
+**Раздел «Компании» (модуль `operations`) на сервере — копия allkey-ops** (с 23.11.2026):
+
+- клон — `/root/arty-ops`, рабочая ветка **`prod-decisions`**: решения из панели («скрытая», обязательства)
+  коммитятся в неё от системы и сразу пушатся в `origin/prod-decisions` (`OPS_REPO_BRANCH`, `OPS_REPO_PUSH`);
+- доступ к GitHub — deploy-ключ allkey-ops с правом записи в `/root/arty-ops-ssh/` (прописан в `core.sshCommand`
+  клона, в контейнер бэкенда смонтирован по тому же пути, read-only);
+- **обновление копии — по команде и перед каждой выкладкой:**
+  `ssh … "cd /root/arty-ops && git pull origin main && git push origin prod-decisions"`,
+  затем «Служебное» → «Синхронизировать» (или `docker compose … exec -T backend python -m app.operations.cli sync`);
+- `prod-decisions` в `main` вливает Claude Code в allkey-ops перед правкой карточек — порядок в allkey-ops
+  `docs/prod-decisions.md`.
+
 Замер: сборка и подмена контейнеров — 96 секунд, из них сайт недоступен несколько секунд.
 Сборка идёт при работающем сайте. Откат — та же команда с прежней веткой, столько же времени.
 

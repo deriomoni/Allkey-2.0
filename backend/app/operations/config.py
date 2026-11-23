@@ -22,6 +22,9 @@ class OpsSettings(BaseSettings):
     # Решения по обязательствам коммитятся в клон arty-ops от имени системы; пушить ли сразу.
     # Локально — false (коммит остаётся в клоне), на сервере включает владелец.
     ops_repo_push: bool = False
+    # Ветка клона allkey-ops для решений из панели (на сервере — prod-decisions). Пусто — без проверки,
+    # push в текущую ветку. Порядок слияния prod-decisions → main — allkey-ops docs/prod-decisions.md.
+    ops_repo_branch: str = ""
     # Собранный отдельный бандл фронта модуля (npm run build:ops).
     ops_ui_bundle_path: str = str(_REPO_ROOT / "frontend" / "dist-ops" / "ops.js")
     # API КГД «Сведения по контрагентам». Токен — только локально (backend/.env), на сервер не переносится.

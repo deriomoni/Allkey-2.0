@@ -35,9 +35,14 @@ services:
       OPS_REGISTRY_VISIBLE_TO_NON_ADMIN: ${OPS_REGISTRY_VISIBLE_TO_NON_ADMIN:-false}
       ARTY_OPS_PATH: /arty-ops
       OPS_UI_BUNDLE_PATH: /ops-ui/ops.js
+      # решения из панели — коммит в ветку prod-decisions и push сразу после коммита
+      OPS_REPO_BRANCH: prod-decisions
+      OPS_REPO_PUSH: ${OPS_REPO_PUSH:-true}
     volumes:
       # клон allkey-ops на сервере (карточки; решения из UI коммитятся в него от системы)
       - /root/arty-ops:/arty-ops
+      # deploy-ключ allkey-ops (запись) и known_hosts github.com; путь тот же, что в core.sshCommand клона
+      - /root/arty-ops-ssh:/root/arty-ops-ssh:ro
       # отдельный бандл раздела (npm run build:ops) — отдаётся только через /api/ops/ui/bundle.js
       - ./frontend/dist-ops:/ops-ui:ro
     depends_on:
