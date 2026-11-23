@@ -21,8 +21,11 @@ export default function OpsApp({ api, basePath }: { api: Api; basePath: string }
     return () => window.removeEventListener('popstate', onPop)
   }, [])
 
+  // Адрес списка с фильтрами (?tab=…&regime=…) запоминаем при переходе в карточку и возвращаем на «Назад».
+  const [listSearch, setListSearch] = useState(() => (readView().kind === 'list' ? window.location.search : ''))
   const go = (v: View) => {
-    window.history.pushState(null, '', basePath + (v.kind === 'card' ? `?c=${v.id}` : ''))
+    if (v.kind === 'card' && view.kind === 'list') setListSearch(window.location.search)
+    window.history.pushState(null, '', basePath + (v.kind === 'card' ? `?c=${v.id}` : listSearch))
     setView(v)
     window.scrollTo(0, 0)
   }
