@@ -86,7 +86,7 @@ VISIBLE_FIELDS: dict[str, Optional[frozenset]] = {
     "admin": None,
     "staff": frozenset({
         "id", "slug", "name", "name_official", "legal_name", "bin", "aliases", "folder_name",
-        "tax_regime", "vat_payer", "vat_date", "forms", "active", "missing_in_repo", "drive_url",
+        "tax_regime", "vat_payer", "vat_date", "forms", "plan_missing", "active", "missing_in_repo", "drive_url",
         # карточка компании (итерация 4) — всё, что в ней есть, кроме _agent и «скрытой» (их вырезает роутер)
         "card", "onec", "inactive_reason", "inactive_since", "drive", "reports", "synced_at", "obligations",
         "staff_notes", "profile", "profile_url",

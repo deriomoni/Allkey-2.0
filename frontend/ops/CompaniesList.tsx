@@ -28,8 +28,8 @@ function makeFacets(items: CompanyRow[]): Facet<CompanyRow>[] {
     },
     {
       key: 'forms', label: 'Формы',
-      value: (c) => (c.forms?.length ? c.forms : ['none']),
-      labels: { ...Object.fromEntries(forms.map((f) => [f, f])), none: 'нет форм' },
+      value: (c) => [...(c.forms?.length ? c.forms : ['none']), ...(c.plan_missing ? ['noplan'] : [])],
+      labels: { ...Object.fromEntries(forms.map((f) => [f, f])), none: 'нет форм', noplan: 'план не рассчитан' },
     },
   ]
 }
@@ -252,7 +252,10 @@ export default function CompaniesList({ api, onOpen }: { api: Api; onOpen: (id: 
                     {c.vat_payer === true ? 'да' : c.vat_payer === false ? 'нет' : '—'}
                     {c.vat_payer === true && c.vat_date && <div className="opsx-sub">с {fmtDate(c.vat_date)}</div>}
                   </td>
-                  <td className="opsx-forms">{c.forms?.length ? c.forms.join(', ') : <span className="opsx-muted">—</span>}</td>
+                  <td className="opsx-forms">
+                    {c.forms?.length ? c.forms.join(', ') : (c.plan_missing ? null : <span className="opsx-muted">—</span>)}
+                    {c.plan_missing && <div className="opsx-sub">план не рассчитан</div>}
+                  </td>
                   <td>
                     {c.drive_url ? (
                       <a

@@ -60,6 +60,17 @@ def card_forms(card: dict) -> List[str]:
     return key + sorted(f for f in out if f not in KEY_FORMS)
 
 
+def merged_forms(card: dict, plan: Optional[set] = None) -> List[str]:
+    """«Формы» экрана «Компании» и экспорта (владелец 24.11.2026): tax.forms карточки ∪ формы плана на текущий год
+    (ops_company_reports, source=plan). Импорт форм по-прежнему сравнивает и пишет только tax.forms (card_forms)."""
+    out = card_forms(card)
+    for f in plan or ():
+        if f and f not in out:
+            out.append(f)
+    key = [f for f in KEY_FORMS if f in out]
+    return key + sorted(f for f in out if f not in KEY_FORMS)
+
+
 def card_vat_date(card: dict) -> Optional[str]:
     return ((card or {}).get("kgd") or {}).get("vat_date") or None
 
@@ -86,7 +97,8 @@ def export_xlsx(items: List[dict]) -> bytes:
             c.get("name"), c.get("bin") or "", REGIME_LABEL.get(c.get("tax_regime") or "", "не установлен"),
             "да" if vat is True else "нет" if vat is False else "не установлен",
             _fmt_date(c.get("vat_date")) if vat and c.get("vat_date") else "",
-            ", ".join(forms), *["да" if f in forms else "" for f in KEY_FORMS], c.get("drive_url") or "",
+            ", ".join(forms + (["план не рассчитан"] if c.get("plan_missing") else [])),
+            *["да" if f in forms else "" for f in KEY_FORMS], c.get("drive_url") or "",
         ])
     head_font, fill = Font(bold=True), PatternFill("solid", fgColor="FFD9D9D9")
     for cell in ws[1]:

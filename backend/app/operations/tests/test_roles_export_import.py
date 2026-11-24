@@ -205,7 +205,8 @@ def test_export_columns_and_hidden(env):
                        "100.00", "910.00", "700.00", "Папка на Диске"]
     assert [x[0] for x in rows[1:]] == ["Альфа ТОО", HIDDEN_NAME, "Бета ИП"]  # порядок экрана, admin видит скрытую
     alfa = rows[1]
-    assert alfa[1:6] == ["111111111111", "ОУР", "да", "05.03.2025", "300.00, 101.04"]
+    # плана на текущий год у тестовой компании нет → пометка (владелец 24.11.2026)
+    assert alfa[1:6] == ["111111111111", "ОУР", "да", "05.03.2025", "300.00, 101.04, план не рассчитан"]
     assert alfa[6:13] == ["да", None, "да", None, None, None, None]
     # сотрудник: те же id, скрытой нет
     rows = _xlsx(client.post("/api/ops/companies/export", headers=hdr["staff"], json={"ids": all_ids}))

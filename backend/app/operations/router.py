@@ -50,7 +50,25 @@ def _drive_url(folder_id: Optional[str]) -> Optional[str]:
     return DRIVE_FOLDER_URL.format(folder_id) if folder_id else None
 
 
-def _list_item(c: OpsCompany) -> dict:
+def _plan_forms(db: Session, ids=None) -> dict:
+    """{company_id: {форма}} — строки плана (source=plan) на текущий год; «не требуется» не считается.
+    Строки без года в периоде («не описан») тоже план этого года."""
+    year = str(dt.date.today().year)
+    q = db.query(OpsCompanyReport.company_id, OpsCompanyReport.form, OpsCompanyReport.period).filter(
+        OpsCompanyReport.source == "plan", OpsCompanyReport.status != "not_required")
+    if ids is not None:
+        q = q.filter(OpsCompanyReport.company_id.in_(list(ids)))
+    out: dict = {}
+    for cid, form, period in q.all():
+        p = str(period or "")
+        if p.startswith(year) or not any(ch.isdigit() for ch in p[:4]):
+            out.setdefault(cid, set()).add(form)
+    return out
+
+
+def _list_item(c: OpsCompany, plan: Optional[dict] = None) -> dict:
+    """plan — {company_id: {форма}} из _plan_forms: тогда «Формы» = tax.forms ∪ план, и у живой компании без
+    плана на текущий год — plan_missing («план не рассчитан»)."""
     resp = c.responsible_json or {}
     accountant = (c.card_json or {}).get("accountant") or ""
     return {
@@ -69,7 +87,9 @@ def _list_item(c: OpsCompany) -> dict:
         "missing_in_repo": c.missing_in_repo,
         "hidden": bool(c.hidden),
         "drive_url": _drive_url(c.drive_root_folder_id),
-        "forms": companies_xlsx.card_forms(c.card_json or {}),
+        "forms": companies_xlsx.merged_forms(c.card_json or {}, (plan or {}).get(c.id)) if plan is not None
+        else companies_xlsx.card_forms(c.card_json or {}),
+        "plan_missing": bool(plan is not None and c.active and not (plan or {}).get(c.id)),
         "vat_date": companies_xlsx.card_vat_date(c.card_json or {}),
     }
 
@@ -84,7 +104,9 @@ def list_companies(user: User = Depends(require_ops_user), db: Session = Depends
         .filter(OpsObligationFlag.status == "suspected")
         .group_by(OpsObligationFlag.company_id).all() if cid in ids
     }
-    return {"items": [filter_fields(_list_item(c) | {"suspected_count": suspected.get(c.id, 0)}, roles) for c in items]}
+    plan = _plan_forms(db)
+    return {"items": [filter_fields(_list_item(c, plan) | {"suspected_count": suspected.get(c.id, 0)}, roles)
+                      for c in items]}
 
 
 def _flag(f: OpsObligationFlag) -> dict:
@@ -112,7 +134,7 @@ def get_company(company_id: int, user: User = Depends(require_ops_user), db: Ses
         .order_by(OpsCompanyReport.form, OpsCompanyReport.period)
         .all()
     )
-    data = _list_item(c) | {
+    data = _list_item(c, _plan_forms(db, [c.id])) | {
         "card": c.card_json,
         "onec": {
             "kind": c.onec_kind, "url": c.onec_url, "login": c.onec_login, "note": c.onec_note,
@@ -406,7 +428,8 @@ def companies_export(body: ExportIn, user: User = Depends(require_ops_user), db:
     roles = effective_roles(db, user)
     ids = list(dict.fromkeys(body.ids))[:5000]
     found = {c.id: c for c in visible_companies(db, roles).filter(OpsCompany.id.in_(ids)).all()} if ids else {}
-    items = [filter_fields(_list_item(found[i]), roles) for i in ids if i in found]
+    plan = _plan_forms(db, found.keys())
+    items = [filter_fields(_list_item(found[i], plan), roles) for i in ids if i in found]
     data = companies_xlsx.export_xlsx(items)
     name = f"companies-{dt.date.today().isoformat()}.xlsx"
     return Response(content=data,

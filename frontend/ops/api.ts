@@ -23,6 +23,7 @@ export interface CompanyRow {
   hidden?: boolean           // только у admin
   suspected_count?: number    // только у admin
   forms: string[]
+  plan_missing?: boolean   // живая компания без плана отчётов на текущий год
   vat_date: string | null
 }
 
