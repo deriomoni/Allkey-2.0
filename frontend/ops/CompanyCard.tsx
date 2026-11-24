@@ -196,7 +196,7 @@ export default function CompanyCard({ api, id, onBack }: { api: Api; id: number;
 
       <NotesSection api={api} c={c} onChanged={async () => { await load() }} />
 
-      <CabinetSection api={api} c={c} isAdmin={isAdmin} onChanged={async () => { await load() }} />
+      {isAdmin && <CabinetSection api={api} c={c} isAdmin={isAdmin} onChanged={async () => { await load() }} />}
 
       <ProfileSection c={c} />
 

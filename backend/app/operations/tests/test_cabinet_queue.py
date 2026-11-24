@@ -77,11 +77,13 @@ def env(monkeypatch):
     db.close()
 
 
-def test_card_shows_cabinet_block_to_admin_and_staff(env):
+def test_card_cabinet_block_admin_only(env):
     client, hdr, ids, *_ = env
-    for who in ("owner", "staff"):
-        d = client.get(f"/api/ops/companies/{ids['alfa']}", headers=hdr[who]).json()
-        assert d["cabinet"]["saldo"]["debt_total"] == 1500 and d["cabinet"]["checked_at"] == "2026-11-24"
+    d = client.get(f"/api/ops/companies/{ids['alfa']}", headers=hdr["owner"]).json()
+    assert d["cabinet"]["saldo"]["debt_total"] == 1500 and d["cabinet"]["checked_at"] == "2026-11-24"
+    # сотруднику блок пока не отдаётся (владелец 24.11.2026); карточка в остальном та же
+    s = client.get(f"/api/ops/companies/{ids['alfa']}", headers=hdr["staff"])
+    assert s.status_code == 200 and "cabinet" not in s.json() and "1500" not in s.text
     assert client.get(f"/api/ops/companies/{ids['beta']}", headers=hdr["owner"]).json()["cabinet"] is None
     # очередь видна только admin
     assert "cabinet_queue" in client.get(f"/api/ops/companies/{ids['alfa']}", headers=hdr["owner"]).json()

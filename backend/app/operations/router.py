@@ -153,6 +153,7 @@ def get_company(company_id: int, user: User = Depends(require_ops_user), db: Ses
         data["drive"] = {k: v for k, v in data["drive"].items() if k != "agent_url"}
         card = json.loads(json.dumps(data.get("card") or {}, default=str))
         card.pop("hidden", None)
+        card.pop("cabinet", None)  # блок «Кабинет налогоплательщика» сотруднику пока не показываем (владелец 24.11.2026)
         ((card.get("systems") or {}).get("drive") or {}).pop("agent_folder_id", None)
         data["card"] = card
     return filter_fields(data, roles)
