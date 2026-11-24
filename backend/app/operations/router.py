@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import json
 from pathlib import Path
 from typing import List, Optional
 
@@ -27,6 +28,7 @@ from app.operations.config import get_ops_settings
 from app.operations.models import OpsCompany, OpsCompanyReport, OpsObligationFlag
 from app.operations import obligations as obl
 from app.operations import card_edit
+from app.operations import staff_edits
 from app.operations import kgd
 from app.operations.sync import sync_one
 from app.operations.reports_import import commit_rows, match_rows, parse_workbook
@@ -93,7 +95,7 @@ def _flag(f: OpsObligationFlag) -> dict:
 
 
 @router.get("/companies/{company_id}", name="ops_get_company")
-def get_company(company_id: int, user: User = Depends(require_ops_admin), db: Session = Depends(get_db)):
+def get_company(company_id: int, user: User = Depends(require_ops_user), db: Session = Depends(get_db)):
     roles = effective_roles(db, user)
     c = visible_companies(db, roles).filter(OpsCompany.id == company_id).first()
     if c is None:
@@ -128,11 +130,21 @@ def get_company(company_id: int, user: User = Depends(require_ops_admin), db: Se
             for r in reports
         ],
         "synced_at": _iso(c.synced_at),
+        "staff_notes": (c.card_json or {}).get("staff_notes") or [],
+        "profile": (c.card_json or {}).get("profile") or None,
+        "profile_url": _drive_url((((c.card_json or {}).get("systems") or {}).get("drive") or {}).get("profile_folder_id")),
         "obligations": [
             _flag(f) for f in db.query(OpsObligationFlag)
             .filter(OpsObligationFlag.company_id == c.id).order_by(OpsObligationFlag.idx).all()
         ],
     }
+    if not sees_hidden(roles):
+        # Сотруднику — без закрытой папки _agent (ТЗ: только владелец) и без признака «скрытая».
+        data["drive"] = {k: v for k, v in data["drive"].items() if k != "agent_url"}
+        card = json.loads(json.dumps(data.get("card") or {}, default=str))
+        card.pop("hidden", None)
+        ((card.get("systems") or {}).get("drive") or {}).pop("agent_folder_id", None)
+        data["card"] = card
     return filter_fields(data, roles)
 
 
@@ -169,10 +181,51 @@ def _user_label(user: User) -> str:
 
 
 @router.post("/companies/{company_id}/obligations", name="ops_obligation_create")
-def obligation_create(company_id: int, body: ObligationIn, user: User = Depends(require_ops_admin),
+def obligation_create(company_id: int, body: ObligationIn, user: User = Depends(require_ops_user),
                       db: Session = Depends(get_db)):
+    """Поднять флаг «подозрение». admin — любая форма; сотрудник — только STAFF_FLAG_FORMS, основание
+    обязательно (проверяет raise_flag). Подтверждает/снимает только admin."""
     c = _company_or_404(db, company_id, user)
-    return _decision(db, c, lambda: obl.raise_flag(c.slug, body.form, body.period, body.trigger, _user_label(user)))
+    if is_ops_admin(db, user):
+        return _decision(db, c, lambda: obl.raise_flag(c.slug, body.form, body.period, body.trigger, _user_label(user)))
+    if body.form.strip() not in STAFF_FLAG_FORMS:
+        raise HTTPException(status_code=400, detail="Сотрудник может поставить флаг только по формам: "
+                            + ", ".join(STAFF_FLAG_FORMS))
+    return _decision(db, c, lambda: obl.raise_flag(c.slug, body.form.strip(), body.period, body.trigger,
+                                                   _user_label(user), source="employee"))
+
+
+STAFF_FLAG_FORMS = ("101.04", "328.00", "700.00", "отчёт участника Астана Хаб")
+
+
+class OnecIn(BaseModel):
+    url: Optional[str] = None
+    kind: Optional[str] = None
+    note: Optional[str] = None
+    reason: str
+
+
+@router.post("/companies/{company_id}/onec", name="ops_company_onec_update")
+def company_onec_update(company_id: int, body: OnecIn, user: User = Depends(require_ops_user),
+                        db: Session = Depends(get_db)):
+    """Адрес базы 1С (url, kind, note) с причиной; кто/когда — в systems.onec.edited и в коммите."""
+    c = _company_or_404(db, company_id, user)
+    return _decision(db, c, lambda: staff_edits.set_onec(c.slug, body.url, body.kind, body.note, body.reason,
+                                                          _user_label(user)))
+
+
+class NoteIn(BaseModel):
+    text: str
+    form: Optional[str] = None
+    period: Optional[str] = None
+
+
+@router.post("/companies/{company_id}/notes", name="ops_company_note_add")
+def company_note_add(company_id: int, body: NoteIn, user: User = Depends(require_ops_user),
+                     db: Session = Depends(get_db)):
+    """Заметка по компании или к строке формы (form/period) — в staff_notes карточки, с автором и датой."""
+    c = _company_or_404(db, company_id, user)
+    return _decision(db, c, lambda: staff_edits.add_note(c.slug, body.text, _user_label(user), body.form, body.period))
 
 
 @router.post("/companies/{company_id}/obligations/{idx}/confirm", name="ops_obligation_confirm")

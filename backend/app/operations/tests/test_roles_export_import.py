@@ -137,7 +137,8 @@ def env(tmp_path, monkeypatch):
 STAFF_OPEN_GET = ["/api/ops/companies", "/api/ops/status", "/api/ops/me", "/api/ops/ui/bundle.js"]
 ADMIN_ONLY_GET = ["/api/ops/companies/1", "/api/ops/admins", "/api/ops/kgd/check?bin=111111111111"]
 ADMIN_ONLY_POST = ["/api/ops/companies/sync", "/api/ops/companies/1/hidden", "/api/ops/reports/import/commit",
-                   "/api/ops/companies/forms-import/apply", "/api/ops/companies/1/obligations"]
+                   "/api/ops/companies/forms-import/apply", "/api/ops/companies/1/obligations/0/confirm",
+                   "/api/ops/companies/1/obligations/0/dismiss"]
 
 
 def test_admin_everything(env):
@@ -163,10 +164,12 @@ def test_staff_sees_list_not_admin_parts(env):
     assert "hidden" not in alfa and "suspected_count" not in alfa
     st = client.get("/api/ops/status", headers=h).json()
     assert st["total"] == 2 and "hidden" not in st
-    for p in ADMIN_ONLY_GET + [f"/api/ops/companies/{ids['alfa']}"]:
+    for p in ADMIN_ONLY_GET[1:]:  # карточка (ADMIN_ONLY_GET[0]) сотруднику открыта с итерации 4 — test_iter4
         assert client.get(p, headers=h).status_code == 404, p
+    assert client.get(f"/api/ops/companies/{ids['secret']}", headers=h).status_code == 404  # скрытая — нет
     for p in ADMIN_ONLY_POST:
-        assert client.post(p, headers=h, json={"hidden": True, "rows": [], "changes": []}).status_code == 404, p
+        assert client.post(p, headers=h, json={"hidden": True, "rows": [], "changes": [], "form": "101.04",
+                                               "period": "2026-Q4"}).status_code == 404, p
     r = client.post("/api/ops/companies/forms-import/preview", headers=h, files={"file": ("x.xlsx", b"x")})
     assert r.status_code == 404
     # в меню — только «Компании», без «Служебного»

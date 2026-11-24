@@ -182,11 +182,11 @@ def _today() -> dt.date:
     return dt.date.today()
 
 
-def raise_flag(slug: str, form: str, period: str, trigger, user_label: str) -> str:
+def raise_flag(slug: str, form: str, period: str, trigger, user_label: str, source: str = "admin") -> str:
     form = (form or "").strip()
     period = (period or "").strip()
     tr = _norm_triggers(trigger)
-    if not form or len(form) > 20:
+    if not form or len(form) > 60:  # «отчёт участника Астана Хаб» — 26 символов
         raise ObligationError("Укажите форму (например, 101.04)")
     if not PERIOD_RE.match(period):
         raise ObligationError("Период: ГГГГ-Qn, ГГГГ-ММ или ГГГГ (например, 2026-Q4)")
@@ -202,11 +202,13 @@ def raise_flag(slug: str, form: str, period: str, trigger, user_label: str) -> s
                 return flags, _forms_with_basis(card, f) if f.get("status") == "confirmed" else None
         flags.append({
             "form": form, "status": "suspected", "period": period, "trigger": _trigger_value(tr),
-            "source": "admin", "raised_at": _today(), "decided_by": None, "decided_at": None, "reason": None,
+            "source": source, "raised_at": _today(), "raised_by": user_label,
+            "decided_by": None, "decided_at": None, "reason": None,
         })
         return flags, None
 
-    return _apply(slug, mutate, f"obligations: {slug} — подозрение {form} {period} (admin {user_label})")
+    who = "сотрудник" if source == "employee" else source
+    return _apply(slug, mutate, f"obligations: {slug} — подозрение {form} {period} ({who} {user_label})")
 
 
 def _forms_with_basis(card: dict, flag: dict) -> list:

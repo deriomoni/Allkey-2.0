@@ -42,15 +42,18 @@ ROUTE_PERMISSIONS: dict[str, Set[str]] = {
     "ops_ui_bundle": {"admin", "staff"},
     "ops_me": {"admin", "staff"},
     "ops_companies_export": {"admin", "staff"},
-    # только admin: карточка (обязательства, 1С), «Служебное», «скрытая», КГД
-    "ops_get_company": {"admin"},
+    # итерация 4: карточка компании, правка адреса 1С, заметки, флаг «подозрение» (без подтверждения)
+    "ops_get_company": {"admin", "staff"},
+    "ops_company_onec_update": {"admin", "staff"},
+    "ops_company_note_add": {"admin", "staff"},
+    # только admin: «Служебное», «скрытая», КГД, подтверждение/снятие флагов
     "ops_sync_companies": {"admin"},
     "ops_reports_import_preview": {"admin"},
     "ops_reports_import_commit": {"admin"},
     "ops_forms_import_preview": {"admin"},
     "ops_forms_import_apply": {"admin"},
     "ops_list_admins": {"admin"},
-    "ops_obligation_create": {"admin"},
+    "ops_obligation_create": {"admin", "staff"},
     "ops_obligation_confirm": {"admin"},
     "ops_obligation_dismiss": {"admin"},
     "ops_company_set_hidden": {"admin"},
@@ -65,6 +68,9 @@ HIDDEN_SAFE_ROUTES: Set[str] = {
     "ops_get_company",
     "ops_sync_status",
     "ops_companies_export",
+    "ops_company_onec_update",
+    "ops_company_note_add",
+    "ops_obligation_create",
     # данных компаний не отдают вовсе
     "ops_ui_bundle",
     "ops_me",
@@ -77,6 +83,9 @@ VISIBLE_FIELDS: dict[str, Optional[frozenset]] = {
     "staff": frozenset({
         "id", "slug", "name", "name_official", "legal_name", "bin", "aliases", "folder_name",
         "tax_regime", "vat_payer", "vat_date", "forms", "active", "missing_in_repo", "drive_url",
+        # карточка компании (итерация 4) — всё, что в ней есть, кроме _agent и «скрытой» (их вырезает роутер)
+        "card", "onec", "inactive_reason", "inactive_since", "drive", "reports", "synced_at", "obligations",
+        "staff_notes", "profile", "profile_url",
     }),
 }
 
