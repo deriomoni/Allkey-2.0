@@ -258,6 +258,7 @@ export const REPORT_STATUS: Record<string, string> = {
   accepted: 'принят',
   rejected: 'отклонён',
   not_required: 'не требуется',
+  clarify: 'уточнить',
 }
 
 export const OBLIGATION_SOURCE: Record<string, string> = {

@@ -176,3 +176,38 @@ def commit_rows(db: Session, rows: List[dict]) -> dict:
                 updated += 1
     db.commit()
     return {"created": created, "updated": updated, "skipped": skipped}
+
+
+# --- Перенос строк между базами (локальная → боевая): только добавление ---------------------
+
+LOAD_STATUSES = STATUSES + ("clarify",)  # clarify — «уточнить» из плана (source=plan)
+LOAD_SOURCES = ("import_xlsx", "plan", "knp_watch", "manual")
+
+
+def load_rows(db: Session, rows: List[dict]) -> dict:
+    """rows: [{slug, form, period, status, raw_value, source}]. Компания — по slug.
+    Строка пишется, только если для (компания, форма, период) ещё ничего нет: существующее
+    (история, отметки knp-watch, ручные) не перезаписывается. Повторный запуск ничего не меняет."""
+    by_slug = {slug: cid for cid, slug in db.query(OpsCompany.id, OpsCompany.slug).all()}
+    existing = {(r.company_id, r.form, r.period) for r in db.query(OpsCompanyReport).all()}
+    res = {"created": 0, "skipped_existing": 0, "unknown_company": 0, "invalid": 0}
+    for r in rows:
+        cid = by_slug.get(str(r.get("slug") or ""))
+        form, period = str(r.get("form") or "").strip(), str(r.get("period") or "").strip()
+        status, source = r.get("status"), r.get("source")
+        if cid is None:
+            res["unknown_company"] += 1
+            continue
+        if not form or not period or status not in LOAD_STATUSES or source not in LOAD_SOURCES:
+            res["invalid"] += 1
+            continue
+        if (cid, form, period) in existing:
+            res["skipped_existing"] += 1
+            continue
+        raw = r.get("raw_value")
+        db.add(OpsCompanyReport(company_id=cid, form=form, period=period, status=status,
+                                raw_value=str(raw)[:500] if raw is not None else None, source=source))
+        existing.add((cid, form, period))
+        res["created"] += 1
+    db.commit()
+    return res

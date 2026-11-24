@@ -7,6 +7,7 @@
     python -m app.operations.cli kgd-fetch --out PATH   # API КГД по всем живым карточкам → JSON вне репозитория
     python -m app.operations.cli grant-staff --email user@example.com   # роль «сотрудник» (экран «Компании»)
     python -m app.operations.cli revoke-staff --email user@example.com
+    python -m app.operations.cli reports-load --file rows.json  # строки форм в ops_company_reports, только добавление
     python -m app.operations.cli admins               # кому выдана роль admin модуля
 
 Выводит только счётчики и ошибки валидатора — без названий компаний.
@@ -33,6 +34,8 @@ def main(argv=None) -> int:
     rv = sub.add_parser("revoke-admin")
     rv.add_argument("--user-id", type=int, required=True)
     sub.add_parser("admins")
+    rl = sub.add_parser("reports-load")
+    rl.add_argument("--file", required=True, help="JSON [{slug, form, period, status, raw_value, source}]")
     gs = sub.add_parser("grant-staff")
     gs.add_argument("--email", required=True)
     rs = sub.add_parser("revoke-staff")
@@ -78,6 +81,14 @@ def main(argv=None) -> int:
             ok = revoke_staff(db, u.id)
             print("Роль «сотрудник» снята." if ok else "У пользователя не было роли «сотрудник».")
             return 0 if ok else 1
+        if args.cmd == "reports-load":
+            import json
+            from app.operations.reports_import import load_rows
+            with open(args.file, encoding="utf-8") as f:
+                r = load_rows(db, json.load(f))
+            print(f"OK: добавлено {r['created']}, уже были (не тронуты) {r['skipped_existing']}, "
+                  f"компания не найдена {r['unknown_company']}, некорректных {r['invalid']}")
+            return 0
         if args.cmd == "grant-admin":
             return 0 if grant_admin(db, args.user_id, granted_by="cli") else 1
         if args.cmd == "revoke-admin":

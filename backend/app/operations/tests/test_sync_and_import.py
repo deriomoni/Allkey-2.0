@@ -144,3 +144,31 @@ def test_norm_and_status():
     assert cell_status(None) is None and cell_status("  ") is None
     assert cell_status("Сдано 15.05") == "submitted"
     assert cell_status("—") == "not_required"
+
+
+
+def test_load_rows_only_adds(tmp_path):
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+    from app.database import Base
+    from app.operations.models import OpsCompany, OpsCompanyReport
+    from app.operations.reports_import import load_rows
+    engine = create_engine("sqlite://")
+    Base.metadata.create_all(engine)
+    db = sessionmaker(bind=engine)()
+    c = OpsCompany(slug="a", name="A", card_json={}, active=True)
+    db.add(c)
+    db.commit()
+    db.add(OpsCompanyReport(company_id=c.id, form="300.00", period="2026-Q3", status="accepted", source="import_xlsx"))
+    db.commit()
+    rows = [
+        {"slug": "a", "form": "300.00", "period": "2026-Q3", "status": "due", "source": "plan"},  # уже есть
+        {"slug": "a", "form": "300.00", "period": "2026-Q4", "status": "due", "raw_value": "ожидается", "source": "plan"},
+        {"slug": "a", "form": "200.00", "period": "2026-Q4", "status": "clarify", "source": "plan"},
+        {"slug": "zz", "form": "300.00", "period": "2026-Q4", "status": "due", "source": "plan"},
+        {"slug": "a", "form": "100.00", "period": "2026", "status": "weird", "source": "plan"},
+    ]
+    assert load_rows(db, rows) == {"created": 2, "skipped_existing": 1, "unknown_company": 1, "invalid": 1}
+    old = db.query(OpsCompanyReport).filter_by(period="2026-Q3").one()
+    assert (old.status, old.source) == ("accepted", "import_xlsx")
+    assert load_rows(db, rows)["created"] == 0
