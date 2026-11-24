@@ -63,6 +63,8 @@ export const CSS = `
 .opsx-st-submitted { background:#e0f2fe; color:#075985; }
 .opsx-st-rejected { background:#fee2e2; color:#991b1b; }
 .opsx-st-due { background:#fef3c7; color:#92400e; }
+.opsx-cab-line { margin-bottom: 4px; }
+.opsx-cab-table { margin-top: 6px; max-width: 520px; }
 .opsx-st-clarify { background:#ffedd5; color:#9a3412; }
 .opsx-st-not_required { background:#f1f5f9; color:#94a3b8; }
 .opsx-pill-susp { background:#ffedd5; color:#9a3412; font-weight:600; }

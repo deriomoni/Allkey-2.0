@@ -64,7 +64,31 @@ export interface Profile {
   discrepancies?: unknown[]
 }
 
+export interface CabinetReport {
+  form?: string; period?: string; due?: string; cabinet?: string; accepted_at?: string
+  drive?: { form_file?: boolean; notice_file?: boolean; added?: unknown[] }
+}
+export interface Cabinet {
+  checked_at?: string
+  status?: string
+  statement?: { ordered_at?: string; from?: string; ready?: boolean } | null
+  saldo?: {
+    date?: string; fresh?: boolean; pages?: string; debt_total?: number; overpaid_total?: number; file?: string
+    rows?: { kbk?: string; ogd?: string; tax?: number; penalty?: number; fine?: number }[]
+  } | null
+  notices?: { from?: string; items?: { date?: string; type?: string; number?: string; read?: boolean; due?: string; summary?: string; red?: string | null }[] } | null
+  reports_checked_through?: string
+  reports?: CabinetReport[]
+}
+export interface CabinetQueueEntry {
+  id: number; company_id: number; reason: string; reason_label: string; note: string | null
+  requested_by: string | null; requested_at: string | null; done_at: string | null; done_by: string | null; result: string | null
+  slug?: string; name?: string; bin?: string | null; hidden?: boolean; checked_at?: string | null
+}
+
 export interface CompanyDetail extends CompanyRow {
+  cabinet?: Cabinet | null
+  cabinet_queue?: CabinetQueueEntry | null
   staff_notes: StaffNote[]
   profile: Profile | null
   profile_url: string | null
@@ -212,6 +236,15 @@ export function makeApi(ctx: Ctx) {
             discrepancies: p.discrepancies.length, blocked: p.blocked.length,
           }),
         }),
+    cabinetQueue: () => req<{ items: CabinetQueueEntry[] }>('/cabinet-queue').then((d) => d.items),
+    cabinetQueueAdd: (id: number, note?: string) =>
+      req<{ ok: boolean; created: boolean; entry: CabinetQueueEntry }>(`/companies/${id}/cabinet-queue`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ note }),
+      }),
+    cabinetQueueDone: (entryId: number, result?: string) =>
+      req<{ ok: boolean }>(`/cabinet-queue/${entryId}/done`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ result }),
+      }),
     status: () => req<Status>('/status'),
     admins: () => req<AdminsInfo>('/admins'),
     companies: () => req<{ items: CompanyRow[] }>('/companies').then((d) => d.items),

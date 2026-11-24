@@ -118,3 +118,25 @@ class UserRoleAssignment(Base):
     company_id = Column(Integer, ForeignKey("ops_companies.id", ondelete="CASCADE"), nullable=True)
     granted_by = Column(String, nullable=True)  # "env", "cli"
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class OpsCabinetQueue(Base):
+    """Очередь компаний на вход в кабинет налогоплательщика (knp-watch, владелец 24.11.2026).
+
+    Открытая запись — done_at IS NULL; по компании открыта не больше одной (проверяет код).
+    knp-watch берёт открытые записи и после прогона по компании закрывает запись (done_at, result).
+    Закрытые записи не удаляются — это история входов.
+    """
+
+    __tablename__ = "ops_cabinet_queue"
+
+    id = Column(Integer, primary_key=True)
+    company_id = Column(Integer, ForeignKey("ops_companies.id", ondelete="CASCADE"), nullable=False, index=True)
+    # manual — поставил человек; schedule — расписание (давно не проверяли); deadline — перед сроком формы
+    reason = Column(String, nullable=False)
+    note = Column(Text, nullable=True)
+    requested_by = Column(String, nullable=True)  # email или "cli"
+    requested_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    done_at = Column(DateTime(timezone=True), nullable=True)
+    done_by = Column(String, nullable=True)
+    result = Column(Text, nullable=True)  # «пройдена» / «частично» / «ошибка входа» / «снято вручную» …

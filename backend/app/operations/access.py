@@ -58,6 +58,10 @@ ROUTE_PERMISSIONS: dict[str, Set[str]] = {
     "ops_obligation_dismiss": {"admin"},
     "ops_company_set_hidden": {"admin"},
     "ops_kgd_check": {"admin"},
+    # очередь на вход в кабинет налогоплательщика (knp-watch) — только admin
+    "ops_cabinet_queue_list": {"admin"},
+    "ops_cabinet_queue_add": {"admin"},
+    "ops_cabinet_queue_done": {"admin"},
 }
 
 # ТЗ 1.1 п. 9 — скрытые компании. Маршруты, чьи обработчики фильтруют скрытые компании
@@ -85,7 +89,7 @@ VISIBLE_FIELDS: dict[str, Optional[frozenset]] = {
         "tax_regime", "vat_payer", "vat_date", "forms", "active", "missing_in_repo", "drive_url",
         # карточка компании (итерация 4) — всё, что в ней есть, кроме _agent и «скрытой» (их вырезает роутер)
         "card", "onec", "inactive_reason", "inactive_since", "drive", "reports", "synced_at", "obligations",
-        "staff_notes", "profile", "profile_url",
+        "staff_notes", "profile", "profile_url", "cabinet",
     }),
 }
 

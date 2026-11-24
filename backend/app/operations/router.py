@@ -30,6 +30,7 @@ from app.operations import obligations as obl
 from app.operations import card_edit
 from app.operations import staff_edits
 from app.operations import kgd
+from app.operations import cabinet_queue as cq
 from app.operations.sync import sync_one
 from app.operations.reports_import import commit_rows, match_rows, parse_workbook
 from app.operations.sync import sync_companies
@@ -137,12 +138,16 @@ def get_company(company_id: int, user: User = Depends(require_ops_user), db: Ses
         "synced_at": _iso(c.synced_at),
         "staff_notes": (c.card_json or {}).get("staff_notes") or [],
         "profile": (c.card_json or {}).get("profile") or None,
+        # блок cabinet: — последняя проверка кабинета налогоплательщика (пишет knp-watch); null — не заходили
+        "cabinet": (c.card_json or {}).get("cabinet") or None,
         "profile_url": _drive_url((((c.card_json or {}).get("systems") or {}).get("drive") or {}).get("profile_folder_id")),
         "obligations": [
             _flag(f) | {"raised_by": _card_flag(c, f.idx).get("raised_by")} for f in db.query(OpsObligationFlag)
             .filter(OpsObligationFlag.company_id == c.id).order_by(OpsObligationFlag.idx).all()
         ],
     }
+    q = cq.open_entry(db, c.id)
+    data["cabinet_queue"] = cq.entry_dict(q) if q else None  # только admin (VISIBLE_FIELDS сотрудника его не содержит)
     if not sees_hidden(roles):
         # Сотруднику — без закрытой папки _agent (ТЗ: только владелец) и без признака «скрытая».
         data["drive"] = {k: v for k, v in data["drive"].items() if k != "agent_url"}
@@ -263,6 +268,44 @@ def company_set_hidden(company_id: int, body: HiddenIn, user: User = Depends(req
         raise HTTPException(status_code=e.status, detail=str(e))
     c = sync_one(db, c.slug)
     return {"ok": True, "hidden": bool(c.hidden), "commit": sha}
+
+
+class CabinetQueueIn(BaseModel):
+    note: Optional[str] = None
+
+
+class CabinetDoneIn(BaseModel):
+    result: Optional[str] = None
+
+
+@router.get("/cabinet-queue", name="ops_cabinet_queue_list")
+def cabinet_queue_list(user: User = Depends(require_ops_admin), db: Session = Depends(get_db)):
+    return {"items": [cq.entry_dict(e, c) for e, c in cq.open_entries(db)]}
+
+
+@router.post("/companies/{company_id}/cabinet-queue", name="ops_cabinet_queue_add")
+def cabinet_queue_add(company_id: int, body: CabinetQueueIn, user: User = Depends(require_ops_admin),
+                      db: Session = Depends(get_db)):
+    c = _company_or_404(db, company_id, user)
+    try:
+        e, created = cq.enqueue(db, c, "manual", body.note, by=user.email)
+    except cq.QueueError as err:
+        raise HTTPException(status_code=400, detail=str(err))
+    return {"ok": True, "created": created, "entry": cq.entry_dict(e)}
+
+
+@router.post("/cabinet-queue/{entry_id}/done", name="ops_cabinet_queue_done")
+def cabinet_queue_done(entry_id: int, body: CabinetDoneIn, user: User = Depends(require_ops_admin),
+                       db: Session = Depends(get_db)):
+    from app.operations.models import OpsCabinetQueue
+    e = db.query(OpsCabinetQueue).filter(OpsCabinetQueue.id == entry_id).first()
+    if e is None:
+        raise HTTPException(status_code=404, detail="Not Found")
+    try:
+        cq.mark_done(db, e, by=user.email, result=body.result or "снято вручную")
+    except cq.QueueError as err:
+        raise HTTPException(status_code=409, detail=str(err))
+    return {"ok": True, "entry": cq.entry_dict(e)}
 
 
 @router.get("/kgd/check", name="ops_kgd_check")

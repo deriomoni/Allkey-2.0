@@ -1,5 +1,5 @@
 import { ReactNode, useState } from 'react'
-import { Api, CompanyDetail, Profile, StaffNote } from './api'
+import { Api, Cabinet, CompanyDetail, Profile, REPORT_STATUS, StaffNote } from './api'
 
 // Блоки карточки итерации 4: правка адреса 1С, заметки сотрудников, «Профиль».
 // Все правки — на сервере коммитом в prod-decisions с email автора; здесь только формы.
@@ -189,9 +189,7 @@ export function ProfileSection({ c }: { c: CompanyDetail }) {
     <section className="opsx-card">
       <div className="opsx-block-head">
         <h2>Профиль</h2>
-        {c.profile_url
-          ? <a className="opsx-btn opsx-btn-sm" href={c.profile_url} target="_blank" rel="noreferrer">Папка «Профиль» ↗</a>
-          : <span className="opsx-muted">папка «Профиль» не привязана</span>}
+        {c.profile_url && <a className="opsx-btn opsx-btn-sm" href={c.profile_url} target="_blank" rel="noreferrer">Папка «Профиль» ↗</a>}
       </div>
       <div className="opsx-sub opsx-mb">{p ? <>Источник: {p.source || '—'}{p.date && <> · профиль от {fmtDateTime(p.date)}</>}</> : 'Профиль из кабинета КГД ещё не загружен.'}</div>
       <Row k="Расчётные счета">{v(list(p?.bank_accounts, (b) => [b.bank, b.bic, b.iban, b.currency].filter(Boolean).join(' · ')))}</Row>
@@ -200,6 +198,97 @@ export function ProfileSection({ c }: { c: CompanyDetail }) {
       <Row k="Руководитель">{v(p?.head || null)}</Row>
       <Row k="Адрес">{v(p?.address || null)}</Row>
       <Row k="ОКЭД">{v(list(p?.oked, (o) => [o.code, o.name, o.type].filter(Boolean).join(' · ') + fmtD(o.from)))}</Row>
+    </section>
+  )
+}
+
+// --- Кабинет налогоплательщика (блок cabinet: карточки; пишет knp-watch) ---------------------
+
+const money = (n?: number) => (typeof n === 'number' ? n.toLocaleString('ru-RU', { maximumFractionDigits: 2 }) : '—')
+const RED: Record<string, string> = { unread: 'не прочитано', overdue: 'срок прошёл', due_soon: 'срок скоро' }
+const CAB_REPORT: Record<string, string> = { accepted: 'принят', submitted: 'сдан', rejected: 'отклонён', not_found: 'не найден в кабинете' }
+
+export function CabinetSection({ api, c, isAdmin, onChanged }: { api: Api; c: CompanyDetail; isAdmin: boolean; onChanged: () => Promise<void> }) {
+  const k: Cabinet | null = c.cabinet || null
+  const q = c.cabinet_queue
+  const { busy, error, run } = useRun(onChanged)
+  const saldoRows = (k?.saldo?.rows || []).filter((r) => (r.tax || 0) + (r.penalty || 0) + (r.fine || 0) !== 0)
+  const notices = k?.notices?.items || []
+  const reports = k?.reports || []
+  return (
+    <section className="opsx-card">
+      <div className="opsx-block-head">
+        <h2>Кабинет налогоплательщика</h2>
+        {isAdmin && (q
+          ? <span className="opsx-muted">в очереди на вход с {fmtDateTime(q.requested_at)} ({q.reason_label}){' '}
+              <button className="opsx-link opsx-link-inline" disabled={busy}
+                onClick={() => run(() => api.cabinetQueueDone(q.id, 'снято вручную'))}>снять</button></span>
+          : c.active && <button className="opsx-btn opsx-btn-sm" disabled={busy}
+              onClick={() => run(() => api.cabinetQueueAdd(c.id))}>Поставить в очередь на вход</button>)}
+      </div>
+      {error && <div className="opsx-alert opsx-alert-err">{error}</div>}
+      {!k ? (
+        <div className="opsx-muted">В кабинет ещё не заходили — данные появятся после проверки knp-watch.</div>
+      ) : (
+        <>
+          <div className="opsx-sub opsx-mb">
+            Проверено {fmtDateTime(k.checked_at) || '—'}{k.status && <> · {k.status}</>}
+          </div>
+          <Row k="Сальдо">
+            {k.saldo ? (
+              <div>
+                <div>
+                  {(k.saldo.debt_total || 0) > 0
+                    ? <span className="opsx-st opsx-st-rejected">недоимка {money(k.saldo.debt_total)} ₸</span>
+                    : <span className="opsx-st opsx-st-accepted">недоимки нет</span>}
+                  {(k.saldo.overpaid_total || 0) > 0 && <> · переплата {money(k.saldo.overpaid_total)} ₸</>}
+                  <span className="opsx-muted"> · на {fmtDateTime(k.saldo.date) || '—'}{k.saldo.fresh === false && ' (не на дату проверки)'}{k.saldo.pages && ` · страниц ${k.saldo.pages}`}</span>
+                </div>
+                {saldoRows.length > 0 && (
+                  <table className="opsx-table opsx-table-compact opsx-cab-table">
+                    <thead><tr><th>КБК</th><th>ОГД</th><th>Налог</th><th>Пеня</th><th>Штраф</th></tr></thead>
+                    <tbody>{saldoRows.map((r, i) => (
+                      <tr key={i}><td className="opsx-mono">{r.kbk}</td><td className="opsx-mono">{r.ogd}</td>
+                        <td>{money(r.tax)}</td><td>{money(r.penalty)}</td><td>{money(r.fine)}</td></tr>
+                    ))}</tbody>
+                  </table>
+                )}
+              </div>
+            ) : null}
+          </Row>
+          <Row k="Выписка по л/с">
+            {k.statement ? <>заказана {fmtDateTime(k.statement.ordered_at) || '—'}{k.statement.from && <> · с {fmtDateTime(k.statement.from)}</>}
+              {' · '}{k.statement.ready ? 'сформирована (лежит в кабинете)' : 'ещё формируется'}</> : null}
+          </Row>
+          <Row k="Уведомления">
+            {k.notices ? (notices.length === 0
+              ? <span className="opsx-muted">нет{k.notices.from && ` с ${fmtDateTime(k.notices.from)}`}</span>
+              : <div>{notices.map((n, i) => (
+                  <div key={i} className="opsx-cab-line">
+                    {n.red && <><span className="opsx-st opsx-st-rejected">{RED[n.red] || n.red}</span>{' '}</>}
+                    {fmtDateTime(n.date)} · {[n.type, n.number && `№ ${n.number}`].filter(Boolean).join(' ')}
+                    {n.due && <> · срок {fmtDateTime(n.due)}</>}
+                    {n.summary && <div className="opsx-muted">{n.summary}</div>}
+                  </div>
+                ))}</div>) : null}
+          </Row>
+          <Row k="Сданные формы">
+            {reports.length === 0
+              ? (k.reports_checked_through ? <span className="opsx-muted">сроков не было · проверено по {fmtDateTime(k.reports_checked_through)}</span> : null)
+              : <div>
+                  {reports.map((r, i) => (
+                    <div key={i} className="opsx-cab-line">
+                      <span className="opsx-mono">{r.form}</span> {r.period}{r.due && <> · срок {fmtDateTime(r.due)}</>} ·{' '}
+                      <span className={`opsx-st opsx-st-${r.cabinet === 'not_found' ? 'rejected' : r.cabinet}`}>{CAB_REPORT[r.cabinet || ''] || REPORT_STATUS[r.cabinet || ''] || r.cabinet}</span>
+                      {r.accepted_at && <> {fmtDateTime(r.accepted_at)}</>}
+                      {r.drive && <span className="opsx-muted"> · на Диске: форма {r.drive.form_file ? '✓' : '—'}, уведомление {r.drive.notice_file ? '✓' : '—'}{(r.drive.added || []).length > 0 && `, добавлено ${(r.drive.added || []).length}`}</span>}
+                    </div>
+                  ))}
+                  {k.reports_checked_through && <div className="opsx-muted">проверено по {fmtDateTime(k.reports_checked_through)}</div>}
+                </div>}
+          </Row>
+        </>
+      )}
     </section>
   )
 }

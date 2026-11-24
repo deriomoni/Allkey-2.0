@@ -8,9 +8,14 @@
     python -m app.operations.cli grant-staff --email user@example.com   # роль «сотрудник» (экран «Компании»)
     python -m app.operations.cli revoke-staff --email user@example.com
     python -m app.operations.cli reports-load --file rows.json  # строки форм в ops_company_reports, только добавление
+    python -m app.operations.cli cabinet-queue list [--json]          # очередь на вход в кабинет (knp-watch)
+    python -m app.operations.cli cabinet-queue add --slug S [--note T]
+    python -m app.operations.cli cabinet-queue done --slug S [--result T]   # после прогона knp-watch
+    python -m app.operations.cli cabinet-queue schedule [--every-days 14] [--apply]   # давно не проверяли → в очередь
     python -m app.operations.cli admins               # кому выдана роль admin модуля
 
-Выводит только счётчики и ошибки валидатора — без названий компаний.
+Выводит только счётчики и ошибки валидатора — без названий компаний; исключение — cabinet-queue
+(агенту нужен список компаний очереди).
 """
 import argparse
 import sys
@@ -36,6 +41,15 @@ def main(argv=None) -> int:
     sub.add_parser("admins")
     rl = sub.add_parser("reports-load")
     rl.add_argument("--file", required=True, help="JSON [{slug, form, period, status, raw_value, source}]")
+    cqp = sub.add_parser("cabinet-queue")
+    cqp.add_argument("action", choices=["list", "add", "done", "schedule"])
+    cqp.add_argument("--slug", default="")
+    cqp.add_argument("--note", default="")
+    cqp.add_argument("--result", default="")
+    cqp.add_argument("--by", default="cli")
+    cqp.add_argument("--json", action="store_true")
+    cqp.add_argument("--every-days", type=int, default=14)
+    cqp.add_argument("--apply", action="store_true", help="schedule: поставить в очередь (без флага — только показать)")
     gs = sub.add_parser("grant-staff")
     gs.add_argument("--email", required=True)
     rs = sub.add_parser("revoke-staff")
@@ -81,6 +95,8 @@ def main(argv=None) -> int:
             ok = revoke_staff(db, u.id)
             print("Роль «сотрудник» снята." if ok else "У пользователя не было роли «сотрудник».")
             return 0 if ok else 1
+        if args.cmd == "cabinet-queue":
+            return _cabinet_queue(db, args)
         if args.cmd == "reports-load":
             import json
             from app.operations.reports_import import load_rows
@@ -107,6 +123,50 @@ def main(argv=None) -> int:
     finally:
         db.close()
     return 2
+
+
+def _cabinet_queue(db, args) -> int:
+    import json
+    from app.operations import cabinet_queue as cq
+    from app.operations.models import OpsCompany
+    if args.action == "list":
+        items = [cq.entry_dict(e, c) for e, c in cq.open_entries(db)]
+        if args.json:
+            print(json.dumps(items, ensure_ascii=False, indent=1))
+        else:
+            for i in items:
+                print(f"{i['slug']} | {i['name']} | {i['bin'] or '—'} | {i['reason_label']} | с {i['requested_at'][:10]}"
+                      f" | последняя проверка {i['checked_at'] or 'не было'}{' | ' + i['note'] if i['note'] else ''}")
+            print(f"В очереди: {len(items)}")
+        return 0
+    if args.action == "schedule":
+        cands = cq.schedule_candidates(db, args.every_days)
+        if not args.apply:
+            print(f"Не проверялись {args.every_days}+ дней (или никогда) и не в очереди: {len(cands)}. Поставить — с --apply.")
+            return 0
+        for c in cands:
+            cq.enqueue(db, c, "schedule", f"не проверялись {args.every_days}+ дней", by=args.by)
+        print(f"Поставлено в очередь по расписанию: {len(cands)}")
+        return 0
+    c = db.query(OpsCompany).filter(OpsCompany.slug == args.slug).first() if args.slug else None
+    if c is None:
+        print("Компания не найдена (--slug).")
+        return 1
+    try:
+        if args.action == "add":
+            e, created = cq.enqueue(db, c, "manual", args.note, by=args.by)
+            print(f"{'Поставлена' if created else 'Уже стоит'} в очередь: {c.slug} (запись {e.id}).")
+            return 0
+        e = cq.open_entry(db, c.id)
+        if e is None:
+            print(f"{c.slug}: в очереди нет — снимать нечего.")
+            return 1
+        cq.mark_done(db, e, by=args.by, result=args.result or "пройдена")
+        print(f"Снята из очереди: {c.slug} (запись {e.id}).")
+        return 0
+    except cq.QueueError as err:
+        print(f"Ошибка: {err}")
+        return 1
 
 
 if __name__ == "__main__":

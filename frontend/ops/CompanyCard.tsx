@@ -1,7 +1,7 @@
 import { ReactNode, useEffect, useMemo, useState } from 'react'
 import { Api, CompanyDetail, REGIME, REPORT_STATUS } from './api'
 import ObligationsBlock from './ObligationsBlock'
-import { FormNotes, NoteForm, NotesSection, OnecSection, ProfileSection } from './CardParts'
+import { CabinetSection, FormNotes, NoteForm, NotesSection, OnecSection, ProfileSection } from './CardParts'
 
 const FEATURES: Record<string, string> = {
   has_employees: 'есть сотрудники',
@@ -195,6 +195,8 @@ export default function CompanyCard({ api, id, onBack }: { api: Api; id: number;
       </section>
 
       <NotesSection api={api} c={c} onChanged={async () => { await load() }} />
+
+      <CabinetSection api={api} c={c} isAdmin={isAdmin} onChanged={async () => { await load() }} />
 
       <ProfileSection c={c} />
 
