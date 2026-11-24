@@ -110,7 +110,7 @@ export const CSS = `
 .opsx-facet-btn:hover { border-color:#0d9488; }
 .opsx-facet-on { border-color:#0d9488; background:#f0fdfa; color:#0f766e; font-weight:500; }
 .opsx-facet-sum { color:inherit; }
-.opsx-facet-pop { position:absolute; top:calc(100% + 4px); left:0; z-index:20; min-width:220px; background:#fff; border:1px solid #e2e8f0; border-radius:8px; box-shadow:0 8px 24px rgba(15,23,42,.12); padding:6px; }
+.opsx-facet-pop { position:absolute; top:calc(100% + 4px); left:0; z-index:20; min-width:220px; max-height:340px; overflow-y:auto; background:#fff; border:1px solid #e2e8f0; border-radius:8px; box-shadow:0 8px 24px rgba(15,23,42,.12); padding:6px; }
 .opsx-facet-item { display:flex; align-items:center; gap:8px; padding:6px 8px; border-radius:6px; cursor:pointer; font-size:13px; }
 .opsx-facet-item:hover { background:#f1f5f9; }
 .opsx-facet-label { flex:1; }
