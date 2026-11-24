@@ -204,6 +204,8 @@ def test_staff_raises_flag_only_allowed_forms_admin_decides(env):
         ("700.00", "suspected", "employee", "staff@t.kz"),
         ("отчёт участника Астана Хаб", "suspected", "employee", "staff@t.kz")]
     assert remote_log(remote)[0].startswith("Allkey (система)|obligations: alfa — подозрение отчёт участника Астана Хаб")
+    d = client.get(f"/api/ops/companies/{ids['alfa']}", headers=hdr["staff"]).json()
+    assert {f["raised_by"] for f in d["obligations"]} == {"staff@t.kz"}
     assert "(сотрудник staff@t.kz)" in remote_log(remote)[0]
     # подтвердить/снять — только admin
     body = {"form": "101.04", "period": "2026-Q4"}

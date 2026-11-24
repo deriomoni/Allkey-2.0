@@ -94,6 +94,11 @@ def _flag(f: OpsObligationFlag) -> dict:
     }
 
 
+def _card_flag(c: OpsCompany, idx: int) -> dict:
+    flags = (c.card_json or {}).get("obligation_flags") or []
+    return flags[idx] if 0 <= idx < len(flags) and isinstance(flags[idx], dict) else {}
+
+
 @router.get("/companies/{company_id}", name="ops_get_company")
 def get_company(company_id: int, user: User = Depends(require_ops_user), db: Session = Depends(get_db)):
     roles = effective_roles(db, user)
@@ -134,7 +139,7 @@ def get_company(company_id: int, user: User = Depends(require_ops_user), db: Ses
         "profile": (c.card_json or {}).get("profile") or None,
         "profile_url": _drive_url((((c.card_json or {}).get("systems") or {}).get("drive") or {}).get("profile_folder_id")),
         "obligations": [
-            _flag(f) for f in db.query(OpsObligationFlag)
+            _flag(f) | {"raised_by": _card_flag(c, f.idx).get("raised_by")} for f in db.query(OpsObligationFlag)
             .filter(OpsObligationFlag.company_id == c.id).order_by(OpsObligationFlag.idx).all()
         ],
     }
