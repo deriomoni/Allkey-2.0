@@ -172,3 +172,37 @@ def test_load_rows_only_adds(tmp_path):
     old = db.query(OpsCompanyReport).filter_by(period="2026-Q3").one()
     assert (old.status, old.source) == ("accepted", "import_xlsx")
     assert load_rows(db, rows)["created"] == 0
+
+
+def test_replace_plan_rows_keeps_history(tmp_path):
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+    from app.database import Base
+    from app.operations.models import OpsCompany, OpsCompanyReport
+    from app.operations.reports_import import replace_source_rows
+    engine = create_engine("sqlite://")
+    Base.metadata.create_all(engine)
+    db = sessionmaker(bind=engine)()
+    c = OpsCompany(slug="a", name="A", card_json={}, active=True)
+    db.add(c)
+    db.commit()
+    db.add_all([
+        OpsCompanyReport(company_id=c.id, form="200.00", period="2026-Q2", status="submitted", source="import_xlsx"),
+        OpsCompanyReport(company_id=c.id, form="300.00", period="2026-Q4", status="due", raw_value="ожидается", source="plan"),
+        OpsCompanyReport(company_id=c.id, form="910.00", period="2026-H2", status="due", raw_value="x", source="plan"),
+        OpsCompanyReport(company_id=c.id, form="100.00", period="2026", status="clarify", raw_value="уточнить", source="plan"),
+    ])
+    db.commit()
+    rows = [
+        {"slug": "a", "form": "300.00", "period": "2026-Q4", "status": "due", "raw_value": "ожидается", "source": "plan"},
+        {"slug": "a", "form": "100.00", "period": "2026", "status": "due", "raw_value": "ожидается", "source": "plan"},
+        {"slug": "a", "form": "220.00", "period": "2026", "status": "due", "raw_value": "ожидается", "source": "plan"},
+        {"slug": "a", "form": "200.00", "period": "2026-Q2", "status": "due", "source": "plan"},  # занято историей
+    ]
+    r = replace_source_rows(db, rows, "plan")
+    assert r == {"created": 1, "updated": 1, "unchanged": 1, "removed": 1, "skipped_other_source": 1,
+                 "unknown_company": 0, "invalid": 0}
+    got = {(x.form, x.period): (x.status, x.source) for x in db.query(OpsCompanyReport).all()}
+    assert got == {("200.00", "2026-Q2"): ("submitted", "import_xlsx"), ("300.00", "2026-Q4"): ("due", "plan"),
+                   ("100.00", "2026"): ("due", "plan"), ("220.00", "2026"): ("due", "plan")}
+    assert replace_source_rows(db, rows, "plan")["unchanged"] == 3

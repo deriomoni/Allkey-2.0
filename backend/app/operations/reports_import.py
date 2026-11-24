@@ -211,3 +211,51 @@ def load_rows(db: Session, rows: List[dict]) -> dict:
         res["created"] += 1
     db.commit()
     return res
+
+
+def replace_source_rows(db: Session, rows: List[dict], source: str = "plan") -> dict:
+    """Заменить строки одного источника (по умолчанию «план») новым набором: добавить новые, обновить изменившиеся,
+    убрать строки этого источника, которых в наборе нет. Строки других источников (история import_xlsx,
+    knp_watch, manual) не трогаются никогда; если (компания, форма, период) уже занят другим источником —
+    строка набора пропускается (история важнее плана)."""
+    if source not in LOAD_SOURCES:
+        raise ValueError(f"источник: {', '.join(LOAD_SOURCES)}")
+    by_slug = {slug: cid for cid, slug in db.query(OpsCompany.id, OpsCompany.slug).all()}
+    existing = {(r.company_id, r.form, r.period): r for r in db.query(OpsCompanyReport).all()}
+    res = {"created": 0, "updated": 0, "unchanged": 0, "removed": 0, "skipped_other_source": 0,
+           "unknown_company": 0, "invalid": 0}
+    keep = set()
+    for r in rows:
+        cid = by_slug.get(str(r.get("slug") or ""))
+        form, period = str(r.get("form") or "").strip(), str(r.get("period") or "").strip()
+        status = r.get("status")
+        if cid is None:
+            res["unknown_company"] += 1
+            continue
+        if not form or not period or status not in LOAD_STATUSES or r.get("source", source) != source:
+            res["invalid"] += 1
+            continue
+        key = (cid, form, period)
+        raw = r.get("raw_value")
+        raw = str(raw)[:500] if raw is not None else None
+        cur = existing.get(key)
+        if cur is not None and cur.source != source:
+            res["skipped_other_source"] += 1
+            continue
+        keep.add(key)
+        if cur is None:
+            row = OpsCompanyReport(company_id=cid, form=form, period=period, status=status, raw_value=raw, source=source)
+            db.add(row)
+            existing[key] = row
+            res["created"] += 1
+        elif (cur.status, cur.raw_value) != (status, raw):
+            cur.status, cur.raw_value = status, raw
+            res["updated"] += 1
+        else:
+            res["unchanged"] += 1
+    for key, cur in list(existing.items()):
+        if cur.source == source and key not in keep and cur.id is not None:
+            db.delete(cur)
+            res["removed"] += 1
+    db.commit()
+    return res

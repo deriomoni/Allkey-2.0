@@ -8,6 +8,7 @@
     python -m app.operations.cli grant-staff --email user@example.com   # роль «сотрудник» (экран «Компании»)
     python -m app.operations.cli revoke-staff --email user@example.com
     python -m app.operations.cli reports-load --file rows.json  # строки форм в ops_company_reports, только добавление
+    python -m app.operations.cli reports-load --file plan.json --replace-source plan  # план поверх старого плана
     python -m app.operations.cli cabinet-queue list [--json]          # очередь на вход в кабинет (knp-watch)
     python -m app.operations.cli cabinet-queue add --slug S [--note T]
     python -m app.operations.cli cabinet-queue done --slug S [--result T]   # после прогона knp-watch
@@ -41,6 +42,8 @@ def main(argv=None) -> int:
     sub.add_parser("admins")
     rl = sub.add_parser("reports-load")
     rl.add_argument("--file", required=True, help="JSON [{slug, form, period, status, raw_value, source}]")
+    rl.add_argument("--replace-source", default="", help="заменить строки этого источника (plan) набором из файла; "
+                                                         "остальные источники не трогаются")
     cqp = sub.add_parser("cabinet-queue")
     cqp.add_argument("action", choices=["list", "add", "done", "schedule"])
     cqp.add_argument("--slug", default="")
@@ -101,7 +104,15 @@ def main(argv=None) -> int:
             import json
             from app.operations.reports_import import load_rows
             with open(args.file, encoding="utf-8") as f:
-                r = load_rows(db, json.load(f))
+                data = json.load(f)
+            if args.replace_source:
+                from app.operations.reports_import import replace_source_rows
+                r = replace_source_rows(db, data, args.replace_source)
+                print(f"OK ({args.replace_source}): добавлено {r['created']}, обновлено {r['updated']}, без изменений "
+                      f"{r['unchanged']}, убрано {r['removed']}; пропущено (занято историей) {r['skipped_other_source']}, "
+                      f"компания не найдена {r['unknown_company']}, некорректных {r['invalid']}")
+                return 0
+            r = load_rows(db, data)
             print(f"OK: добавлено {r['created']}, уже были (не тронуты) {r['skipped_existing']}, "
                   f"компания не найдена {r['unknown_company']}, некорректных {r['invalid']}")
             return 0
