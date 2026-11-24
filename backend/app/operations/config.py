@@ -13,8 +13,6 @@ _REPO_ROOT = Path(__file__).resolve().parents[3]
 class OpsSettings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
-    # Раздел 1.1 п.2: пока false — роли кроме admin не дают доступа ни к чему.
-    ops_registry_visible_to_non_admin: bool = False
     # Путь к локальному клону arty-ops (там clients/*/client.yaml и scripts/validate_cards.py).
     arty_ops_path: str = ""
     # user_id владельца, которому при старте выдаётся роль admin модуля. Больше никому.

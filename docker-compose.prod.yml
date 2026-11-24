@@ -32,7 +32,6 @@ services:
       # Модуль «Операции» (раздел «Компании»): значения — в .env сервера, не в репозитории.
       # KGD_API_TOKEN на сервер не переносится — проверка КГД работает только локально.
       OPS_ADMIN_USER_ID: ${OPS_ADMIN_USER_ID}
-      OPS_REGISTRY_VISIBLE_TO_NON_ADMIN: ${OPS_REGISTRY_VISIBLE_TO_NON_ADMIN:-false}
       ARTY_OPS_PATH: /arty-ops
       OPS_UI_BUNDLE_PATH: /ops-ui/ops.js
       # решения из панели — коммит в ветку prod-decisions и push сразу после коммита

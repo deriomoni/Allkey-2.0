@@ -117,4 +117,5 @@ export const CSS = `
 .opsx-facet-count { color:#64748b; font-variant-numeric:tabular-nums; }
 .opsx-facet-clear { margin:4px 8px 2px; font-size:13px; }
 .opsx-facet-empty { padding:6px 8px; font-size:13px; }
+.opsx-forms { font-size:13px; max-width:220px; }
 `

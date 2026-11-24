@@ -2,29 +2,52 @@ import { useEffect, useMemo, useState } from 'react'
 import { Api, CompanyRow, REGIME, Status } from './api'
 import { ColumnFilter, Facet, FacetSelection, matchesFacets, readSelection, writeSelection } from './ColumnFilter'
 
-// Фильтры по столбцам. «Статус КГД» — добавить сюда записью, когда появится столбец.
-const FACETS: Facet<CompanyRow>[] = [
-  {
-    key: 'regime', label: 'Режим',
-    value: (c) => c.tax_regime || 'none',
-    labels: { general: REGIME.general, simplified: REGIME.simplified, retail: REGIME.retail, none: 'не установлен' },
-  },
-  {
-    key: 'vat', label: 'НДС',
-    value: (c) => (c.vat_payer === true ? 'yes' : c.vat_payer === false ? 'no' : 'none'),
-    labels: { yes: 'да', no: 'нет', none: 'не установлен' },
-  },
-]
-
 // Поиск — только на клиенте: названия не уходят в URL и в access-логи сервера.
 function norm(s: string) {
   return s.toLowerCase().replace(/ё/g, 'е').replace(/[«»"'“”]/g, '').replace(/\s+/g, ' ').trim()
 }
 
-// Синхронизация карточек и импорт отчётов — в разделе «Служебное» (/x/ops-service), не здесь.
+// Ключевые формы — первыми в фильтре «Формы» (и отдельными колонками в экспорте).
+const KEY_FORMS = ['300.00', '200.00', '101.04', '220.00', '100.00', '910.00', '700.00']
+
+// Фильтры по столбцам. «Статус КГД» — добавить сюда записью, когда появится столбец.
+function makeFacets(items: CompanyRow[]): Facet<CompanyRow>[] {
+  const all = new Set<string>()
+  for (const c of items) for (const f of c.forms || []) all.add(f)
+  const forms = [...KEY_FORMS.filter((f) => all.has(f)), ...[...all].filter((f) => !KEY_FORMS.includes(f)).sort()]
+  return [
+    {
+      key: 'regime', label: 'Режим',
+      value: (c) => c.tax_regime || 'none',
+      labels: { general: REGIME.general, simplified: REGIME.simplified, retail: REGIME.retail, none: 'не установлен' },
+    },
+    {
+      key: 'vat', label: 'НДС',
+      value: (c) => (c.vat_payer === true ? 'yes' : c.vat_payer === false ? 'no' : 'none'),
+      labels: { yes: 'да', no: 'нет', none: 'не установлен' },
+    },
+    {
+      key: 'forms', label: 'Формы',
+      value: (c) => (c.forms?.length ? c.forms : ['none']),
+      labels: { ...Object.fromEntries(forms.map((f) => [f, f])), none: 'нет форм' },
+    },
+  ]
+}
+const FACET_KEYS = makeFacets([])
+
+function fmtDate(iso: string | null) {
+  if (!iso) return ''
+  const [y, m, d] = iso.slice(0, 10).split('-')
+  return d && m && y ? `${d}.${m}.${y}` : iso
+}
+
+// Синхронизация карточек и импорт — в разделе «Служебное» (/x/ops-service, только admin).
+// Сотрудник (staff) видит список, фильтры, ссылку на Диск и экспорт; без «скрытой», подозрений и карточки.
 export default function CompaniesList({ api, onOpen }: { api: Api; onOpen: (id: number) => void }) {
   const [items, setItems] = useState<CompanyRow[] | null>(null)
   const [status, setStatus] = useState<Status | null>(null)
+  const [role, setRole] = useState<'admin' | 'staff' | null>(null)
+  const isAdmin = role === 'admin'
   const [q, setQ] = useState('')
   // Живые и архив — отдельными вкладками; вкладка в URL (?tab=archive), без названий компаний.
   const [tab, setTabState] = useState<'active' | 'archive'>(
@@ -33,29 +56,32 @@ export default function CompaniesList({ api, onOpen }: { api: Api; onOpen: (id: 
     const u = new URL(window.location.href)
     if (t === 'archive') u.searchParams.set('tab', 'archive')
     else u.searchParams.delete('tab')
-    window.history.replaceState(null, '', u.pathname + u.search)
+    window.history.replaceState(null, '', u.pathname + u.search.replace(/%2C/gi, ','))
     setTabState(t)
   }
   const [onlySuspected, setOnlySuspected] = useState(false)
   // ТЗ 1.1 п. 9: скрытые компании видит только admin; в списке — по фильтру, по умолчанию выключен.
   const [showHidden, setShowHidden] = useState(false)
-  const [facetSel, setFacetSel] = useState<FacetSelection>(() => readSelection(FACETS))
-  const setFacet = (key: string, next: Set<string>) => {
-    const sel = { ...facetSel, [key]: next }
-    writeSelection(FACETS, sel)
-    setFacetSel(sel)
-  }
-  const anyFacet = FACETS.some((f) => facetSel[f.key]?.size)
+  const [facetSel, setFacetSel] = useState<FacetSelection>(() => readSelection(FACET_KEYS))
   const [busyId, setBusyId] = useState<number | null>(null)
+  const [exporting, setExporting] = useState(false)
   const [error, setError] = useState('')
 
   const load = () => {
     setError('')
-    Promise.all([api.companies(), api.status()])
-      .then(([c, s]) => { setItems(c); setStatus(s) })
+    Promise.all([api.companies(), api.status(), api.me()])
+      .then(([c, s, m]) => { setItems(c); setStatus(s); setRole(m.role) })
       .catch((e) => setError(e.message))
   }
   useEffect(load, [])
+
+  const facets = useMemo(() => makeFacets(items || []), [items])
+  const setFacet = (key: string, next: Set<string>) => {
+    const sel = { ...facetSel, [key]: next }
+    writeSelection(facets, sel)
+    setFacetSel(sel)
+  }
+  const anyFacet = facets.some((f) => facetSel[f.key]?.size)
 
   const toggleHidden = async (c: CompanyRow) => {
     setBusyId(c.id)
@@ -87,13 +113,27 @@ export default function CompaniesList({ api, onOpen }: { api: Api; onOpen: (id: 
     })
   }, [base, q, tab, onlySuspected])
 
-  const filtered = useMemo(() => prefiltered.filter((c) => matchesFacets(c, FACETS, facetSel)), [prefiltered, facetSel])
+  const filtered = useMemo(() => prefiltered.filter((c) => matchesFacets(c, facets, facetSel)), [prefiltered, facets, facetSel])
 
   const counts = useMemo(() => ({
     active: base.filter((c) => c.active).length,
     archive: base.filter((c) => !c.active).length,
   }), [base])
 
+  // Экспорт — ровно текущий отфильтрованный список, в порядке экрана (id — в теле запроса, не в адресе).
+  const doExport = async () => {
+    setExporting(true)
+    setError('')
+    try {
+      await api.exportCompanies(filtered.map((c) => c.id))
+    } catch (e: any) {
+      setError(e.message)
+    } finally {
+      setExporting(false)
+    }
+  }
+
+  const cols = isAdmin ? 7 : 6
   return (
     <div>
       <div className="opsx-head">
@@ -106,6 +146,12 @@ export default function CompaniesList({ api, onOpen }: { api: Api; onOpen: (id: 
               {status.last_synced_at && <> · синхронизировано {new Date(status.last_synced_at).toLocaleString('ru-RU')}</>}
             </div>
           )}
+        </div>
+        <div className="opsx-actions">
+          <button className="opsx-btn" onClick={doExport} disabled={!items || exporting || filtered.length === 0}
+            title="Выгрузить текущий отфильтрованный список">
+            {exporting ? 'Готовим…' : `Скачать xlsx${items ? ` (${filtered.length})` : ''}`}
+          </button>
         </div>
       </div>
 
@@ -127,32 +173,36 @@ export default function CompaniesList({ api, onOpen }: { api: Api; onOpen: (id: 
           value={q}
           onChange={(e) => setQ(e.target.value)}
         />
-        <label className="opsx-check">
-          <input type="checkbox" checked={onlySuspected} onChange={(e) => setOnlySuspected(e.target.checked)} />
-          есть подозрения{items && <> ({base.filter((c) => c.suspected_count).length})</>}
-        </label>
-        <label className="opsx-check" title="Скрытые компании видит только администратор">
-          <input type="checkbox" checked={showHidden} onChange={(e) => setShowHidden(e.target.checked)} />
-          показать скрытые{items && <> ({hiddenCount})</>}
-        </label>
+        {isAdmin && (
+          <>
+            <label className="opsx-check">
+              <input type="checkbox" checked={onlySuspected} onChange={(e) => setOnlySuspected(e.target.checked)} />
+              есть подозрения{items && <> ({base.filter((c) => c.suspected_count).length})</>}
+            </label>
+            <label className="opsx-check" title="Скрытые компании видит только администратор">
+              <input type="checkbox" checked={showHidden} onChange={(e) => setShowHidden(e.target.checked)} />
+              показать скрытые{items && <> ({hiddenCount})</>}
+            </label>
+          </>
+        )}
         {items && <span className="opsx-muted">Показано {filtered.length}</span>}
       </div>
 
       <div className="opsx-filters opsx-facets">
-        {FACETS.map((f) => (
+        {facets.map((f) => (
           <ColumnFilter
             key={f.key}
             facet={f}
             // счётчики — по строкам, прошедшим все остальные фильтры, кроме этого столбца
-            rows={prefiltered.filter((c) => matchesFacets(c, FACETS, facetSel, f.key))}
+            rows={prefiltered.filter((c) => matchesFacets(c, facets, facetSel, f.key))}
             selected={facetSel[f.key] || new Set()}
             onChange={(next) => setFacet(f.key, next)}
           />
         ))}
         {anyFacet && (
           <button type="button" className="opsx-link opsx-link-inline" onClick={() => {
-            const sel = Object.fromEntries(FACETS.map((f) => [f.key, new Set<string>()]))
-            writeSelection(FACETS, sel)
+            const sel = Object.fromEntries(facets.map((f) => [f.key, new Set<string>()]))
+            writeSelection(facets, sel)
             setFacetSel(sel)
           }}>Сбросить фильтры</button>
         )}
@@ -160,7 +210,7 @@ export default function CompaniesList({ api, onOpen }: { api: Api; onOpen: (id: 
 
       {!items && !error && <div className="opsx-muted">Загрузка…</div>}
       {items && items.length === 0 && (
-        <div className="opsx-alert">Реестр пуст. Загрузите карточки в разделе «Служебное» → «Синхронизировать».</div>
+        <div className="opsx-alert">Реестр пуст.{isAdmin && <> Загрузите карточки в разделе «Служебное» → «Синхронизировать».</>}</div>
       )}
       {items && items.length > 0 && (
         <div className="opsx-table-wrap">
@@ -171,14 +221,18 @@ export default function CompaniesList({ api, onOpen }: { api: Api; onOpen: (id: 
                 <th>БИН</th>
                 <th>Режим{facetSel.regime?.size ? ' •' : ''}</th>
                 <th>НДС{facetSel.vat?.size ? ' •' : ''}</th>
+                <th>Формы{facetSel.forms?.size ? ' •' : ''}</th>
                 <th>Папка на Диске</th>
-                <th>Скрытая</th>
+                {isAdmin && <th>Скрытая</th>}
               </tr>
             </thead>
             <tbody>
+              {filtered.length === 0 && (
+                <tr className="opsx-row-static"><td colSpan={cols} className="opsx-muted">Нет компаний под выбранные фильтры.</td></tr>
+              )}
               {filtered.map((c) => (
-                <tr key={c.id} onClick={() => onOpen(c.id)}
-                  className={[c.active ? '' : 'opsx-row-off', c.hidden ? 'opsx-row-hidden' : ''].join(' ')}>
+                <tr key={c.id} onClick={isAdmin ? () => onOpen(c.id) : undefined}
+                  className={[c.active ? '' : 'opsx-row-off', c.hidden ? 'opsx-row-hidden' : '', isAdmin ? '' : 'opsx-row-static'].join(' ')}>
                   <td>
                     <div className="opsx-name">
                       {c.name}
@@ -194,7 +248,11 @@ export default function CompaniesList({ api, onOpen }: { api: Api; onOpen: (id: 
                   </td>
                   <td className="opsx-mono">{c.bin || '—'}</td>
                   <td>{c.tax_regime ? REGIME[c.tax_regime] || c.tax_regime : '—'}</td>
-                  <td>{c.vat_payer === true ? 'да' : c.vat_payer === false ? 'нет' : '—'}</td>
+                  <td>
+                    {c.vat_payer === true ? 'да' : c.vat_payer === false ? 'нет' : '—'}
+                    {c.vat_payer === true && c.vat_date && <div className="opsx-sub">с {fmtDate(c.vat_date)}</div>}
+                  </td>
+                  <td className="opsx-forms">{c.forms?.length ? c.forms.join(', ') : <span className="opsx-muted">—</span>}</td>
                   <td>
                     {c.drive_url ? (
                       <a
@@ -215,23 +273,25 @@ export default function CompaniesList({ api, onOpen }: { api: Api; onOpen: (id: 
                     )}
                     {c.missing_in_repo && <span className="opsx-pill opsx-pill-warn">нет в репо</span>}
                   </td>
-                  <td onClick={(e) => e.stopPropagation()}>
-                    <button
-                      type="button"
-                      role="switch"
-                      aria-checked={c.hidden}
-                      aria-label={c.hidden ? 'Скрытая — открыть для сотрудников' : 'Сделать скрытой'}
-                      title={c.hidden
-                        ? 'Скрытая: видит только администратор. Нажмите, чтобы открыть (правка карточки коммитом)'
-                        : 'Сделать скрытой: сотрудники не увидят компанию нигде (правка карточки коммитом)'}
-                      className={`opsx-switch ${c.hidden ? 'opsx-switch-on' : ''}`}
-                      disabled={busyId !== null}
-                      onClick={() => toggleHidden(c)}
-                    >
-                      <span className="opsx-switch-knob" />
-                    </button>
-                    {busyId === c.id && <span className="opsx-muted opsx-switch-note">сохраняем…</span>}
-                  </td>
+                  {isAdmin && (
+                    <td onClick={(e) => e.stopPropagation()}>
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={!!c.hidden}
+                        aria-label={c.hidden ? 'Скрытая — открыть для сотрудников' : 'Сделать скрытой'}
+                        title={c.hidden
+                          ? 'Скрытая: видит только администратор. Нажмите, чтобы открыть (правка карточки коммитом)'
+                          : 'Сделать скрытой: сотрудники не увидят компанию нигде (правка карточки коммитом)'}
+                        className={`opsx-switch ${c.hidden ? 'opsx-switch-on' : ''}`}
+                        disabled={busyId !== null}
+                        onClick={() => toggleHidden(c)}
+                      >
+                        <span className="opsx-switch-knob" />
+                      </button>
+                      {busyId === c.id && <span className="opsx-muted opsx-switch-note">сохраняем…</span>}
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>

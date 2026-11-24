@@ -20,8 +20,10 @@ export interface CompanyRow {
   responsible: string | null
   active: boolean
   missing_in_repo: boolean
-  hidden: boolean
-  suspected_count?: number
+  hidden?: boolean           // только у admin
+  suspected_count?: number    // только у admin
+  forms: string[]
+  vat_date: string | null
 }
 
 export interface Report {
@@ -94,7 +96,7 @@ export interface OpsAdmin {
 export interface AdminsInfo {
   items: OpsAdmin[]
   env_admin_user_id: number | null
-  visible_to_non_admin: boolean
+  staff: { user_id: number; email: string | null; full_name: string | null; is_active: boolean; granted_by: string | null; granted_at: string | null }[]
 }
 
 export interface PreviewCell { period: string; raw: string; status: string }
@@ -112,6 +114,19 @@ export interface Preview {
   rows: PreviewRow[]
   warnings: string[]
   companies: { id: number; name: string; active: boolean }[]
+}
+
+export interface FormsChange { company_id: number; slug?: string; name?: string; bin?: string | null; add: string[]; remove: string[] }
+export interface FormsPreview {
+  file_name: string
+  companies_in_file: number
+  matched: number
+  changes: FormsChange[]
+  unmatched: { row: number; bin: string; name: string; reason: string }[]
+  discrepancies: { company: string; bin: string | null; field: string; file: string; card: string }[]
+  blocked: { company: string; bin: string | null; form: string; reason: string }[]
+  warnings: string[]
+  totals: { companies_changed: number; forms_added: number; forms_removed: number }
 }
 
 export class ApiError extends Error {
@@ -136,7 +151,42 @@ export function makeApi(ctx: Ctx) {
     }
     return r.json()
   }
+  // Файл (xlsx) ответом на POST с токеном → сохранение через ссылку.
+  async function downloadPost(path: string, body: unknown, fallbackName: string) {
+    const headers = new Headers({ 'Content-Type': 'application/json' })
+    const token = ctx.getToken()
+    if (token) headers.set('Authorization', `Bearer ${token}`)
+    const r = await fetch(ctx.apiUrl + '/api/ops' + path, { method: 'POST', headers, body: JSON.stringify(body) })
+    if (!r.ok) throw new ApiError(r.status, `Ошибка ${r.status}`)
+    const m = /filename="([^"]+)"/.exec(r.headers.get('Content-Disposition') || '')
+    const url = URL.createObjectURL(await r.blob())
+    const a = document.createElement('a')
+    a.href = url
+    a.download = m ? m[1] : fallbackName
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
+  }
   return {
+    me: () => req<{ role: 'admin' | 'staff' }>('/me'),
+    exportCompanies: (ids: number[]) => downloadPost('/companies/export', { ids }, 'companies.xlsx'),
+    formsImportPreview: (file: File) => {
+      const fd = new FormData()
+      fd.append('file', file)
+      return req<FormsPreview>('/companies/forms-import/preview', { method: 'POST', body: fd })
+    },
+    formsImportApply: (p: FormsPreview) =>
+      req<{ ok: boolean; commit: string | null; companies_changed: number; forms_added: number; forms_removed: number }>(
+        '/companies/forms-import/apply', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            file_name: p.file_name,
+            changes: p.changes.map((c) => ({ company_id: c.company_id, add: c.add, remove: c.remove })),
+            companies_in_file: p.companies_in_file, unmatched: p.unmatched.length,
+            discrepancies: p.discrepancies.length, blocked: p.blocked.length,
+          }),
+        }),
     status: () => req<Status>('/status'),
     admins: () => req<AdminsInfo>('/admins'),
     companies: () => req<{ items: CompanyRow[] }>('/companies').then((d) => d.items),

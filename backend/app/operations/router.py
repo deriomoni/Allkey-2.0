@@ -19,9 +19,10 @@ from sqlalchemy.orm import Session
 from app.auth.dependencies import get_current_user
 from app.database import get_db
 from app.operations.access import (
-    company_visible, effective_roles, filter_fields, is_ops_admin, list_admins, require_ops_admin, sees_hidden,
-    visible_companies,
+    company_visible, effective_roles, filter_fields, is_ops_admin, list_admins, list_staff, require_ops_admin,
+    require_ops_user, sees_hidden, visible_companies,
 )
+from app.operations import companies_xlsx
 from app.operations.config import get_ops_settings
 from app.operations.models import OpsCompany, OpsCompanyReport, OpsObligationFlag
 from app.operations import obligations as obl
@@ -65,11 +66,13 @@ def _list_item(c: OpsCompany) -> dict:
         "missing_in_repo": c.missing_in_repo,
         "hidden": bool(c.hidden),
         "drive_url": _drive_url(c.drive_root_folder_id),
+        "forms": companies_xlsx.card_forms(c.card_json or {}),
+        "vat_date": companies_xlsx.card_vat_date(c.card_json or {}),
     }
 
 
 @router.get("/companies", name="ops_list_companies")
-def list_companies(user: User = Depends(require_ops_admin), db: Session = Depends(get_db)):
+def list_companies(user: User = Depends(require_ops_user), db: Session = Depends(get_db)):
     roles = effective_roles(db, user)
     items = visible_companies(db, roles).order_by(OpsCompany.active.desc(), OpsCompany.name).all()
     ids = {c.id for c in items}
@@ -219,7 +222,7 @@ def sync(user: User = Depends(require_ops_admin), db: Session = Depends(get_db))
 
 
 @router.get("/status", name="ops_sync_status")
-def status(user: User = Depends(require_ops_admin), db: Session = Depends(get_db)):
+def status(user: User = Depends(require_ops_user), db: Session = Depends(get_db)):
     roles = effective_roles(db, user)
     q = visible_companies(db, roles)
     total = q.count()
@@ -240,7 +243,7 @@ def admins(user: User = Depends(require_ops_admin), db: Session = Depends(get_db
     return {
         "items": list_admins(db),
         "env_admin_user_id": s.ops_admin_user_id,
-        "visible_to_non_admin": s.ops_registry_visible_to_non_admin,
+        "staff": list_staff(db),
     }
 
 
@@ -284,8 +287,81 @@ def import_commit(body: CommitBody, user: User = Depends(require_ops_admin), db:
     return commit_rows(db, [r.model_dump() for r in body.rows])
 
 
+@router.get("/me", name="ops_me")
+def ops_me(user: User = Depends(require_ops_user), db: Session = Depends(get_db)):
+    """Роль в модуле — бандлу, чтобы не рисовать сотруднику недоступное (защита — на сервере)."""
+    return {"role": "admin" if is_ops_admin(db, user) else "staff"}
+
+
+class ExportIn(BaseModel):
+    ids: List[int]
+
+
+@router.post("/companies/export", name="ops_companies_export")
+def companies_export(body: ExportIn, user: User = Depends(require_ops_user), db: Session = Depends(get_db)):
+    """xlsx текущего отфильтрованного списка: клиент присылает id строк в порядке экрана. Отбор — через
+    visible_companies: скрытые у не-admin не попадут ни при каких id. Id — в теле, не в адресе."""
+    roles = effective_roles(db, user)
+    ids = list(dict.fromkeys(body.ids))[:5000]
+    found = {c.id: c for c in visible_companies(db, roles).filter(OpsCompany.id.in_(ids)).all()} if ids else {}
+    items = [filter_fields(_list_item(found[i]), roles) for i in ids if i in found]
+    data = companies_xlsx.export_xlsx(items)
+    name = f"companies-{dt.date.today().isoformat()}.xlsx"
+    return Response(content=data,
+                    media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    headers={"Content-Disposition": f'attachment; filename="{name}"', "Cache-Control": "no-store"})
+
+
+@router.post("/companies/forms-import/preview", name="ops_forms_import_preview")
+async def forms_import_preview(file: UploadFile = File(...), user: User = Depends(require_ops_admin),
+                               db: Session = Depends(get_db)):
+    """Шаг 1 импорта форм: разбор файла и план изменений. Ничего не пишет."""
+    content = await file.read(MAX_UPLOAD + 1)
+    if len(content) > MAX_UPLOAD:
+        raise HTTPException(status_code=413, detail="Файл больше 10 МБ")
+    try:
+        parsed = companies_xlsx.parse_xlsx(content)
+    except obl.ObligationError as e:
+        raise HTTPException(status_code=e.status, detail=str(e))
+    except Exception:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail="Не удалось прочитать файл как xlsx")
+    plan = companies_xlsx.build_plan(db.query(OpsCompany).all(), parsed)
+    plan["file_name"] = (file.filename or "")[:120]
+    return plan
+
+
+class FormsChange(BaseModel):
+    company_id: int
+    add: List[str] = []
+    remove: List[str] = []
+
+
+class FormsApplyIn(BaseModel):
+    file_name: str = ""
+    changes: List[FormsChange]
+    companies_in_file: int = 0
+    unmatched: int = 0
+    discrepancies: int = 0
+    blocked: int = 0
+
+
+@router.post("/companies/forms-import/apply", name="ops_forms_import_apply")
+def forms_import_apply(body: FormsApplyIn, user: User = Depends(require_ops_admin), db: Session = Depends(get_db)):
+    """Шаг 2: применить изменения форм — коммит в prod-decisions клона, затем пересинхронизация карточек."""
+    ids = [c.company_id for c in body.changes]
+    slugs = {c.id: c.slug for c in db.query(OpsCompany).filter(OpsCompany.id.in_(ids)).all()} if ids else {}
+    try:
+        res = companies_xlsx.apply_plan([c.model_dump() for c in body.changes], slugs, body.file_name,
+                                        _user_label(user), body.model_dump(exclude={"changes", "file_name"}))
+    except obl.ObligationError as e:
+        raise HTTPException(status_code=e.status, detail=str(e))
+    for slug in res.pop("slugs", []):
+        sync_one(db, slug)
+    return res
+
+
 @router.get("/ui/bundle.js", name="ops_ui_bundle")
-def ui_bundle(user: User = Depends(require_ops_admin)):
+def ui_bundle(user: User = Depends(require_ops_user)):
     """Отдельный бандл фронта модуля: отдаётся только admin (через тот же гейт)."""
     p = Path(get_ops_settings().ops_ui_bundle_path)
     if not p.is_file():
@@ -303,8 +379,11 @@ ext_router = APIRouter(prefix="/users", tags=["users"])
 
 @ext_router.get("/me/extensions")
 def my_extensions(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    if not is_ops_admin(db, user):
-        return []
+    roles = effective_roles(db, user)
+    if "admin" not in roles:
+        # сотрудник — только экран «Компании» (без «Служебного» и блока в «Настройках»); остальным — ничего
+        return [{"key": "ops", "title": "Компании", "path": "/x/ops", "bundle": "/api/ops/ui/bundle.js"}] \
+            if "staff" in roles else []
     return [{
         "key": "ops", "title": "Компании", "path": "/x/ops", "bundle": "/api/ops/ui/bundle.js",
         # Бандл умеет рисовать блок для страницы «Настройки» (список admin модуля).

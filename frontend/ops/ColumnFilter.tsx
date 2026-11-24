@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from 'react'
 export interface Facet<T> {
   key: string                       // имя параметра в адресе (?regime=general,none)
   label: string                     // подпись кнопки = название столбца
-  value: (row: T) => string         // код значения строки ('none' — не установлен)
+  value: (row: T) => string | string[]  // код значения строки ('none' — не установлен); массив — у строки несколько значений (формы)
   labels: Record<string, string>    // код → подпись; порядок ключей = порядок в списке
 }
 
@@ -33,8 +33,14 @@ export function writeSelection(facets: Facet<any>[], sel: FacetSelection) {
   window.history.replaceState(null, '', u.pathname + u.search.replace(/%2C/gi, ','))
 }
 
+const valuesOf = <T,>(f: Facet<T>, row: T): string[] => {
+  const v = f.value(row)
+  return Array.isArray(v) ? v : [v]
+}
+
+// Внутри столбца — «любое из выбранных», между столбцами — «и».
 export function matchesFacets<T>(row: T, facets: Facet<T>[], sel: FacetSelection, skip?: string) {
-  return facets.every((f) => f.key === skip || !sel[f.key]?.size || sel[f.key].has(f.value(row)))
+  return facets.every((f) => f.key === skip || !sel[f.key]?.size || valuesOf(f, row).some((v) => sel[f.key].has(v)))
 }
 
 export function ColumnFilter<T>({ facet, rows, selected, onChange }: {
@@ -57,8 +63,7 @@ export function ColumnFilter<T>({ facet, rows, selected, onChange }: {
 
   const counts: Record<string, number> = {}
   for (const r of rows) {
-    const v = facet.value(r)
-    counts[v] = (counts[v] || 0) + 1
+    for (const v of valuesOf(facet, r)) counts[v] = (counts[v] || 0) + 1
   }
   // известные значения — в заданном порядке; незнакомые (если появятся) — в конце
   const values = [...Object.keys(facet.labels), ...Object.keys(counts).filter((v) => !(v in facet.labels))]

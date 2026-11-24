@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Api, Status, SyncResult } from './api'
 import ReportsImport from './ReportsImport'
+import FormsImport from './FormsImport'
 
 // Раздел «Служебное» (/x/ops-service, только admin модуля): синхронизация карточек из allkey-ops
 // и импорт файла отчётов. С экрана «Компании» эти кнопки убраны.
@@ -101,6 +102,7 @@ export default function ServiceScreen({ api, basePath }: { api: Api; basePath: s
           Загрузка xlsx-реестра статусов форм (лист на форму): предпросмотр сопоставления с компаниями → подтверждение.
         </div>
       </div>
+      <FormsImport api={api} />
     </div>
   )
 }

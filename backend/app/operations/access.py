@@ -3,7 +3,8 @@
 * Весь `/api/ops/*` проходит через `OpsGateMiddleware`: без разрешённой роли — 404
   (не 403: наличие раздела не раскрывается).
 * Default deny: маршрут без записи в `ROUTE_PERMISSIONS` недоступен никому, даже admin.
-* Пока `OPS_REGISTRY_VISIBLE_TO_NON_ADMIN=false`, учитывается только роль admin.
+* Действуют только две роли: `admin` и `staff` (сотрудник, итерация 3 — 24.11.2026). Глобального флага
+  видимости нет: доступ даёт только роль в `user_roles`. Прочие строки ролей игнорируются.
 * Роль admin модуля — строка в `user_roles` (role='admin', company_id IS NULL).
   `users.role == 'admin'` сама по себе доступа к модулю НЕ даёт.
 * Логи и ответы об ошибках не содержат данных компаний: при исключении пишется только
@@ -29,17 +30,25 @@ from app.users.models import User
 logger = logging.getLogger("app.operations")
 
 OPS_PREFIX = "/api/ops"
-ALL_ROLES = ("admin", "operator", "keyholder", "viewer", "client")
+ALL_ROLES = ("admin", "staff", "operator", "keyholder", "viewer", "client")
+# Роли, которые реально дают доступ (без company_id). Остальные из ALL_ROLES — зарезервированы ТЗ.
+EFFECTIVE_ROLES = ("admin", "staff")
 
 # Явный список: имя маршрута → роли, которым он открыт. Чего нет в списке — 404 всем.
 ROUTE_PERMISSIONS: dict[str, Set[str]] = {
-    "ops_list_companies": {"admin"},
+    # сотрудник (staff): экран «Компании» — список, фильтры, ссылка на Диск, экспорт
+    "ops_list_companies": {"admin", "staff"},
+    "ops_sync_status": {"admin", "staff"},
+    "ops_ui_bundle": {"admin", "staff"},
+    "ops_me": {"admin", "staff"},
+    "ops_companies_export": {"admin", "staff"},
+    # только admin: карточка (обязательства, 1С), «Служебное», «скрытая», КГД
     "ops_get_company": {"admin"},
     "ops_sync_companies": {"admin"},
-    "ops_sync_status": {"admin"},
     "ops_reports_import_preview": {"admin"},
     "ops_reports_import_commit": {"admin"},
-    "ops_ui_bundle": {"admin"},
+    "ops_forms_import_preview": {"admin"},
+    "ops_forms_import_apply": {"admin"},
     "ops_list_admins": {"admin"},
     "ops_obligation_create": {"admin"},
     "ops_obligation_confirm": {"admin"},
@@ -55,16 +64,20 @@ HIDDEN_SAFE_ROUTES: Set[str] = {
     "ops_list_companies",
     "ops_get_company",
     "ops_sync_status",
+    "ops_companies_export",
+    # данных компаний не отдают вовсе
+    "ops_ui_bundle",
+    "ops_me",
 }
 
-# Белый список полей карточки по ролям (п. 4). None — все поля.
-# Для остальных ролей пусто: наполняет владелец отдельным решением.
+# Белый список полей по ролям (п. 4). None — все поля. Сотруднику — колонки экрана «Компании»;
+# без признака «скрытая» и без подозрений по обязательствам.
 VISIBLE_FIELDS: dict[str, Optional[frozenset]] = {
     "admin": None,
-    "operator": frozenset(),
-    "keyholder": frozenset(),
-    "viewer": frozenset(),
-    "client": frozenset(),
+    "staff": frozenset({
+        "id", "slug", "name", "name_official", "legal_name", "bin", "aliases", "folder_name",
+        "tax_regime", "vat_payer", "vat_date", "forms", "active", "missing_in_repo", "drive_url",
+    }),
 }
 
 NOT_FOUND_BODY = json.dumps({"detail": "Not Found"}).encode()
@@ -76,15 +89,7 @@ def effective_roles(db: Session, user: User) -> Set[str]:
     if not user or not user.is_active:
         return set()
     rows = db.query(UserRoleAssignment).filter(UserRoleAssignment.user_id == user.id).all()
-    roles = set()
-    for r in rows:
-        if r.role == "admin" and r.company_id is None:
-            roles.add("admin")
-        elif r.role in ALL_ROLES and r.role != "admin":
-            roles.add(r.role)
-    if not get_ops_settings().ops_registry_visible_to_non_admin:
-        roles &= {"admin"}
-    return roles
+    return {r.role for r in rows if r.role in EFFECTIVE_ROLES and r.company_id is None}
 
 
 def is_ops_admin(db: Session, user: User) -> bool:
@@ -201,6 +206,16 @@ class OpsGateMiddleware:
                 await _send_json(send, 500, SERVER_ERROR_BODY)
 
 
+async def require_ops_user(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> User:
+    """admin или staff (вторая линия обороны для маршрутов сотрудника). Иначе 404."""
+    if not effective_roles(db, current_user):
+        raise HTTPException(status_code=404, detail="Not Found")
+    return current_user
+
+
 async def require_ops_admin(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -279,4 +294,45 @@ def list_admins(db: Session) -> list:
             "granted_at": r.created_at.isoformat() if r.created_at else None,
             "is_env_admin": r.user_id == env_uid,
         })
+    return out
+
+
+# --- Роль «сотрудник» (staff): выдаётся и снимается командами CLI по email -------------------
+
+def user_by_email(db: Session, email: str) -> Optional[User]:
+    return db.query(User).filter(User.email == (email or "").strip()).first()
+
+
+def grant_staff(db: Session, user_id: int, granted_by: str = "cli") -> bool:
+    if db.query(User).filter(User.id == user_id).first() is None:
+        return False
+    q = db.query(UserRoleAssignment).filter(UserRoleAssignment.user_id == user_id,
+                                            UserRoleAssignment.role == "staff",
+                                            UserRoleAssignment.company_id.is_(None))
+    if q.first() is None:
+        db.add(UserRoleAssignment(user_id=user_id, role="staff", company_id=None, granted_by=granted_by))
+        db.commit()
+        logger.info("ops: staff role granted to user_id %s (%s)", user_id, granted_by)
+    return True
+
+
+def revoke_staff(db: Session, user_id: int) -> bool:
+    n = db.query(UserRoleAssignment).filter(UserRoleAssignment.user_id == user_id,
+                                            UserRoleAssignment.role == "staff").delete()
+    db.commit()
+    if n:
+        logger.info("ops: staff role revoked from user_id %s (cli)", user_id)
+    return bool(n)
+
+
+def list_staff(db: Session) -> list:
+    out = []
+    rows = db.query(UserRoleAssignment).filter(UserRoleAssignment.role == "staff",
+                                               UserRoleAssignment.company_id.is_(None))
+    for r in rows.order_by(UserRoleAssignment.created_at).all():
+        u = db.query(User).filter(User.id == r.user_id).first()
+        out.append({"user_id": r.user_id, "email": u.email if u else None,
+                    "full_name": u.full_name if u else None, "is_active": bool(u and u.is_active),
+                    "granted_by": r.granted_by,
+                    "granted_at": r.created_at.isoformat() if r.created_at else None})
     return out

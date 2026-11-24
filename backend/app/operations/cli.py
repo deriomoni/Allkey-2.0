@@ -5,6 +5,8 @@
     python -m app.operations.cli grant-admin --user-id 1
     python -m app.operations.cli revoke-admin --user-id 1
     python -m app.operations.cli kgd-fetch --out PATH   # API КГД по всем живым карточкам → JSON вне репозитория
+    python -m app.operations.cli grant-staff --email user@example.com   # роль «сотрудник» (экран «Компании»)
+    python -m app.operations.cli revoke-staff --email user@example.com
     python -m app.operations.cli admins               # кому выдана роль admin модуля
 
 Выводит только счётчики и ошибки валидатора — без названий компаний.
@@ -15,7 +17,7 @@ import sys
 from app.database import Base, SessionLocal, engine
 import app.users.models  # noqa: F401
 from app.operations import models  # noqa: F401
-from app.operations.access import grant_admin, list_admins, revoke_admin
+from app.operations.access import grant_admin, grant_staff, list_admins, list_staff, revoke_admin, revoke_staff, user_by_email
 from app.operations.config import get_ops_settings
 from app.operations.sync import sync_companies
 from app.operations.schema_sync import ensure_ops_schema
@@ -31,6 +33,10 @@ def main(argv=None) -> int:
     rv = sub.add_parser("revoke-admin")
     rv.add_argument("--user-id", type=int, required=True)
     sub.add_parser("admins")
+    gs = sub.add_parser("grant-staff")
+    gs.add_argument("--email", required=True)
+    rs = sub.add_parser("revoke-staff")
+    rs.add_argument("--email", required=True)
     kf = sub.add_parser("kgd-fetch")
     kf.add_argument("--out", required=True, help="файл JSON (вне репозиториев)")
     kf.add_argument("--bins", default="", help="только эти БИН через запятую")
@@ -60,6 +66,18 @@ def main(argv=None) -> int:
             if args.from_file:
                 return renormalize(args.from_file, args.out)
             return fetch_all(args.out, [b for b in args.bins.split(",") if b.strip()], args.delay)
+        if args.cmd in ("grant-staff", "revoke-staff"):
+            u = user_by_email(db, args.email)
+            if u is None:
+                print("Пользователь с таким email не найден.")
+                return 1
+            if args.cmd == "grant-staff":
+                grant_staff(db, u.id, granted_by="cli")
+                print(f"Роль «сотрудник» выдана: user_id={u.id}.")
+                return 0
+            ok = revoke_staff(db, u.id)
+            print("Роль «сотрудник» снята." if ok else "У пользователя не было роли «сотрудник».")
+            return 0 if ok else 1
         if args.cmd == "grant-admin":
             return 0 if grant_admin(db, args.user_id, granted_by="cli") else 1
         if args.cmd == "revoke-admin":
@@ -72,6 +90,8 @@ def main(argv=None) -> int:
             for a in list_admins(db):
                 env = " [OPS_ADMIN_USER_ID]" if a["is_env_admin"] else ""
                 print(f"user_id={a['user_id']} {a['email']} granted_by={a['granted_by']} at={a['granted_at']}{env}")
+            for a in list_staff(db):
+                print(f"user_id={a['user_id']} {a['email']} role=staff granted_by={a['granted_by']} at={a['granted_at']}")
             return 0
     finally:
         db.close()

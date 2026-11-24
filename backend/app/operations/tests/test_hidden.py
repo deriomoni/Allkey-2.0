@@ -62,7 +62,7 @@ def env(monkeypatch, tmp_path):
     db.commit()
     db.add(OpsObligationFlag(company_id=hid.id, idx=0, form="101.04", status="suspected"))
     db.add(UserRoleAssignment(user_id=owner.id, role="admin"))
-    db.add(UserRoleAssignment(user_id=viewer.id, role="viewer"))
+    db.add(UserRoleAssignment(user_id=viewer.id, role="staff"))
     db.commit()
 
     # Репозиторий с карточкой скрытой компании — для переключателя.
@@ -103,20 +103,15 @@ def env(monkeypatch, tmp_path):
 
 @pytest.fixture
 def viewer_opened(env, monkeypatch):
-    """Как будет после решения владельца: флаг включён, viewer пускают в список/карточку/статус.
-    Вторую линию обороны (require_ops_admin в обработчиках) подменяем на «любой вошедший» —
-    так обработчики будут выглядеть, когда маршрут откроют роли viewer."""
+    """Пользователь с ролью staff (сотрудник). Карточку сотруднику не открывают; чтобы проверить
+    фильтр скрытых и в карточке, открываем её для staff в этом тесте (обработчик + гейт)."""
     client = env[0]
     from app.auth.dependencies import get_current_user
     from app.operations.access import require_ops_admin
     client.app.dependency_overrides[require_ops_admin] = get_current_user
-    monkeypatch.setattr(get_ops_settings(), "ops_registry_visible_to_non_admin", True)
     perms = dict(access.ROUTE_PERMISSIONS)
-    for name in ("ops_list_companies", "ops_get_company", "ops_sync_status"):
-        perms[name] = {"admin", "viewer"}
+    perms["ops_get_company"] = {"admin", "staff"}
     monkeypatch.setattr(access, "ROUTE_PERMISSIONS", perms)
-    monkeypatch.setattr(access, "VISIBLE_FIELDS", {**access.VISIBLE_FIELDS,
-                                                   "viewer": frozenset({"id", "slug", "name", "bin", "items"})})
 
 
 def test_admin_sees_hidden_with_flag(env):
@@ -149,10 +144,10 @@ def test_gate_closes_routes_without_hidden_filter(env, viewer_opened, monkeypatc
     """Маршрут, открытый не-admin, но не входящий в HIDDEN_SAFE_ROUTES, — 404 (default deny)."""
     client, owner, viewer, ids, _, _ = env
     perms = dict(access.ROUTE_PERMISSIONS)
-    perms["ops_reports_import_preview"] = {"admin", "viewer"}
-    perms["ops_company_set_hidden"] = {"admin", "viewer"}
+    perms["ops_reports_import_preview"] = {"admin", "staff"}
+    perms["ops_company_set_hidden"] = {"admin", "staff"}
     monkeypatch.setattr(access, "ROUTE_PERMISSIONS", perms)
-    assert not route_open_for("ops_reports_import_preview", {"viewer"})
+    assert not route_open_for("ops_reports_import_preview", {"staff"})
     assert route_open_for("ops_reports_import_preview", {"admin"})
     r = client.post(f"/api/ops/companies/{ids['open']}/hidden", headers=viewer, json={"hidden": True})
     assert r.status_code == 404

@@ -120,16 +120,17 @@ def test_every_real_route_is_explicitly_listed(env):
     assert names <= set(ROUTE_PERMISSIONS), names - set(ROUTE_PERMISSIONS)
 
 
-def test_flag_off_viewer_role_gives_nothing_flag_on_still_nothing_without_whitelist(env, monkeypatch):
+def test_reserved_roles_give_nothing(env):
+    """Роли кроме admin/staff (viewer и др. из ТЗ) доступа не дают — глобального флага больше нет."""
     client, hdr, users, _ = env
     assert client.get("/api/ops/companies", headers=hdr(users["viewer"])).status_code == 404
-    monkeypatch.setattr(get_ops_settings(), "ops_registry_visible_to_non_admin", True)
-    # Флаг включён, но ROUTE_PERMISSIONS сейчас открывают маршруты только admin.
-    assert client.get("/api/ops/companies", headers=hdr(users["viewer"])).status_code == 404
+    assert access.effective_roles(None, None) == set()
 
 
-def test_filter_fields_viewer_whitelist_is_empty():
-    assert access.filter_fields({"name": "x", "bin": "1"}, {"viewer"}) == {}
+def test_filter_fields_whitelists():
+    assert access.filter_fields({"name": "x", "bin": "1", "hidden": True, "suspected_count": 2}, {"viewer"}) == {}
+    assert access.filter_fields({"name": "x", "bin": "1", "hidden": True, "suspected_count": 2}, {"staff"}) == \
+        {"name": "x", "bin": "1"}
     assert access.filter_fields({"name": "x"}, {"admin"}) == {"name": "x"}
 
 

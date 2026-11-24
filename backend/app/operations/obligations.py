@@ -150,13 +150,23 @@ def check_branch(root: Path) -> None:
         raise ObligationError(f"Клон allkey-ops не на ветке {want} — решения пишутся только в неё", 409)
 
 
-def commit_and_push(root: Path, path: Path, rel: str, original: str, message: str) -> str:
+def commit_and_push(root: Path, path, rel, original, message: str, new_files=()) -> str:
     """Коммит от системы; при OPS_REPO_PUSH — push в origin/<OPS_REPO_BRANCH> сразу после коммита.
+    path/rel/original — один файл или списки (импорт меняет несколько карточек одним коммитом);
+    new_files — относительные пути новых/дописанных файлов (журнал импорта).
     Неудачный push коммит не отменяет: он уйдёт со следующим push (в лог — только sha)."""
+    paths = path if isinstance(path, (list, tuple)) else [path]
+    rels = list(rel) if isinstance(rel, (list, tuple)) else [rel]
+    originals = original if isinstance(original, (list, tuple)) else [original]
     name, email = SYSTEM_AUTHOR
-    commit = _git(root, "-c", f"user.name={name}", "-c", f"user.email={email}", "commit", "-q", "-m", message, "--", rel)
+    extra = list(new_files)
+    if extra:
+        _git(root, "add", "--", *extra)
+    commit = _git(root, "-c", f"user.name={name}", "-c", f"user.email={email}", "commit", "-q", "-m", message,
+                  "--", *rels, *extra)
     if commit.returncode != 0:
-        path.write_text(original, encoding="utf-8", newline="\n")
+        for p, o in zip(paths, originals):
+            p.write_text(o, encoding="utf-8", newline="\n")
         raise ObligationError("Не удалось закоммитить карточку", 500)
     sha = _git(root, "rev-parse", "--short", "HEAD").stdout.decode().strip()
     s = get_ops_settings()

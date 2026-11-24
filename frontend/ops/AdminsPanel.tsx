@@ -45,9 +45,28 @@ export default function AdminsPanel({ api }: { api: Api }) {
               ))}
             </tbody>
           </table>
+          <h2 className="opsx-h2-gap">Роль «сотрудник» — экран «Компании» без служебных функций</h2>
+          {info.staff.length === 0 ? (
+            <div className="opsx-muted">Никому не выдана.</div>
+          ) : (
+            <table className="opsx-table opsx-table-compact">
+              <thead><tr><th>id</th><th>Пользователь</th><th>Email</th><th>С</th></tr></thead>
+              <tbody>
+                {info.staff.map((a) => (
+                  <tr key={a.user_id} className="opsx-row-static">
+                    <td className="opsx-mono">{a.user_id}</td>
+                    <td>{a.full_name || '—'}{!a.is_active && <span className="opsx-pill opsx-pill-warn">деактивирован</span>}</td>
+                    <td>{a.email || '—'}</td>
+                    <td>{a.granted_at ? new Date(a.granted_at).toLocaleString('ru-RU') : '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
           <div className="opsx-muted" style={{ marginTop: 10 }}>
-            Видимость для ролей кроме admin: {info.visible_to_non_admin ? <b>включена</b> : 'выключена'} (OPS_REGISTRY_VISIBLE_TO_NON_ADMIN).
-            Роль из .env снимается автоматически при смене OPS_ADMIN_USER_ID; явную снимает только{' '}
+            Доступ даёт только роль: глобального флага видимости нет. Сотрудник:{' '}
+            <code>python -m app.operations.cli grant-staff --email …</code> / <code>revoke-staff --email …</code>.
+            Роль admin из .env снимается автоматически при смене OPS_ADMIN_USER_ID; явную снимает только{' '}
             <code>python -m app.operations.cli revoke-admin --user-id N</code>.
           </div>
         </>
