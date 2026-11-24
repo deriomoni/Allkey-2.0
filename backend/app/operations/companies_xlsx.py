@@ -35,7 +35,7 @@ from app.operations.sync import repo_path
 logger = logging.getLogger("app.operations")
 
 KEY_FORMS = ["300.00", "200.00", "101.04", "220.00", "100.00", "910.00", "700.00"]
-REGIME_LABEL = {"general": "ОУР", "simplified": "Упрощёнка", "retail": "Розничный"}
+REGIME_LABEL = {"general": "ОУР", "simplified": "Упрощёнка", "retail": "Розничный", "agricultural": "СНР КФХ"}
 REGIME_CODE = {v.lower(): k for k, v in REGIME_LABEL.items()} | {
     "общеустановленный порядок": "general", "упрощенка": "simplified", "снр (упрощ.)": "simplified",
 }

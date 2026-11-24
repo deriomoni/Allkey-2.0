@@ -284,6 +284,7 @@ export const REGIME: Record<string, string> = {
   general: 'ОУР',
   simplified: 'Упрощёнка',
   retail: 'Розничный',
+  agricultural: 'СНР КФХ',
 }
 
 export const REPORT_STATUS: Record<string, string> = {

@@ -19,7 +19,7 @@ function makeFacets(items: CompanyRow[]): Facet<CompanyRow>[] {
     {
       key: 'regime', label: 'Режим',
       value: (c) => c.tax_regime || 'none',
-      labels: { general: REGIME.general, simplified: REGIME.simplified, retail: REGIME.retail, none: 'не установлен' },
+      labels: { general: REGIME.general, simplified: REGIME.simplified, retail: REGIME.retail, agricultural: REGIME.agricultural, none: 'не установлен' },
     },
     {
       key: 'vat', label: 'НДС',

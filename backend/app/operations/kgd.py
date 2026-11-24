@@ -63,7 +63,7 @@ def _has_value(v: Any) -> bool:
 
 
 def regime_code(tax_mode: Optional[str]) -> Optional[str]:
-    """Режим из текста КГД → значение tax.regime карточки (general | simplified | retail) или None."""
+    """Режим из текста КГД → значение tax.regime карточки (general | simplified | retail | agricultural) или None."""
     s = (tax_mode or "").lower()
     if not s or s == NO_DATA:
         return None
@@ -73,6 +73,8 @@ def regime_code(tax_mode: Optional[str]) -> Optional[str]:
         return "simplified"
     if "розничн" in s:
         return "retail"
+    if "крестьян" in s or "фермер" in s:
+        return "agricultural"   # СНР для КФХ (владелец, 24.11.2026)
     return None
 
 
