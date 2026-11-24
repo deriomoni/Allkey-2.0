@@ -23,13 +23,18 @@ function Trigger({ lines }: { lines: string[] }) {
 function Meta({ f }: { f: ObligationFlag }) {
   return (
     <div className="opsx-sub">
-      поднял: {OBLIGATION_SOURCE[f.source || ''] || f.source || '—'}{f.raised_at && <>, {fmtDate(f.raised_at)}</>}
+      поднял: {OBLIGATION_SOURCE[f.source || ''] || f.source || '—'}{f.raised_by && <> ({f.raised_by})</>}{f.raised_at && <>, {fmtDate(f.raised_at)}</>}
       {f.decided_by && <> · решение: {f.decided_by}{f.decided_at && <>, {fmtDate(f.decided_at)}</>}</>}
     </div>
   )
 }
 
-export default function ObligationsBlock({ api, c, onChanged }: { api: Api; c: CompanyDetail; onChanged: () => Promise<void> }) {
+// Формы, по которым сотрудник может поставить флаг «подозрение» (сервер проверяет то же самое).
+export const STAFF_FLAG_FORMS = ['101.04', '328.00', '700.00', 'отчёт участника Астана Хаб']
+
+export default function ObligationsBlock({ api, c, onChanged, isAdmin }: {
+  api: Api; c: CompanyDetail; onChanged: () => Promise<void>; isAdmin: boolean
+}) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [adding, setAdding] = useState(false)
@@ -79,7 +84,9 @@ export default function ObligationsBlock({ api, c, onChanged }: { api: Api; c: C
       <div className="opsx-block-head">
         <h2>Обязательства</h2>
         {c.active && !adding && (
-          <button className="opsx-btn" disabled={busy} onClick={() => setAdding(true)}>Есть обязательство</button>
+          <button className="opsx-btn" disabled={busy} onClick={() => { setAdding(true); if (!isAdmin) setForm(STAFF_FLAG_FORMS[0]) }}>
+            {isAdmin ? 'Есть обязательство' : 'Подозрение на обязательство'}
+          </button>
         )}
       </div>
       {error && <div className="opsx-alert opsx-alert-err">{error}</div>}
@@ -87,13 +94,24 @@ export default function ObligationsBlock({ api, c, onChanged }: { api: Api; c: C
       {adding && (
         <div className="opsx-obl-form">
           <div className="opsx-obl-row">
-            <label>Форма<input className="opsx-input opsx-input-sm" placeholder="101.04" value={form} onChange={(e) => setForm(e.target.value)} /></label>
+            <label>Форма
+              {isAdmin ? (
+                <input className="opsx-input opsx-input-sm" placeholder="101.04" value={form} onChange={(e) => setForm(e.target.value)} />
+              ) : (
+                <select className="opsx-input opsx-input-sm" value={form} onChange={(e) => setForm(e.target.value)}>
+                  {STAFF_FLAG_FORMS.map((f) => <option key={f} value={f}>{f}</option>)}
+                </select>
+              )}
+            </label>
             <label>Период<input className="opsx-input opsx-input-sm" placeholder="2026-Q4" value={period} onChange={(e) => setPeriod(e.target.value)} /></label>
           </div>
           <label>Основание — одна строка на основание
             <textarea className="opsx-input opsx-textarea" rows={3} placeholder={TEMPLATE} value={trigger} onChange={(e) => setTrigger(e.target.value)} />
           </label>
-          <div className="opsx-sub">Шаблон: «{TEMPLATE}». Если по этой форме за период уже есть открытый флаг, основание добавится в него.</div>
+          <div className="opsx-sub">
+            Шаблон: «{TEMPLATE}». Основание обязательно. Если по этой форме за период уже есть открытый флаг, основание добавится в него.
+            {!isAdmin && <> Подтверждает или снимает флаг администратор.</>}
+          </div>
           {offTemplate.length > 0 && <div className="opsx-warn-text">Не по шаблону: {offTemplate.join('; ')}</div>}
           <div className="opsx-actions">
             <button className="opsx-btn opsx-btn-primary" disabled={busy || !form.trim() || !period.trim() || lines.length === 0} onClick={submitNew}>
@@ -112,7 +130,7 @@ export default function ObligationsBlock({ api, c, onChanged }: { api: Api; c: C
             <Trigger lines={f.trigger} />
             <Meta f={f} />
           </div>
-          <div className="opsx-flag-actions">
+          {isAdmin && <div className="opsx-flag-actions">
             {dismissing === f.idx ? (
               <div className="opsx-dismiss">
                 <input className="opsx-input opsx-input-sm" placeholder="Причина снятия (обязательно)" value={reason} onChange={(e) => setReason(e.target.value)} />
@@ -125,7 +143,7 @@ export default function ObligationsBlock({ api, c, onChanged }: { api: Api; c: C
                 <button className="opsx-btn" disabled={busy} onClick={() => { setDismissing(f.idx); setReason('') }}>Снять</button>
               </>
             )}
-          </div>
+          </div>}
         </div>
       ))}
 

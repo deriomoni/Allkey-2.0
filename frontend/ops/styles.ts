@@ -118,4 +118,9 @@ export const CSS = `
 .opsx-facet-clear { margin:4px 8px 2px; font-size:13px; }
 .opsx-facet-empty { padding:6px 8px; font-size:13px; }
 .opsx-forms { font-size:13px; max-width:220px; }
+.opsx-note { padding:8px 10px; border-left:3px solid #cbd5e1; background:#f8fafc; border-radius:4px; margin-top:8px; }
+.opsx-note-text { white-space:pre-wrap; font-size:13px; }
+.opsx-form-notes .opsx-note { margin-top:6px; max-width:420px; }
+.opsx-note-add { font-size:12px; margin-top:4px; display:block; }
+.opsx-form-cell { min-width:200px; }
 `

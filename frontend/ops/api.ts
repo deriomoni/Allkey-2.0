@@ -45,18 +45,35 @@ export interface ObligationFlag {
   trigger: string[]
   source: string | null
   raised_at: string | null
+  raised_by?: string | null
   decided_by: string | null
   decided_at: string | null
   reason: string | null
 }
 
+export interface StaffNote { at: string; author: string; form?: string | null; period?: string | null; text: string }
+export interface Profile {
+  source?: string
+  date?: string
+  bank_accounts?: { bank?: string; bic?: string; iban?: string; currency?: string }[]
+  cash_registers?: { reg_number?: string; model?: string; serial?: string; registered?: string; ofd?: string; address?: string }[]
+  ugd?: { code?: string; name?: string; type?: string; from?: string }[]
+  head?: string
+  address?: string
+  oked?: { code?: string; name?: string; type?: string; from?: string }[]
+  discrepancies?: unknown[]
+}
+
 export interface CompanyDetail extends CompanyRow {
+  staff_notes: StaffNote[]
+  profile: Profile | null
+  profile_url: string | null
   obligations: ObligationFlag[]
   card: any
   onec: { kind: string | null; url: string | null; login: string | null; note: string | null; run_on: string | null; closed_through: string | null }
   inactive_reason: string | null
   inactive_since: string | null
-  drive: { folder_name: string | null; root_url: string | null; agent_url: string | null }
+  drive: { folder_name: string | null; root_url: string | null; agent_url?: string | null }
   reports: Report[]
   synced_at: string | null
 }
@@ -170,6 +187,14 @@ export function makeApi(ctx: Ctx) {
   }
   return {
     me: () => req<{ role: 'admin' | 'staff' }>('/me'),
+    updateOnec: (id: number, body: { url?: string; kind?: string; note?: string; reason: string }) =>
+      req<{ ok: boolean; commit: string }>(`/companies/${id}/onec`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+      }),
+    addNote: (id: number, body: { text: string; form?: string; period?: string }) =>
+      req<{ ok: boolean; commit: string }>(`/companies/${id}/notes`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+      }),
     exportCompanies: (ids: number[]) => downloadPost('/companies/export', { ids }, 'companies.xlsx'),
     formsImportPreview: (file: File) => {
       const fd = new FormData()

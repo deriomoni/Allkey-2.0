@@ -1,6 +1,7 @@
 import { ReactNode, useEffect, useMemo, useState } from 'react'
 import { Api, CompanyDetail, REGIME, REPORT_STATUS } from './api'
 import ObligationsBlock from './ObligationsBlock'
+import { FormNotes, NoteForm, NotesSection, OnecSection, ProfileSection } from './CardParts'
 
 const FEATURES: Record<string, string> = {
   has_employees: 'есть сотрудники',
@@ -13,8 +14,6 @@ const FEATURES: Record<string, string> = {
   has_cash_register: 'касса ОФД',
   is_forwarder: 'экспедитор',
 }
-
-const ONEC_KIND: Record<string, string> = { cloud: 'облачная', local: 'локальная', none: 'нет базы' }
 
 function yn(v: unknown) {
   return v === true ? 'да' : v === false ? 'нет' : '—'
@@ -32,9 +31,12 @@ function Row({ k, children }: { k: string; children: ReactNode }) {
 export default function CompanyCard({ api, id, onBack }: { api: Api; id: number; onBack: () => void }) {
   const [c, setC] = useState<CompanyDetail | null>(null)
   const [error, setError] = useState('')
+  const [role, setRole] = useState<'admin' | 'staff' | null>(null)
+  const isAdmin = role === 'admin'
+  const [noteForm, setNoteForm] = useState<string | null>(null)  // форма, к которой открыта заметка
 
   const load = () => api.company(id).then(setC).catch((e) => setError(e.status === 404 ? 'Компания не найдена' : e.message))
-  useEffect(() => { load() }, [id])
+  useEffect(() => { load(); api.me().then((m) => setRole(m.role)).catch(() => {}) }, [id])
 
   const periods = useMemo(() => {
     if (!c) return [] as string[]
@@ -99,7 +101,7 @@ export default function CompanyCard({ api, id, onBack }: { api: Api; id: number;
         </div>
       )}
 
-      <ObligationsBlock api={api} c={c} onChanged={async () => { await load() }} />
+      <ObligationsBlock api={api} c={c} isAdmin={isAdmin} onChanged={async () => { await load() }} />
 
       <div className="opsx-grid">
         <section className="opsx-card">
@@ -122,17 +124,11 @@ export default function CompanyCard({ api, id, onBack }: { api: Api; id: number;
         </section>
 
         <section className="opsx-card">
-          <h2>1С</h2>
-          <Row k="База">{c.onec.kind ? ONEC_KIND[c.onec.kind] || c.onec.kind : null}</Row>
-          <Row k="Адрес">{c.onec.url ? <a href={c.onec.url} target="_blank" rel="noreferrer" className="opsx-break">{c.onec.url}</a> : null}</Row>
-          <Row k="Заметка">{c.onec.note}</Row>
-          <Row k="Логин агента">{c.onec.login}</Row>
-          <Row k="Запуск">{c.onec.run_on === 'server' ? 'на сервере' : c.onec.run_on === 'manual' ? 'вручную' : c.onec.run_on}</Row>
-          <Row k="Период закрыт по">{c.onec.closed_through}</Row>
+          <OnecSection key={JSON.stringify(c.onec)} api={api} c={c} onChanged={async () => { await load() }} />
           <h2 className="opsx-h2-gap">Google Диск</h2>
           <Row k="Папка">{c.drive.folder_name}</Row>
           <Row k="Папка на Диске">{c.drive.root_url ? <a href={c.drive.root_url} target="_blank" rel="noreferrer">открыть ↗</a> : <span className="opsx-muted">id папки не заполнен</span>}</Row>
-          <Row k="_agent">{c.drive.agent_url ? <a href={c.drive.agent_url} target="_blank" rel="noreferrer">открыть ↗</a> : <span className="opsx-muted">id папки не заполнен</span>}</Row>
+          {isAdmin && <Row k="_agent">{c.drive.agent_url ? <a href={c.drive.agent_url} target="_blank" rel="noreferrer">открыть ↗</a> : <span className="opsx-muted">id папки не заполнен</span>}</Row>}
         </section>
       </div>
 
@@ -169,9 +165,16 @@ export default function CompanyCard({ api, id, onBack }: { api: Api; id: number;
               <tbody>
                 {forms.map((f) => (
                   <tr key={f}>
-                    <td>
+                    <td className="opsx-form-cell">
                       <span className="opsx-mono">{f}</span>
                       {basis[f] && basis[f].map((b, i) => <div key={i} className="opsx-basis">основание: {b}</div>)}
+                      <FormNotes notes={(c.staff_notes || []).filter((n) => n.form === f)} />
+                      {noteForm === f ? (
+                        <NoteForm api={api} c={c} form={f} periods={periods.filter((p) => c.reports.some((x) => x.form === f && x.period === p))}
+                          onChanged={async () => { await load() }} onDone={() => setNoteForm(null)} />
+                      ) : (
+                        <button className="opsx-link opsx-link-inline opsx-note-add" onClick={() => setNoteForm(f)}>+ замечание</button>
+                      )}
                     </td>
                     {periods.map((p) => {
                       const r = c.reports.find((x) => x.form === f && x.period === p)
@@ -190,6 +193,10 @@ export default function CompanyCard({ api, id, onBack }: { api: Api; id: number;
           </div>
         )}
       </section>
+
+      <NotesSection api={api} c={c} onChanged={async () => { await load() }} />
+
+      <ProfileSection c={c} />
 
       <details className="opsx-card">
         <summary>Карточка целиком (client.yaml)</summary>

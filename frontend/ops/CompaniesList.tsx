@@ -42,7 +42,7 @@ function fmtDate(iso: string | null) {
 }
 
 // Синхронизация карточек и импорт — в разделе «Служебное» (/x/ops-service, только admin).
-// Сотрудник (staff) видит список, фильтры, ссылку на Диск и экспорт; без «скрытой», подозрений и карточки.
+// Сотрудник (staff) видит список, фильтры, ссылку на Диск, экспорт и карточку; без «скрытой» и подозрений в списке.
 export default function CompaniesList({ api, onOpen }: { api: Api; onOpen: (id: number) => void }) {
   const [items, setItems] = useState<CompanyRow[] | null>(null)
   const [status, setStatus] = useState<Status | null>(null)
@@ -231,8 +231,8 @@ export default function CompaniesList({ api, onOpen }: { api: Api; onOpen: (id: 
                 <tr className="opsx-row-static"><td colSpan={cols} className="opsx-muted">Нет компаний под выбранные фильтры.</td></tr>
               )}
               {filtered.map((c) => (
-                <tr key={c.id} onClick={isAdmin ? () => onOpen(c.id) : undefined}
-                  className={[c.active ? '' : 'opsx-row-off', c.hidden ? 'opsx-row-hidden' : '', isAdmin ? '' : 'opsx-row-static'].join(' ')}>
+                <tr key={c.id} onClick={() => onOpen(c.id)}
+                  className={[c.active ? '' : 'opsx-row-off', c.hidden ? 'opsx-row-hidden' : ''].join(' ')}>
                   <td>
                     <div className="opsx-name">
                       {c.name}
