@@ -37,6 +37,8 @@ services:
       # решения из панели — коммит в ветку prod-decisions и push сразу после коммита
       OPS_REPO_BRANCH: prod-decisions
       OPS_REPO_PUSH: ${OPS_REPO_PUSH:-true}
+      # токен исполнителя knp-watch (только очередь кабинета); значение — только в .env сервера
+      OPS_AGENT_TOKEN: ${OPS_AGENT_TOKEN:-}
     volumes:
       # клон allkey-ops на сервере (карточки; решения из UI коммитятся в него от системы)
       - /root/arty-ops:/arty-ops
