@@ -67,6 +67,26 @@ def mark_done(db: Session, entry: OpsCabinetQueue, by: Optional[str] = None, res
     return entry
 
 
+TAKE_TTL = dt.timedelta(hours=2)   # взятая и не снятая запись через 2 ч снова свободна (слушатель упал)
+
+
+def _aware(v: Optional[dt.datetime]) -> Optional[dt.datetime]:
+    return v.replace(tzinfo=dt.timezone.utc) if v is not None and v.tzinfo is None else v
+
+
+def take(db: Session, entry: OpsCabinetQueue, by: str) -> OpsCabinetQueue:
+    """Взять запись в работу. Снята → ошибка; взята другим меньше 2 ч назад → ошибка; тем же исполнителем — ок."""
+    if entry.done_at is not None:
+        raise QueueError("запись уже снята")
+    t = _aware(entry.taken_at)
+    if t is not None and entry.taken_by != by and _now() - t < TAKE_TTL:
+        raise QueueError("запись уже взята в работу")
+    entry.taken_at, entry.taken_by = _now(), by
+    db.commit()
+    db.refresh(entry)
+    return entry
+
+
 def _checked_at(c: OpsCompany) -> Optional[dt.date]:
     v = ((c.card_json or {}).get("cabinet") or {}).get("checked_at") if isinstance((c.card_json or {}).get("cabinet"), dict) else None
     if isinstance(v, dt.date):
@@ -98,6 +118,7 @@ def entry_dict(e: OpsCabinetQueue, c: Optional[OpsCompany] = None) -> dict:
         "id": e.id, "company_id": e.company_id, "reason": e.reason, "reason_label": REASON_LABEL.get(e.reason, e.reason),
         "note": e.note, "requested_by": e.requested_by,
         "requested_at": e.requested_at.isoformat() if e.requested_at else None,
+        "taken_at": e.taken_at.isoformat() if e.taken_at else None, "taken_by": e.taken_by,
         "done_at": e.done_at.isoformat() if e.done_at else None, "done_by": e.done_by, "result": e.result,
     }
     if c is not None:

@@ -61,6 +61,7 @@ ROUTE_PERMISSIONS: dict[str, Set[str]] = {
     "ops_kgd_check": {"admin"},
     # исполнитель knp-watch по токену OPS_AGENT_TOKEN (заголовок X-Ops-Agent-Token): только очередь кабинета
     "ops_agent_queue_list": {"agent"},
+    "ops_agent_queue_take": {"agent"},
     "ops_agent_queue_done": {"agent"},
     # очередь на вход в кабинет налогоплательщика (knp-watch) — только admin
     "ops_cabinet_queue_list": {"admin"},

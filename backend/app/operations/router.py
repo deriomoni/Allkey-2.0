@@ -339,6 +339,20 @@ def agent_queue_list(agent: str = Depends(require_ops_agent), db: Session = Depe
     return {"items": [cq.entry_dict(e, c) for e, c in cq.open_entries(db)]}
 
 
+@router.post("/agent/cabinet-queue/{entry_id}/take", name="ops_agent_queue_take")
+def agent_queue_take(entry_id: int, agent: str = Depends(require_ops_agent), db: Session = Depends(get_db)):
+    """Взять запись в работу (перед входом в кабинет). Уже взята другим меньше 2 ч назад или снята — 409."""
+    from app.operations.models import OpsCabinetQueue
+    e = db.query(OpsCabinetQueue).filter(OpsCabinetQueue.id == entry_id).first()
+    if e is None:
+        raise HTTPException(status_code=404, detail="Not Found")
+    try:
+        cq.take(db, e, agent)
+    except cq.QueueError as err:
+        raise HTTPException(status_code=409, detail=str(err))
+    return {"ok": True, "entry": cq.entry_dict(e)}
+
+
 @router.post("/agent/cabinet-queue/{entry_id}/done", name="ops_agent_queue_done")
 def agent_queue_done(entry_id: int, body: CabinetDoneIn, agent: str = Depends(require_ops_agent),
                      db: Session = Depends(get_db)):

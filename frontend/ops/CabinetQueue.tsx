@@ -45,7 +45,10 @@ export default function CabinetQueue({ api }: { api: Api }) {
                   <td className="opsx-mono">{e.bin || '—'}</td>
                   <td>{e.reason_label}</td>
                   <td>{fmtDateTime(e.requested_at)}{e.requested_by && <div className="opsx-muted">{e.requested_by}</div>}</td>
-                  <td>{e.checked_at ? fmtDateTime(e.checked_at) : <span className="opsx-muted">не было</span>}</td>
+                  <td>
+                    {e.checked_at ? fmtDateTime(e.checked_at) : <span className="opsx-muted">не было</span>}
+                    {e.taken_at && <div className="opsx-sub">в работе с {fmtDateTime(e.taken_at)}</div>}
+                  </td>
                   <td><button className="opsx-link opsx-link-inline" disabled={busy === e.id} onClick={() => done(e)}>снять</button></td>
                 </tr>
               ))}

@@ -163,14 +163,34 @@ def test_agent_token_only_queue_routes(env, monkeypatch):
     items = client.get("/api/ops/agent/cabinet-queue", headers=agent).json()["items"]
     assert [(i["slug"], i["bin"]) for i in items] == [("beta", "222222222222")]
     eid = items[0]["id"]
+    # взять: только агент; повторно тем же — ок; запись видна как «в работе»
+    assert client.post(f"/api/ops/agent/cabinet-queue/{eid}/take", headers=hdr["owner"]).status_code == 404
+    t = client.post(f"/api/ops/agent/cabinet-queue/{eid}/take", headers=agent)
+    assert t.status_code == 200 and t.json()["entry"]["taken_by"] == "knp-watch (агент)"
+    assert client.post(f"/api/ops/agent/cabinet-queue/{eid}/take", headers=agent).status_code == 200
+    assert client.get("/api/ops/agent/cabinet-queue", headers=agent).json()["items"][0]["taken_at"]
     assert client.post(f"/api/ops/agent/cabinet-queue/{eid}/done", headers=hdr["owner"], json={}).status_code == 404
     r = client.post(f"/api/ops/agent/cabinet-queue/{eid}/done", headers=agent, json={"result": "частично"})
     assert r.status_code == 200 and r.json()["entry"]["done_by"] == "knp-watch (агент)"
     assert r.json()["entry"]["result"] == "частично"
     assert client.post(f"/api/ops/agent/cabinet-queue/{eid}/done", headers=agent, json={}).status_code == 409
+    assert client.post(f"/api/ops/agent/cabinet-queue/{eid}/take", headers=agent).status_code == 409  # снята
     assert client.get("/api/ops/agent/cabinet-queue", headers=agent).json()["items"] == []
     # токен агента ничего больше не открывает
     for method, url in (("get", "/api/ops/companies"), ("get", f"/api/ops/companies/{ids['alfa']}"),
                         ("get", "/api/ops/cabinet-queue"), ("post", f"/api/ops/companies/{ids['alfa']}/cabinet-queue"),
                         ("get", "/api/ops/status"), ("get", "/api/ops/ui/bundle.js")):
         assert getattr(client, method)(url, headers=agent).status_code == 404, url
+
+
+def test_take_conflict_and_ttl(env):
+    import datetime as dt
+    _, _, _, db, _ = env
+    c = db.query(OpsCompany).filter_by(slug="beta").one()
+    e, _ = cq.enqueue(db, c, "manual")
+    cq.take(db, e, "A")
+    with pytest.raises(cq.QueueError):
+        cq.take(db, e, "B")                      # взята другим только что
+    e.taken_at = dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=3)
+    db.commit()
+    assert cq.take(db, e, "B").taken_by == "B"   # протухла — можно взять

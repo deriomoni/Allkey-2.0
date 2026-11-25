@@ -137,6 +137,9 @@ class OpsCabinetQueue(Base):
     note = Column(Text, nullable=True)
     requested_by = Column(String, nullable=True)  # email или "cli"
     requested_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    # «взята в работу» исполнителем (POST …/take): чтобы второй слушатель не взял ту же компанию
+    taken_at = Column(DateTime(timezone=True), nullable=True)
+    taken_by = Column(String, nullable=True)
     done_at = Column(DateTime(timezone=True), nullable=True)
     done_by = Column(String, nullable=True)
     result = Column(Text, nullable=True)  # «пройдена» / «частично» / «ошибка входа» / «снято вручную» …

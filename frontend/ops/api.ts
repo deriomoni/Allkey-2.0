@@ -83,7 +83,7 @@ export interface Cabinet {
 }
 export interface CabinetQueueEntry {
   id: number; company_id: number; reason: string; reason_label: string; note: string | null
-  requested_by: string | null; requested_at: string | null; done_at: string | null; done_by: string | null; result: string | null
+  requested_by: string | null; requested_at: string | null; taken_at?: string | null; taken_by?: string | null; done_at: string | null; done_by: string | null; result: string | null
   slug?: string; name?: string; bin?: string | null; hidden?: boolean; checked_at?: string | null
 }
 
