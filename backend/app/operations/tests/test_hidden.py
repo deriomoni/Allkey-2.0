@@ -155,8 +155,9 @@ def test_gate_closes_routes_without_hidden_filter(env, viewer_opened, monkeypatc
 
 def test_every_non_admin_route_is_hidden_safe():
     """Сторож на будущее: всё, что открыто не-admin роли, обязано фильтровать скрытые."""
+    # agent — исполнитель владельца по токену (только очередь кабинета, 25.11.2026): видит и скрытые, как admin
     for name, roles in access.ROUTE_PERMISSIONS.items():
-        if roles - {"admin"}:
+        if roles - {"admin", "agent"}:
             assert name in access.HIDDEN_SAFE_ROUTES, name
 
 

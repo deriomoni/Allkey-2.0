@@ -219,12 +219,16 @@ export function CabinetSection({ api, c, isAdmin, onChanged }: { api: Api; c: Co
     <section className="opsx-card">
       <div className="opsx-block-head">
         <h2>Кабинет налогоплательщика</h2>
+        <div className="opsx-actions">
+        {isAdmin && <a className="opsx-btn opsx-btn-sm opsx-btn-primary" href="https://knp.kgd.gov.kz/signin" target="_blank"
+          rel="noreferrer noopener">Проверить кабинет ↗</a>}
         {isAdmin && (q
           ? <span className="opsx-muted">в очереди на вход с {fmtDateTime(q.requested_at)} ({q.reason_label}){' '}
               <button className="opsx-link opsx-link-inline" disabled={busy}
                 onClick={() => run(() => api.cabinetQueueDone(q.id, 'снято вручную'))}>снять</button></span>
           : c.active && <button className="opsx-btn opsx-btn-sm" disabled={busy}
               onClick={() => run(() => api.cabinetQueueAdd(c.id))}>Поставить в очередь на вход</button>)}
+        </div>
       </div>
       {error && <div className="opsx-alert opsx-alert-err">{error}</div>}
       {!k ? (

@@ -12,11 +12,12 @@
 """
 from __future__ import annotations
 
+import hmac
 import json
 import logging
 from typing import Iterable, Optional, Set
 
-from fastapi import Depends, HTTPException
+from fastapi import Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 from starlette.routing import Match
 
@@ -58,6 +59,9 @@ ROUTE_PERMISSIONS: dict[str, Set[str]] = {
     "ops_obligation_dismiss": {"admin"},
     "ops_company_set_hidden": {"admin"},
     "ops_kgd_check": {"admin"},
+    # исполнитель knp-watch по токену OPS_AGENT_TOKEN (заголовок X-Ops-Agent-Token): только очередь кабинета
+    "ops_agent_queue_list": {"agent"},
+    "ops_agent_queue_done": {"agent"},
     # очередь на вход в кабинет налогоплательщика (knp-watch) — только admin
     "ops_cabinet_queue_list": {"admin"},
     "ops_cabinet_queue_add": {"admin"},
@@ -127,12 +131,32 @@ def company_visible(company, roles: Iterable[str]) -> bool:
     return company is not None and (sees_hidden(roles) or not company.hidden)
 
 
+AGENT_HEADER = b"x-ops-agent-token"
+AGENT_MIN_LEN = 32
+
+
+def agent_token_ok(token: Optional[str]) -> bool:
+    """Токен исполнителя совпадает с OPS_AGENT_TOKEN (сравнение за постоянное время). Не задан — False."""
+    secret = get_ops_settings().ops_agent_token
+    expected = secret.get_secret_value() if secret else ""
+    if len(expected) < AGENT_MIN_LEN or not token:
+        return False
+    return hmac.compare_digest(token.encode("utf-8"), expected.encode("utf-8"))
+
+
+def _agent_from_scope(scope) -> bool:
+    headers = dict(scope.get("headers") or [])
+    raw = headers.get(AGENT_HEADER)
+    return agent_token_ok(raw.decode("latin-1") if raw else None)
+
+
 def route_open_for(name: Optional[str], roles: Set[str]) -> bool:
-    """Default deny + п. 9: не-admin проходит только на маршруты, фильтрующие скрытые."""
+    """Default deny + п. 9: не-admin проходит только на маршруты, фильтрующие скрытые.
+    Роль agent (токен исполнителя) — только на свои маршруты ops_agent_queue_*."""
     allowed = ROUTE_PERMISSIONS.get(name or "", set())
     if not roles or not (roles & allowed):
         return False
-    if "admin" in roles & allowed:
+    if "admin" in roles & allowed or "agent" in roles & allowed:
         return True
     return (name or "") in HIDDEN_SAFE_ROUTES
 
@@ -197,6 +221,8 @@ class OpsGateMiddleware:
             roles = effective_roles(db, user) if user else set()
         finally:
             db.close()
+        if _agent_from_scope(scope):
+            roles = set(roles) | {"agent"}
 
         name = _route_name(fastapi_app, scope) if fastapi_app is not None else None
         if not route_open_for(name, roles):
@@ -228,6 +254,13 @@ async def require_ops_user(
     if not effective_roles(db, current_user):
         raise HTTPException(status_code=404, detail="Not Found")
     return current_user
+
+
+async def require_ops_agent(request: Request) -> str:
+    """Вторая линия обороны для маршрутов исполнителя: заголовок X-Ops-Agent-Token. Иначе 404."""
+    if not agent_token_ok(request.headers.get("x-ops-agent-token")):
+        raise HTTPException(status_code=404, detail="Not Found")
+    return "knp-watch (агент)"
 
 
 async def require_ops_admin(

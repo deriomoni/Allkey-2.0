@@ -28,6 +28,10 @@ class OpsSettings(BaseSettings):
     # API КГД «Сведения по контрагентам». Токен — только локально (backend/.env), на сервер не переносится.
     kgd_api_token: Optional[SecretStr] = None
     kgd_api_url: str = "https://kgd.gov.kz/services/isnaportal/public/get-sur-data"
+    # Токен исполнителя knp-watch (владелец, 25.11.2026): заголовок X-Ops-Agent-Token открывает ТОЛЬКО маршруты
+    # очереди ops_agent_queue_* (чтение и снятие). Только в .env сервера, в репозиторий не кладётся, не логируется.
+    # Пусто или короче 32 символов — вход по токену выключен.
+    ops_agent_token: Optional[SecretStr] = None
 
 
 @lru_cache()

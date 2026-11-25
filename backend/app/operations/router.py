@@ -21,7 +21,7 @@ from app.auth.dependencies import get_current_user
 from app.database import get_db
 from app.operations.access import (
     company_visible, effective_roles, filter_fields, is_ops_admin, list_admins, list_staff, require_ops_admin,
-    require_ops_user, sees_hidden, visible_companies,
+    require_ops_agent, require_ops_user, sees_hidden, visible_companies,
 )
 from app.operations import companies_xlsx
 from app.operations.config import get_ops_settings
@@ -326,6 +326,28 @@ def cabinet_queue_done(entry_id: int, body: CabinetDoneIn, user: User = Depends(
         raise HTTPException(status_code=404, detail="Not Found")
     try:
         cq.mark_done(db, e, by=user.email, result=body.result or "снято вручную")
+    except cq.QueueError as err:
+        raise HTTPException(status_code=409, detail=str(err))
+    return {"ok": True, "entry": cq.entry_dict(e)}
+
+
+# --- Исполнитель knp-watch по токену OPS_AGENT_TOKEN: только очередь кабинета (владелец, 25.11.2026) ---
+
+@router.get("/agent/cabinet-queue", name="ops_agent_queue_list")
+def agent_queue_list(agent: str = Depends(require_ops_agent), db: Session = Depends(get_db)):
+    """Открытые записи очереди: id записи, slug, название, БИН, причина, когда поставлена, последняя проверка."""
+    return {"items": [cq.entry_dict(e, c) for e, c in cq.open_entries(db)]}
+
+
+@router.post("/agent/cabinet-queue/{entry_id}/done", name="ops_agent_queue_done")
+def agent_queue_done(entry_id: int, body: CabinetDoneIn, agent: str = Depends(require_ops_agent),
+                     db: Session = Depends(get_db)):
+    from app.operations.models import OpsCabinetQueue
+    e = db.query(OpsCabinetQueue).filter(OpsCabinetQueue.id == entry_id).first()
+    if e is None:
+        raise HTTPException(status_code=404, detail="Not Found")
+    try:
+        cq.mark_done(db, e, by=agent, result=body.result or "пройдена")
     except cq.QueueError as err:
         raise HTTPException(status_code=409, detail=str(err))
     return {"ok": True, "entry": cq.entry_dict(e)}

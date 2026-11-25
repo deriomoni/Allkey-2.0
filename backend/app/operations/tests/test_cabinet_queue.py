@@ -140,3 +140,37 @@ def test_cli_add_list_done(env, monkeypatch, capsys):
     assert cli.main(["cabinet-queue", "schedule"]) == 0
     assert "Поставить — с --apply" in capsys.readouterr().out  # без --apply ничего не ставит
     assert db.query(OpsCabinetQueue).filter(OpsCabinetQueue.done_at.is_(None)).count() == 0
+
+
+def test_agent_token_only_queue_routes(env, monkeypatch):
+    from pydantic import SecretStr
+    from app.operations.config import get_ops_settings
+    client, hdr, ids, db, _ = env
+    good = "a" * 40
+    s = get_ops_settings()
+    # токен не задан — вход по токену выключен
+    monkeypatch.setattr(s, "ops_agent_token", None)
+    assert client.get("/api/ops/agent/cabinet-queue", headers={"X-Ops-Agent-Token": good}).status_code == 404
+    # слишком короткий секрет — тоже выключен
+    monkeypatch.setattr(s, "ops_agent_token", SecretStr("short"))
+    assert client.get("/api/ops/agent/cabinet-queue", headers={"X-Ops-Agent-Token": "short"}).status_code == 404
+    monkeypatch.setattr(s, "ops_agent_token", SecretStr(good))
+    agent = {"X-Ops-Agent-Token": good}
+    for bad in ({}, {"X-Ops-Agent-Token": "b" * 40}, hdr["owner"], hdr["staff"]):
+        assert client.get("/api/ops/agent/cabinet-queue", headers=bad).status_code == 404
+    # поставили в очередь — агент видит и снимает
+    assert client.post(f"/api/ops/companies/{ids['beta']}/cabinet-queue", headers=hdr["owner"], json={}).status_code == 200
+    items = client.get("/api/ops/agent/cabinet-queue", headers=agent).json()["items"]
+    assert [(i["slug"], i["bin"]) for i in items] == [("beta", "222222222222")]
+    eid = items[0]["id"]
+    assert client.post(f"/api/ops/agent/cabinet-queue/{eid}/done", headers=hdr["owner"], json={}).status_code == 404
+    r = client.post(f"/api/ops/agent/cabinet-queue/{eid}/done", headers=agent, json={"result": "частично"})
+    assert r.status_code == 200 and r.json()["entry"]["done_by"] == "knp-watch (агент)"
+    assert r.json()["entry"]["result"] == "частично"
+    assert client.post(f"/api/ops/agent/cabinet-queue/{eid}/done", headers=agent, json={}).status_code == 409
+    assert client.get("/api/ops/agent/cabinet-queue", headers=agent).json()["items"] == []
+    # токен агента ничего больше не открывает
+    for method, url in (("get", "/api/ops/companies"), ("get", f"/api/ops/companies/{ids['alfa']}"),
+                        ("get", "/api/ops/cabinet-queue"), ("post", f"/api/ops/companies/{ids['alfa']}/cabinet-queue"),
+                        ("get", "/api/ops/status"), ("get", "/api/ops/ui/bundle.js")):
+        assert getattr(client, method)(url, headers=agent).status_code == 404, url
